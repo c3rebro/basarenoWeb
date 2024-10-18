@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html data-bs-theme="light" lang="de">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+    <title>Event-Kalender (SQLite)</title>
+    <meta name="description" content="Saves events in a DB table (SQLite database file). The events are clearly displayed in a calendar. This is a Fork from Werner Zenks webcalendar.">
+    <script type="application/ld+json">
+        {
+            "@context": "http://schema.org",
+            "@type": "WebSite",
+            "name": "c3rebro webcalendar",
+            "url": "https://c3rebro.github.io/webcalendar/index.html"
+        }
+    </script>
+    <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css">
+</head>
+
+<body>
+    <div class="row">
+        <div class="col">
+            <div>
+                <p class="h1 text-center" style="font-weight: bold;">c3rebro\webcalendar</p>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-1"></div>
+        <div class="col-10">
+            <div>
+                <p> This is a Fork from Werner Zenks webcalendar. You can obtain a copy of the original from <a href="https://www.mobirise-tutorials.com/Download-Archiv/">Tommy Hermanns's Archive</a></p>
+            </div>
+            <div>
+                <h1 id="webcalendar">c3rebro\webcalendar</h1>
+                <ul>
+                    <li><strong><em>What does it do?</em></strong> With the event calendar you can save events in a DB table (SQLite database file). The events are clearly displayed in a calendar. Navigation of the calendar is completely via JavaScript (Ajax), so no page changes are necessary. The calendar shows all the days of a month in the form of an HTML table. Buttons can be used to navigate to the previous month / previous year or the coming month / year. Events can be entered directly in the calendar (edit, move, copy or delete). </li>
+                    <li><strong><em>Why is it useful?</em></strong> No installation or container environments needed. The requirements are just php 7 or up. Works with local sqlite_3 php extension. </li>
+                    <li><strong><em>Which browsers are supported?</em></strong> Chrome, Firefox, LibreWolf, Opera, Opera GX, Edge, Chromium, Brave, Vivaldi, and Safari. </li>
+                    <li><strong><em>What are the Main Features?</em></strong></li>
+                </ul>
+            </div>
+            <div>
+                <h2 id="install">Install</h2>
+                <p> Copy calendar.php, webcalendar.js and webcalendar.css to your www dir and insert a div with the "zenk-calendar" keyword id into your html. Update file permissions as needed and have a look at the paths to point to the stylesheet and the javascript. Do not forget the location of the calendar.php. Its location has to be updated in webcalendar.js on the first lines. You can define the calendar language and timezone (important for ics export) inside the webcalendar.php </p><pre><code><span class="hljs-meta">&lt;!DOCTYPE html&gt;</span>
+<span class="hljs-tag">&lt;<span class="hljs-name">html</span> <span class="hljs-attr">lang</span>=<span class="hljs-string">"de"</span>&gt;</span>
+  <span class="hljs-tag">&lt;<span class="hljs-name">head</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">meta</span> <span class="hljs-attr">charset</span>=<span class="hljs-string">"UTF-8"</span> /&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">meta</span> <span class="hljs-attr">name</span>=<span class="hljs-string">"viewport"</span> <span class="hljs-attr">content</span>=<span class="hljs-string">"width=device-width, initial-scale=1.0"</span> /&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">meta</span> <span class="hljs-attr">name</span>=<span class="hljs-string">"color-scheme"</span> <span class="hljs-attr">content</span>=<span class="hljs-string">"light dark"</span> /&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">title</span>&gt;</span>Event-Calendar (SQLite)<span class="hljs-tag">&lt;/<span class="hljs-name">title</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">link</span> <span class="hljs-attr">rel</span>=<span class="hljs-string">"stylesheet"</span> <span class="hljs-attr">href</span>=<span class="hljs-string">"webcalendar.css"</span> /&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">script</span> <span class="hljs-attr">src</span>=<span class="hljs-string">"webcalendar.js"</span> <span class="hljs-attr">defer</span>&gt;</span><span class="undefined"></span><span class="hljs-tag">&lt;/<span class="hljs-name">script</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">style</span>&gt;</span><span class="css">
+      <span class="hljs-comment">/* Only for this Demo! */</span>
+      <span class="hljs-selector-tag">body</span> {
+        <span class="hljs-attribute">margin</span>: <span class="hljs-number">3rem</span> <span class="hljs-number">1rem</span> <span class="hljs-number">68rem</span> <span class="hljs-number">0.5rem</span>;
+      }
+    </span><span class="hljs-tag">&lt;/<span class="hljs-name">style</span>&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">head</span>&gt;</span>
+  <span class="hljs-tag">&lt;<span class="hljs-name">body</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">id</span>=<span class="hljs-string">"zenk-calendar"</span> <span class="hljs-attr">style</span>=<span class="hljs-string">"max-width:800px;"</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">noscript</span>&gt;</span>This Webcalendar needs JavaScript enabled!<span class="hljs-tag">&lt;/<span class="hljs-name">noscript</span>&gt;</span><span class="hljs-tag">&lt;/<span class="hljs-name">div</span>&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">body</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">html</span>&gt;</span>
+</code></pre>
+            </div>
+            <hr>
+            <div>
+                <h1>Download</h1><a href="https://github.com/c3rebro/webcalendar"><span style="color: rgb(33, 37, 41);">Download from github.com/c3rebro/webcalendar</span></a>
+            </div>
+            <hr>
+            <div>
+                <h2 id="screenshots">Screenshots</h2>
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start">Default "light" layout:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard01.jpg?raw=true" width="" style="text-align: left;">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Summary of appointment:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard02.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Login for administrator:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard03.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Create a new event:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard04.jpg?raw=true" width="">
+            </div>
+        </div>
+        <div class="col-1"></div>
+    </div>
+    <script src="assets/bootstrap/js/bootstrap.min.js"></script>
+</body>
+
+</html>
