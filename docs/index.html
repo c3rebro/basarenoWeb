@@ -21,7 +21,7 @@
     <div class="row">
         <div class="col">
             <div>
-                <p class="h1 text-center" style="font-weight: bold;">c3rebro\webcalendar</p>
+                <p class="h1 text-center" style="font-weight: bold;">c3rebro/bazaar</p>
             </div>
         </div>
     </div>
@@ -29,44 +29,22 @@
         <div class="col-1"></div>
         <div class="col-10">
             <div>
-                <p> This is a Fork from Werner Zenks webcalendar. You can obtain a copy of the original from <a href="https://www.mobirise-tutorials.com/Download-Archiv/">Tommy Hermanns's Archive</a></p>
+                <p>Dies ist eine kostenlose Nummernbasarsoftware.<br><br>Verkäufer beantragen eine Verkäufernummer und erstellen Etiketten mit einem Barcode. Der oder die Kassierer scannen die Barcodes mit ihren Mobiltelefonen. Am Ende des Basars erstellt der Administrator die Abrechnung für jede Verkäufernummer. Die Software erstellt eine EMail und/oder einen Ausdruck für jeden Verkäufer mit einer Liste der verkauften / nicht verkauften Artikel und der Gesamtsumme.</p>
             </div>
             <div>
-                <h1 id="webcalendar">c3rebro\webcalendar</h1>
+                <h1 id="webcalendar">c3rebro/bazaar</h1>
                 <ul>
-                    <li><strong><em>What does it do?</em></strong> With the event calendar you can save events in a DB table (SQLite database file). The events are clearly displayed in a calendar. Navigation of the calendar is completely via JavaScript (Ajax), so no page changes are necessary. The calendar shows all the days of a month in the form of an HTML table. Buttons can be used to navigate to the previous month / previous year or the coming month / year. Events can be entered directly in the calendar (edit, move, copy or delete). </li>
-                    <li><strong><em>Why is it useful?</em></strong> No installation or container environments needed. The requirements are just php 7 or up. Works with local sqlite_3 php extension. </li>
-                    <li><strong><em>Which browsers are supported?</em></strong> Chrome, Firefox, LibreWolf, Opera, Opera GX, Edge, Chromium, Brave, Vivaldi, and Safari. </li>
-                    <li><strong><em>What are the Main Features?</em></strong></li>
+                    <li><strong><em>Wofür ist das gut?</em></strong>&nbsp;bazaar kann dazu verwendet werden, um Etiketten für die Artikel von Second-Hand Basaren zu erstellen und die Verkäufe mithilfe eines Barcodesystems einfach ab zu rechnen.</li>
+                    <li><strong><em>Voraussetzungen?</em></strong> PHP 7.4 oder höher. </li>
                 </ul>
             </div>
             <div>
-                <h2 id="install">Install</h2>
-                <p> Copy calendar.php, webcalendar.js and webcalendar.css to your www dir and insert a div with the "zenk-calendar" keyword id into your html. Update file permissions as needed and have a look at the paths to point to the stylesheet and the javascript. Do not forget the location of the calendar.php. Its location has to be updated in webcalendar.js on the first lines. You can define the calendar language and timezone (important for ics export) inside the webcalendar.php </p><pre><code><span class="hljs-meta">&lt;!DOCTYPE html&gt;</span>
-<span class="hljs-tag">&lt;<span class="hljs-name">html</span> <span class="hljs-attr">lang</span>=<span class="hljs-string">"de"</span>&gt;</span>
-  <span class="hljs-tag">&lt;<span class="hljs-name">head</span>&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">meta</span> <span class="hljs-attr">charset</span>=<span class="hljs-string">"UTF-8"</span> /&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">meta</span> <span class="hljs-attr">name</span>=<span class="hljs-string">"viewport"</span> <span class="hljs-attr">content</span>=<span class="hljs-string">"width=device-width, initial-scale=1.0"</span> /&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">meta</span> <span class="hljs-attr">name</span>=<span class="hljs-string">"color-scheme"</span> <span class="hljs-attr">content</span>=<span class="hljs-string">"light dark"</span> /&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">title</span>&gt;</span>Event-Calendar (SQLite)<span class="hljs-tag">&lt;/<span class="hljs-name">title</span>&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">link</span> <span class="hljs-attr">rel</span>=<span class="hljs-string">"stylesheet"</span> <span class="hljs-attr">href</span>=<span class="hljs-string">"webcalendar.css"</span> /&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">script</span> <span class="hljs-attr">src</span>=<span class="hljs-string">"webcalendar.js"</span> <span class="hljs-attr">defer</span>&gt;</span><span class="undefined"></span><span class="hljs-tag">&lt;/<span class="hljs-name">script</span>&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">style</span>&gt;</span><span class="css">
-      <span class="hljs-comment">/* Only for this Demo! */</span>
-      <span class="hljs-selector-tag">body</span> {
-        <span class="hljs-attribute">margin</span>: <span class="hljs-number">3rem</span> <span class="hljs-number">1rem</span> <span class="hljs-number">68rem</span> <span class="hljs-number">0.5rem</span>;
-      }
-    </span><span class="hljs-tag">&lt;/<span class="hljs-name">style</span>&gt;</span>
-  <span class="hljs-tag">&lt;/<span class="hljs-name">head</span>&gt;</span>
-  <span class="hljs-tag">&lt;<span class="hljs-name">body</span>&gt;</span>
-    <span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">id</span>=<span class="hljs-string">"zenk-calendar"</span> <span class="hljs-attr">style</span>=<span class="hljs-string">"max-width:800px;"</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">noscript</span>&gt;</span>This Webcalendar needs JavaScript enabled!<span class="hljs-tag">&lt;/<span class="hljs-name">noscript</span>&gt;</span><span class="hljs-tag">&lt;/<span class="hljs-name">div</span>&gt;</span>
-  <span class="hljs-tag">&lt;/<span class="hljs-name">body</span>&gt;</span>
-<span class="hljs-tag">&lt;/<span class="hljs-name">html</span>&gt;</span>
-</code></pre>
+                <h2 id="install">Installation</h2>
+                <p>Alle Dateien werden in das web root Verzeichnis hinein kopiert. Bei fehlender config.php wird automatisch der Setupprozess gestartet. Der Webserver sollte php7.4, mysql und eine sendmail Installation besitzen.</p>
             </div>
             <hr>
             <div>
-                <h1>Download</h1><a href="https://github.com/c3rebro/webcalendar"><span style="color: rgb(33, 37, 41);">Download from github.com/c3rebro/webcalendar</span></a>
+                <h1>Download</h1><a href="https://github.com/c3rebro/bazaar"><span style="color: rgb(33, 37, 41);">Download from github.com/c3rebro/bazaar</span></a>
             </div>
             <hr>
             <div>
@@ -74,19 +52,53 @@
             </div>
             <hr>
             <div class="text-center">
-                <p class="text-start">Default "light" layout:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard01.jpg?raw=true" width="" style="text-align: left;">
+                <p class="text-start">1. Installationsassistent<br>Dieser hilft bei der Einrichtung der Datenbank und der notwendigen Einstellungen.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard01.jpg?raw=true" width="" style="text-align: left;">
             </div>
             <hr>
             <div class="text-center">
-                <p class="text-start"> Summary of appointment:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard02.jpg?raw=true" width="">
+                <p class="text-start"> Anfordern einer neuen Verkäufernummer:<br>Zunächst muss ein Basaar (Startdatum des Basars, Startdatum der Nummernvergabe) angelegt sein. Danach kann der Verkäufer selbst eine Nummer beantragen. Sofern seine Mailadresse bereits bekannt ist, kann auch die bestehende Nummer erneut beantragt werden.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard02.jpg?raw=true" width="">
             </div>
             <hr>
             <div class="text-center">
-                <p class="text-start"> Login for administrator:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard03.jpg?raw=true" width="">
+                <p class="text-start"> Bestätigungs-Email für den Verkäufer:<br>Der Verkäufer erhält eine Nummer und kann mit dem erhaltenen Link seine Artikel anlegen.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard03.jpg?raw=true" width="">
             </div>
             <hr>
             <div class="text-center">
-                <p class="text-start"> Create a new event:</p><img class="img-fluid" src="https://github.com/c3rebro/webcalendar/blob/master/docs/Clipboard04.jpg?raw=true" width="">
+                <p class="text-start"> Erstellen der Artikel:<br>Die Artikel mit Preis und Name werden angelegt.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard04.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Drucken der Etiketten:</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard05.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Kassierer-Login:<br>Während des Verkaufs scannen die Kassierer die verkauften Artikel.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard06-00.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Scannen von Artikeln:<br>Jeder erkannte Artikel wird als "Verkauft" markiert. Sollte ein Code nicht lesbar sein, können auch die Ziffern manuell eingegeben werden. Die letzten 30 gescannten Artikel werden angezeigt und können ggf. manuell zurückgenommen werden.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard06.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center"><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard06-01.jpg?raw=true" width=""></div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start"> Login für den Basaradministrator:<br>Nach dem Basar: Der Administrator verteilt das Geld in die Umschläge der Verkäufer. Eine Liste mit Verkauften / nicht Verkauften Artikeln kann geruckt, angezeigt und/oder per Mail als Zusammenfassung an den Verkäufer geschickt werden.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard07-01.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start">Benutzerverwaltung:<br>Nach der Ersteinrichtung können weitere Kassierer und Administratoren angelegt oder wieder entfernt werden.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard07-02.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start">Basare erstellen:<br>Eine Nummernvergabe ist erst möglich, wenn der Administrator einen Basar angelegt hat und das aktuelle Datum kleiner ist als das "Start der Nummernvergabe-Datum". Nach Ablauf des Basar-Startdatums und vor erreichen des nächsten "Start der Nummernvergabe-Datums ist keine Nummernvergabe möglich. Eine entsprechende Hinweismeldung erscheint.</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard07-03.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start">Verkäuferverwaltung<br>Administratorenzugriff auf die Verkäufer zur Abrechnung</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard08-01.jpg?raw=true" width="">
+            </div>
+            <hr>
+            <div class="text-center">
+                <p class="text-start">Abrechnung:<br>Übersicht für Verkäufernummer xyz</p><img class="img-fluid" src="https://github.com/c3rebro/bazaar/blob/master/docs/Clipboard08-02.jpg?raw=true" width="">
             </div>
         </div>
         <div class="col-1"></div>
