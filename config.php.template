@@ -1,0 +1,123 @@
+<?php
+// Debug configuration
+define('DEBUG', true); // Set to false to disable debug outputs
+
+define('BASE_URI', 'https://www.example.de/bazaar');
+
+define('DB_SERVER', '<?php echo $db_host; ?>');
+define('DB_USERNAME', '<?php echo $db_username; ?>');
+define('DB_PASSWORD', '<?php echo $db_password; ?>');
+define('DB_NAME', '<?php echo $db_name; ?>');
+
+define('SECRET', 'Of3lG8HGdf452nF653oFG93hGF93hf');
+
+// SMTP configuration
+define('SMTP_FROM', '<?php echo $smtp_from; ?>');
+define('SMTP_FROM_NAME', '<?php echo $smtp_from_name; ?>');
+
+// Function to initialize the database connection
+function get_db_connection() {
+    $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+
+    // Check connection
+    if ($conn->connect_error) {
+        die("Connection failed: " . $conn->connect_error);
+    }
+
+    return $conn;
+}
+
+// Function to initialize the database and tables if necessary
+function initialize_database($conn) {
+    // Create the database if it doesn't exist
+    $sql = "CREATE DATABASE IF NOT EXISTS " . DB_NAME;
+    if ($conn->query($sql) !== TRUE) {
+        die("Error creating database: " . $conn->error);
+    }
+
+    // Select the database
+    $conn->select_db(DB_NAME);
+
+    // Create the bazaar table if it doesn't exist
+    $sql = "CREATE TABLE IF NOT EXISTS bazaar (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        startDate DATE NOT NULL,
+        startReqDate DATE NOT NULL
+    )";
+    if ($conn->query($sql) !== TRUE) {
+        die("Error creating bazaar table: " . $conn->error);
+    }
+
+    // Create the sellers table if it doesn't exist
+    $sql = "CREATE TABLE IF NOT EXISTS sellers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+		hash VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        reserved BOOLEAN DEFAULT FALSE,
+        verified BOOLEAN DEFAULT FALSE,
+        verification_token VARCHAR(255),
+        family_name VARCHAR(255) NOT NULL,
+        given_name VARCHAR(255) NOT NULL,
+        phone VARCHAR(255) NOT NULL,
+        street VARCHAR(255) NOT NULL,
+        house_number VARCHAR(255) NOT NULL,
+        zip VARCHAR(255) NOT NULL,
+        city VARCHAR(255) NOT NULL
+    )";
+    if ($conn->query($sql) !== TRUE) {
+        die("Error creating sellers table: " . $conn->error);
+    }
+
+    // Create the products table if it doesn't exist
+    $sql = "CREATE TABLE IF NOT EXISTS products (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        price DOUBLE NOT NULL,
+        barcode VARCHAR(255) NOT NULL,
+        seller_id INT,
+        sold BOOLEAN DEFAULT FALSE,
+        FOREIGN KEY (seller_id) REFERENCES sellers(id)
+    )";
+    if ($conn->query($sql) !== TRUE) {
+        die("Error creating products table: " . $conn->error);
+    }
+
+    // Create the users table if it doesn't exist
+    $sql = "CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'cashier') NOT NULL
+    )";
+    if ($conn->query($sql) !== TRUE) {
+        die("Error creating users table: " . $conn->error);
+    }
+
+    // Check if the users table is empty (first time setup)
+    $sql = "SELECT COUNT(*) as count FROM users";
+    $result = $conn->query($sql);
+    $row = $result->fetch_assoc();
+    return $row['count'] == 0;
+}
+
+// Function to send verification email using PHP's mail function
+function send_verification_email($to, $subject, $body) {
+    $headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\n";
+    $headers .= "MIME-Version: 1.0\n";
+    $headers .= "Content-Type: text/html; charset=UTF-8\n";
+
+    if (mail($to, $subject, $body, $headers)) {
+        return true;
+    } else {
+        return 'Mail Error: Unable to send email.';
+    }
+}
+
+// Function to output debug messages
+function debug_log($message) {
+    if (DEBUG) {
+        echo "<pre>DEBUG: $message</pre>";
+    }
+}
+
+?>
