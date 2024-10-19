@@ -55,6 +55,7 @@ function calculateCheckDigit($barcode) {
 // Handle product creation form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
     $name = $conn->real_escape_string($_POST['name']);
+	$size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
     // Generate a unique EAN-13 barcode
@@ -67,7 +68,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
     } while ($result->num_rows > 0);
 
     // Insert product into the database
-    $sql = "INSERT INTO products (name, price, barcode, seller_id) VALUES ('$name', '$price', '$barcode', '$seller_id')";
+    $sql = "INSERT INTO products (name, size, price, barcode, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$seller_id')";
     if ($conn->query($sql) === TRUE) {
         echo "<div class='alert alert-success'>Artikel erfolgreich erstellt.</div>";
     } else {
@@ -79,9 +80,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
     $product_id = $conn->real_escape_string($_POST['product_id']);
     $name = $conn->real_escape_string($_POST['name']);
+	$size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
-    $sql = "UPDATE products SET name='$name', price='$price' WHERE id='$product_id' AND seller_id='$seller_id'";
+    $sql = "UPDATE products SET name='$name', price='$price', size='$size' WHERE id='$product_id' AND seller_id='$seller_id'";
     if ($conn->query($sql) === TRUE) {
         echo "<div class='alert alert-success'>Artikel erfolgreich aktualisiert.</div>";
     } else {
@@ -143,11 +145,15 @@ $conn->close();
         <div class="action-buttons">
             <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post" class="w-100">
                 <div class="form-row">
-                    <div class="form-group col-md-6">
+                    <div class="form-group col-md-4">
                         <label for="name">Artikelname:</label>
                         <input type="text" class="form-control" id="name" name="name" required>
                     </div>
-                    <div class="form-group col-md-6">
+					<div class="form-group col-md-4">
+                        <label for="size">Größe:</label>
+                        <input type="text" class="form-control" id="size" name="size">
+                    </div>					
+                    <div class="form-group col-md-4">
                         <label for="price">Preis:</label>
                         <input type="number" class="form-control" id="price" name="price" step="0.01" required>
                     </div>
@@ -163,6 +169,7 @@ $conn->close();
                 <thead>
                     <tr>
                         <th>Artikelname</th>
+						<th>Größe</th>
                         <th>Preis</th>
                         <th>Aktionen</th>
                     </tr>
@@ -174,9 +181,10 @@ $conn->close();
                             $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
                             echo "<tr>
                                     <td>{$row['name']}</td>
+									<td>{$row['size']}</td>
                                     <td>{$formatted_price}</td>
                                     <td>
-                                        <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", {$row['price']})'>Bearbeiten</button>
+                                        <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
                                         <form action='seller_products.php?seller_id=$seller_id&hash=$hash' method='post' style='display:inline-block'>
                                             <input type='hidden' name='product_id' value='{$row['id']}'>
                                             <button type='submit' name='delete_product' class='btn btn-danger btn-sm'>Löschen</button>
@@ -212,6 +220,10 @@ $conn->close();
                                 <label for="editProductName">Artikelname:</label>
                                 <input type="text" class="form-control" id="editProductName" name="name" required>
                             </div>
+							<div class="form-group">
+                                <label for="editProductSize">Größe:</label>
+                                <input type="text" class="form-control" id="editProductSize" name="size">
+                            </div>
                             <div class="form-group">
                                 <label for="editProductPrice">Preis:</label>
                                 <input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" required>
@@ -230,9 +242,10 @@ $conn->close();
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
     <script>
-        function editProduct(id, name, price) {
+        function editProduct(id, name, size, price) {
             $('#editProductId').val(id);
             $('#editProductName').val(name);
+			$('#editProductSize').val(size);
             $('#editProductPrice').val(price.toFixed(2));
             $('#editProductModal').modal('show');
         }

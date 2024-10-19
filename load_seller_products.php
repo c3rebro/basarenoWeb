@@ -17,9 +17,10 @@ if ($result->num_rows > 0) {
         $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
         echo "<tr>
                 <td>{$row['name']}</td>
+				<td>{$row['size']}</td>
                 <td>{$formatted_price}</td>
                 <td>
-                    <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", {$row['price']})'>Bearbeiten</button>
+                    <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
                     <form action='admin_manage_sellers.php' method='post' style='display:inline-block'>
                         <input type='hidden' name='product_id' value='{$row['id']}'>
                         <input type='hidden' name='seller_id' value='{$seller_id}'>

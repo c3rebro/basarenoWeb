@@ -15,7 +15,7 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
         $email = $seller['email'];
 
         // Verify the hash
-        $expected_hash = hash('sha256', $email . $seller_id . $SECRET);
+        $expected_hash = hash('sha256', $email . $seller_id . SECRET);
         if ($hash === $expected_hash) {
             // Mark the seller as verified
             $sql = "UPDATE sellers SET verified=1, verification_token=NULL WHERE id='$seller_id'";

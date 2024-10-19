@@ -127,7 +127,7 @@ $conn->close();
                 ?>
                     <td>
                         <div class="seller-id">Verkäufernummer: <strong><?php echo $seller_id; ?></strong></div>
-                        <div class="product-name"><strong><?php echo $product['name']; ?></strong></div>
+                        <div class="product-name"><strong><?php echo $product['name']; ?></strong> Größe: <?php echo $product['size']; ?></div>
                         <div class="price">Preis: <?php echo number_format($product['price'], 2, ',', '.'); ?> €</div>
                         <img src="data:image/png;base64,<?php echo $barcode_base64; ?>" alt="Barcode"><br>
                         <div class="barcode-digits"><?php echo $product['barcode']; ?></div>

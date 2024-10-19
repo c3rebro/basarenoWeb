@@ -12,6 +12,7 @@ initialize_database($conn);
 
 $message = '';
 $scanned_products = [];
+$sum_of_prices = isset($_SESSION['sum_of_prices']) ? $_SESSION['sum_of_prices'] : 0.0;
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['barcode'])) {
@@ -35,6 +36,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $sql = "UPDATE products SET sold=1 WHERE barcode='$barcode'";
                 $conn->query($sql);
                 debug_log("Product found and marked as sold.");
+
+                // Add the price to the sum
+                $sum_of_prices += $row['price'];
+                $_SESSION['sum_of_prices'] = $sum_of_prices;
             }
         } else {
             $message = "Produkt nicht gefunden";
@@ -47,6 +52,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $sql = "UPDATE products SET sold=0 WHERE id='$product_id'";
         $conn->query($sql);
         debug_log("Product ID $product_id marked as unsold.");
+    } elseif (isset($_POST['reset_sum'])) {
+        $sum_of_prices = 0.0;
+        $_SESSION['sum_of_prices'] = $sum_of_prices;
     }
 }
 
@@ -226,6 +234,10 @@ $conn->close();
                 </tbody>
             </table>
         </div>
+        <h3 class="mt-5">Summe: €<?php echo number_format($sum_of_prices, 2, ',', '.'); ?></h3>
+        <form action="cashier.php?nocache=<?php echo time(); ?>" method="post">
+            <button type="submit" name="reset_sum" class="btn btn-warning mb-5">Abschluss</button>
+        </form>
     </div>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>

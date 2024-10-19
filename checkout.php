@@ -74,13 +74,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $email_body = "<html><body>";
     $email_body .= "<h1>Checkout für Verkäufer: {$seller['name']} (Verkäufernummer: {$seller['id']})</h1>";
     $email_body .= "<table border='1' cellpadding='10'>";
-    $email_body .= "<tr><th>Produktname</th><th>Preis</th><th>Verkauft</th></tr>";
+    $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th></tr>";
     
     $products_result->data_seek(0); // Reset the result pointer to the beginning
     while ($product = $products_result->fetch_assoc()) {
         $sold = isset($_POST['sold_' . $product['id']]) ? 1 : 0;
+		$size = $product['size'];
         $price = number_format($product['price'], 2, ',', '.') . ' €';
-        $email_body .= "<tr><td>{$product['name']}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td></tr>";
+        $email_body .= "<tr><td>{$product['name']}</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td></tr>";
         if ($sold) {
             $total += $product['price'];
         }
@@ -128,12 +129,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
         <?php if (isset($error)) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
         <?php if (isset($success)) { echo "<div class='alert alert-success'>$success</div>"; } ?>
 
-        <form action="checkout.php?seller_id=<?php echo $seller_id; ?>" method="post">
+        <form action="checkout.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
             <div class="table-responsive">
                 <table class="table table-bordered mt-3">
                     <thead>
                         <tr>
                             <th>Produktname</th>
+							<th>Größe</th>
                             <th>Preis</th>
                             <th>Verkauft</th>
                         </tr>
@@ -146,6 +148,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                             $sold_checked = $product['sold'] ? 'checked' : '';
                             echo "<tr>
                                     <td>{$product['name']}</td>
+									<td>{$product['size']}</td>
                                     <td>{$price}</td>
                                     <td><input type='checkbox' name='sold_{$product['id']}' $sold_checked></td>
                                   </tr>";

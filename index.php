@@ -33,6 +33,8 @@ if ($bazaar) {
     $startReqDate = !empty($bazaar['startReqDate']) ? new DateTime($bazaar['startReqDate']) : null;
     $startDate = !empty($bazaar['startDate']) ? new DateTime($bazaar['startDate']) : null;
 
+	$formattedDate = $startReqDate->format('d.m.Y');
+	
     if ($startReqDate && $startDate) {
         $canRequestSellerId = $currentDate >= $startReqDate && $currentDate <= $startDate;
         $bazaarOver = $currentDate > $startDate;
@@ -85,7 +87,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 
         if ($result->num_rows > 0) {
 			// Generate a secure hash using the seller's email and ID
-			$hash = hash('sha256', $email . $seller_id . $SECRET);
+			$hash = hash('sha256', $email . $seller_id . SECRET);
             // Send verification email
             $verification_token = bin2hex(random_bytes(16));
             $sql = "UPDATE sellers SET verification_token='$verification_token', verified=0 WHERE id='$seller_id'";
@@ -117,7 +119,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
         } while ($result->num_rows > 0);
 
 		// Generate a secure hash using the seller's email and ID
-		$hash = hash('sha256', $email . $seller_id . $SECRET);
+		$hash = hash('sha256', $email . $seller_id . SECRET);
 			
         // Generate a verification token
         $verification_token = bin2hex(random_bytes(16));
@@ -186,7 +188,7 @@ $conn->close();
         <?php if ($bazaarOver): ?>
             <div class="alert alert-info">Der Bazaar ist geschlossen. Bitte kommen Sie wieder, wenn der nächste Bazaar stattfindet.</div>
         <?php elseif (!$canRequestSellerId): ?>
-            <div class="alert alert-info">Anfragen für neue Verkäufer-IDs sind derzeit nicht möglich.</div>
+            <div class="alert alert-info">Anfragen für neue Verkäufer-IDs sind derzeit noch nicht freigeschalten. Die nächste Nummernvergabe startet am: <?php echo htmlspecialchars($formattedDate); ?></div>
         <?php else: ?>
             <h2 class="mt-5">Verkäufer-ID anfordern</h2>
             <?php if ($seller_message) { echo "<div class='alert alert-info'>$seller_message</div>"; } ?>

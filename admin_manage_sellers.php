@@ -43,7 +43,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
         } while ($result->num_rows > 0);
 
         // Generate a secure hash using the seller's email and ID
-        $hash = hash('sha256', $email . $seller_id . $SECRET);
+        $hash = hash('sha256', $email . $seller_id . SECRET);
 
         $sql = "INSERT INTO sellers (id, email, reserved, family_name, given_name, phone, street, house_number, zip, city, hash, verified) VALUES ('$seller_id', '$email', 0, '$family_name', '$given_name', '$phone', '$street', '$house_number', '$zip', '$city', '$hash', '$verified')";
         if ($conn->query($sql) === TRUE) {
