@@ -88,7 +88,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 			$hash = hash('sha256', $email . $seller_id . $SECRET);
             // Send verification email
             $verification_token = bin2hex(random_bytes(16));
-            $sql = "UPDATE sellers SET verification_token='$verification_token' WHERE id='$seller_id'";
+            $sql = "UPDATE sellers SET verification_token='$verification_token', verified=0 WHERE id='$seller_id'";
 
             if ($conn->query($sql) === TRUE) {
                 $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
@@ -96,6 +96,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
                 $message = "Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: <a href='$verification_link'>$verification_link</a>";
 
                 $send_result = send_verification_email($email, $subject, $message);
+				
                 if ($send_result === true) {
                     $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
                 } else {

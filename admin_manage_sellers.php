@@ -445,7 +445,7 @@ $conn->close();
             } else if (action === 'create_products') {
                 window.location.href = `seller_products.php?seller_id=${sellerId}&hash=${hash}`;
             } else if (action === 'checkout') {
-                window.location.href = `checkout.php?seller_id=${sellerId}`;
+                window.location.href = `checkout.php?seller_id=${sellerId}&hash=${hash}`;
             }
         });
     </script>

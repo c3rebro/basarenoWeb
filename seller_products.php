@@ -101,6 +101,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
     }
 }
 
+// Handle delete all products
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_all_products'])) {
+    $sql = "DELETE FROM products WHERE seller_id='$seller_id'";
+    if ($conn->query($sql) === TRUE) {
+        echo "<div class='alert alert-success'>Alle Artikel erfolgreich gelöscht.</div>";
+    } else {
+        echo "<div class='alert alert-danger'>Fehler beim Löschen aller Artikel: " . $conn->error . "</div>";
+    }
+}
+
 // Fetch all products for the seller
 $sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
 $products_result = $conn->query($sql);
@@ -115,24 +125,37 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Artikel erstellen - Verkäufernummer: <?php echo $seller_id; ?></title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .action-buttons .btn {
+            margin-bottom: 10px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <h1 class="mt-5">Artikel erstellen - Verkäufernummer: <?php echo $seller_id; ?></h1>
-        <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
-            <div class="form-row">
-                <div class="form-group col-md-6">
-                    <label for="name">Artikelname:</label>
-                    <input type="text" class="form-control" id="name" name="name" required>
+        <div class="action-buttons">
+            <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post" class="w-100">
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="name">Artikelname:</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label for="price">Preis:</label>
+                        <input type="number" class="form-control" id="price" name="price" step="0.01" required>
+                    </div>
                 </div>
-                <div class="form-group col-md-6">
-                    <label for="price">Preis:</label>
-                    <input type="number" class="form-control" id="price" name="price" step="0.01" required>
-                </div>
-            </div>
-            <button type="submit" class="btn btn-primary" name="create_product">Artikel erstellen</button>
-        </form>
-        <a href="print_barcodes.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" class="btn btn-secondary mt-3">Etiketten drucken</a>
+                <button type="submit" class="btn btn-primary w-100" name="create_product">Artikel erstellen</button>
+            </form>
+        </div>
+        <a href="print_barcodes.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" class="btn btn-secondary mt-3 w-100">Etiketten drucken</a>
 
         <h2 class="mt-5">Erstellte Artikel</h2>
         <div class="table-responsive">
@@ -167,6 +190,9 @@ $conn->close();
                     ?>
                 </tbody>
             </table>
+			<form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
+                <button type="submit" class="btn btn-danger mb-3" name="delete_all_products">Alle Artikel löschen</button>
+            </form>
         </div>
 
         <!-- Edit Product Modal -->

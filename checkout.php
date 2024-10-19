@@ -1,20 +1,53 @@
 <!-- checkout.php -->
 <?php
+require_once 'config.php';
 session_start();
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
     header("location: index.php");
     exit;
 }
 
-require_once 'config.php';
-
-if (!isset($_GET['seller_id'])) {
-    echo "Kein Verkäufer-ID angegeben.";
+if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {
+    echo "Kein Verkäufer-ID oder Hash angegeben.";
     exit();
 }
 
 $seller_id = $_GET['seller_id'];
+$hash = $_GET['hash'];
+
 $conn = get_db_connection();
+$sql = "SELECT * FROM sellers WHERE id='$seller_id' AND hash='$hash' AND verified=1";
+$result = $conn->query($sql);
+
+if ($result->num_rows == 0) {
+    echo "
+<!DOCTYPE html>
+<html lang='de'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
+    <title>Verkäufer-ID Verifizierung</title>
+    <link href='css/bootstrap.min.css' rel='stylesheet'>
+</head>
+<body>
+    <div class='container'>
+        <div class='alert alert-warning mt-5'>
+            <h4 class='alert-heading'>Ungültige oder nicht verifizierte Verkäufer-ID oder Hash.</h4>
+            <p>Bitte überprüfen Sie Ihre Verkäufer-ID und versuchen Sie es erneut.</p>
+            <hr>
+            <p class='mb-0'>Haben Sie auf den Verifizierungslink in der E-Mail geklickt?</p>
+        </div>
+    </div>
+    <script src='js/jquery-3.7.1.min.js'></script>
+    <script src='js/popper.min.js'></script>
+    <script src='js/bootstrap.min.js'></script>
+</body>
+</html>
+";
+    exit();
+}
+
 $sql = "SELECT * FROM sellers WHERE id='$seller_id'";
 $result = $conn->query($sql);
 $seller = $result->fetch_assoc();
