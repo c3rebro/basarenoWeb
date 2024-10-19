@@ -1,4 +1,3 @@
-<!-- admin_manage_sellers.php -->
 <?php
 session_start();
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
@@ -154,6 +153,13 @@ $conn->close();
                 overflow-x: auto;
             }
         }
+        .action-cell {
+            text-align: center;
+            padding-top: 5px;
+        }
+        .action-dropdown {
+            margin-bottom: 5px; /* Space between dropdown and button */
+        }
     </style>
 </head>
 <body>
@@ -222,21 +228,23 @@ $conn->close();
                     <?php
                     if ($sellers_result->num_rows > 0) {
                         while ($row = $sellers_result->fetch_assoc()) {
+                            $hash = $row['hash']; // Retrieve the hash directly from the row
                             echo "<tr>
                                     <td>{$row['id']}</td>
                                     <td>{$row['family_name']}</td>
                                     <td>{$row['given_name']}</td>
                                     <td>{$row['email']}</td>
                                     <td>" . ($row['verified'] ? 'Ja' : 'Nein') . "</td>
-                                    <td>
-                                        <button class='btn btn-warning btn-sm' onclick='editSeller({$row['id']}, \"{$row['family_name']}\", \"{$row['given_name']}\", \"{$row['email']}\", \"{$row['phone']}\", \"{$row['street']}\", \"{$row['house_number']}\", \"{$row['zip']}\", \"{$row['city']}\", " . ($row['verified'] ? 'true' : 'false') . ")'>Bearbeiten</button>
-                                        <form action='admin_manage_sellers.php' method='post' style='display:inline-block'>
-                                            <input type='hidden' name='seller_id' value='{$row['id']}'>
-                                            <button type='submit' name='delete_seller' class='btn btn-danger btn-sm'>Löschen</button>
-                                        </form>
-                                        <button class='btn btn-info btn-sm' onclick='toggleProducts({$row['id']})'>Produkte anzeigen</button>
-										<a href='seller_products.php?seller_id={$row['id']}&hash={$row['hash']}' class='btn btn-success btn-sm'>Produkte erstellen</a>
-                                        <a href='checkout.php?seller_id={$row['id']}' class='btn btn-success btn-sm'>Checkout</a>
+                                    <td class='action-cell'>
+                                        <select class='form-control action-dropdown' data-seller-id='{$row['id']}' data-seller-hash='{$hash}'>
+                                            <option value=''>Aktion wählen</option>
+                                            <option value='edit'>Bearbeiten</option>
+                                            <option value='delete'>Löschen</option>
+                                            <option value='show_products'>Produkte anzeigen</option>
+                                            <option value='create_products'>Produkte erstellen</option>
+                                            <option value='checkout'>Checkout</option>
+                                        </select>
+                                        <button class='btn btn-primary btn-sm execute-action' data-seller-id='{$row['id']}'>Ausführen</button>
                                     </td>
                                   </tr>";
                             echo "<tr id='seller-products-{$row['id']}' style='display:none;'>
@@ -269,7 +277,7 @@ $conn->close();
     </div>
 
     <!-- Edit Seller Modal -->
-    <div class="modal fade" id="editSellerModal" tabindex="-1" role="dialog" aria-labelledby="editSellerModalLabel" aria-hidden="true">
+    <div class="modal fade" id="editSellerModal" tabindex="-1" role="dialog" aria-labelledby="editSellerModalLabel" aria-hidden="true"> 
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <form action="admin_manage_sellers.php" method="post">
@@ -411,6 +419,35 @@ $conn->close();
             $('#editProductPrice').val(price.toFixed(2));
             $('#editProductModal').modal('show');
         }
+
+        $(document).on('click', '.execute-action', function() {
+            const sellerId = $(this).data('seller-id');
+            const action = $(`.action-dropdown[data-seller-id="${sellerId}"]`).val();
+            const hash = $(`.action-dropdown[data-seller-id="${sellerId}"]`).data('seller-hash');
+
+            if (action === 'edit') {
+                // Trigger editSeller function with the necessary parameters
+                // You need to fetch the seller details directly from the row
+                const row = $(this).closest('tr');
+                const family_name = row.find('td:nth-child(2)').text();
+                const given_name = row.find('td:nth-child(3)').text();
+                const email = row.find('td:nth-child(4)').text();
+                const verified = row.find('td:nth-child(5)').text() === 'Ja';
+                editSeller(sellerId, family_name, given_name, email, '', '', '', '', '', verified);
+            } else if (action === 'delete') {
+                if (confirm('Möchten Sie diesen Verkäufer wirklich löschen?')) {
+                    $.post('admin_manage_sellers.php', { delete_seller: true, seller_id: sellerId }, function(response) {
+                        location.reload();
+                    });
+                }
+            } else if (action === 'show_products') {
+                toggleProducts(sellerId);
+            } else if (action === 'create_products') {
+                window.location.href = `seller_products.php?seller_id=${sellerId}&hash=${hash}`;
+            } else if (action === 'checkout') {
+                window.location.href = `checkout.php?seller_id=${sellerId}`;
+            }
+        });
     </script>
 </body>
 </html>
