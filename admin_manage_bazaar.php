@@ -18,11 +18,13 @@ $success = '';
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
     $startDate = $_POST['startDate'];
     $startReqDate = $_POST['startReqDate'];
+    $brokerage = $_POST['brokerage'];
 
-    if (empty($startDate) || empty($startReqDate)) {
+    if (empty($startDate) || empty($startReqDate) || empty($brokerage)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
-        $sql = "INSERT INTO bazaar (startDate, startReqDate) VALUES ('$startDate', '$startReqDate')";
+        $brokerage = $brokerage / 100; // Convert percentage to decimal
+        $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage) VALUES ('$startDate', '$startReqDate', '$brokerage')";
         if ($conn->query($sql) === TRUE) {
             $success = "Bazaar erfolgreich hinzugefügt.";
         } else {
@@ -36,43 +38,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     $bazaar_id = $_POST['bazaar_id'];
     $startDate = $_POST['startDate'];
     $startReqDate = $_POST['startReqDate'];
+    $brokerage = $_POST['brokerage'];
 
-    if (empty($startDate) || empty($startReqDate)) {
+    if (empty($startDate) || empty($startReqDate) || empty($brokerage)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
-        $sql = "UPDATE bazaar SET startDate='$startDate', startReqDate='$startReqDate' WHERE id='$bazaar_id'";
+        $brokerage = $brokerage / 100; // Convert percentage to decimal
+        $sql = "UPDATE bazaar SET startDate='$startDate', startReqDate='$startReqDate', brokerage='$brokerage' WHERE id='$bazaar_id'";
         if ($conn->query($sql) === TRUE) {
             $success = "Bazaar erfolgreich aktualisiert.";
         } else {
             $error = "Fehler beim Aktualisieren des Bazaars: " . $conn->error;
         }
-    }
-}
-
-// Handle product deletion
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
-    $product_id = $conn->real_escape_string($_POST['product_id']);
-    $seller_id = $conn->real_escape_string($_POST['seller_id']);
-
-    $sql = "DELETE FROM products WHERE id='$product_id' AND seller_id='$seller_id'";
-    if ($conn->query($sql) === TRUE) {
-        $success = "Produkt erfolgreich gelöscht.";
-    } else {
-        $error = "Fehler beim Löschen des Produkts: " . $conn->error;
-    }
-}
-
-// Handle product update
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
-    $product_id = $conn->real_escape_string($_POST['product_id']);
-    $name = $conn->real_escape_string($_POST['name']);
-    $price = $conn->real_escape_string($_POST['price']);
-
-    $sql = "UPDATE products SET name='$name', price='$price' WHERE id='$product_id'";
-    if ($conn->query($sql) === TRUE) {
-        $success = "Produkt erfolgreich aktualisiert.";
-    } else {
-        $error = "Fehler beim Aktualisieren des Produkts: " . $conn->error;
     }
 }
 
@@ -109,13 +86,17 @@ $conn->close();
         <h3 class="mt-5">Neuen Bazaar hinzufügen</h3>
         <form action="admin_manage_bazaar.php" method="post">
             <div class="form-row">
-                <div class="form-group col-md-6">
+                <div class="form-group col-md-4">
                     <label for="startDate">Startdatum:</label>
                     <input type="date" class="form-control" id="startDate" name="startDate" required>
                 </div>
-                <div class="form-group col-md-6">
+                <div class="form-group col-md-4">
                     <label for="startReqDate">Anforderungsdatum:</label>
                     <input type="date" class="form-control" id="startReqDate" name="startReqDate" required>
+                </div>
+                <div class="form-group col-md-4">
+                    <label for="brokerage">Provision (%):</label>
+                    <input type="number" step="0.01" class="form-control" id="brokerage" name="brokerage" required>
                 </div>
             </div>
             <button type="submit" class="btn btn-primary btn-block" name="add_bazaar">Bazaar hinzufügen</button>
@@ -129,6 +110,7 @@ $conn->close();
                         <th>ID</th>
                         <th>Startdatum</th>
                         <th>Anforderungsdatum</th>
+                        <th>Provision (%)</th>
                         <th>Aktionen</th>
                     </tr>
                 </thead>
@@ -138,8 +120,10 @@ $conn->close();
                             <td><?php echo htmlspecialchars($row['id']); ?></td>
                             <td><?php echo htmlspecialchars($row['startDate']); ?></td>
                             <td><?php echo htmlspecialchars($row['startReqDate']); ?></td>
+                            <td><?php echo htmlspecialchars($row['brokerage'] * 100); ?></td>
                             <td>
                                 <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo $row['id']; ?>">Bearbeiten</button>
+                                <button class="btn btn-info btn-sm" data-toggle="modal" data-target="#viewBazaarModal<?php echo $row['id']; ?>">Auswertung</button>
                                 <!-- Edit Bazaar Modal -->
                                 <div class="modal fade" id="editBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="editBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
                                     <div class="modal-dialog" role="document">
@@ -161,7 +145,36 @@ $conn->close();
                                                         <label for="startReqDate<?php echo $row['id']; ?>">Anforderungsdatum:</label>
                                                         <input type="date" class="form-control" id="startReqDate<?php echo $row['id']; ?>" name="startReqDate" value="<?php echo htmlspecialchars($row['startReqDate']); ?>" required>
                                                     </div>
+                                                    <div class="form-group">
+                                                        <label for="brokerage<?php echo $row['id']; ?>">Provision (%):</label>
+                                                        <input type="number" step="0.01" class="form-control" id="brokerage<?php echo $row['id']; ?>" name="brokerage" value="<?php echo htmlspecialchars($row['brokerage'] * 100); ?>" required>
+                                                    </div>
                                                     <button type="submit" class="btn btn-primary btn-block" name="edit_bazaar">Speichern</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- View Bazaar Modal -->
+                                <div class="modal fade" id="viewBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="viewBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
+                                    <div class="modal-dialog" role="document">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title" id="viewBazaarModalLabel<?php echo $row['id']; ?>">Bazaar Auswertung</h5>
+                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                    <span aria-hidden="true">&times;</span>
+                                                </button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <form>
+                                                    <div class="form-group">
+                                                        <label for="productsCountAll<?php echo $row['id']; ?>">Gesamtzahl aller Artikel:</label>
+                                                        <input type="text" class="form-control" id="productsCountAll<?php echo $row['id']; ?>" value="<?php echo htmlspecialchars($row['products_count_all']); ?>" readonly>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="productsCountSold<?php echo $row['id']; ?>">Davon verkauft:</label>
+                                                        <input type="text" class="form-control" id="productsCountSold<?php echo $row['id']; ?>" value="<?php echo htmlspecialchars($row['products_count_sold']); ?>" readonly>
+                                                    </div>
                                                 </form>
                                             </div>
                                         </div>
@@ -173,39 +186,7 @@ $conn->close();
                 </tbody>
             </table>
         </div>
-		
-		<!-- Edit Product Modal -->
-		<div class="modal fade" id="editProductModal" tabindex="-1" role="dialog" aria-labelledby="editProductModalLabel" aria-hidden="true">
-			<div class="modal-dialog" role="document">
-				<div class="modal-content">
-					<form action="admin_manage_sellers.php" method="post">
-						<div class="modal-header">
-							<h5 class="modal-title" id="editProductModalLabel">Produkt bearbeiten</h5>
-							<button type="button" class="close" data-dismiss="modal" aria-label="Close">
-								<span aria-hidden="true">&times;</span>
-							</button>
-						</div>
-						<div class="modal-body">
-							<input type="hidden" name="product_id" id="editProductId">
-							<div class="form-group">
-								<label for="editProductName">Produktname:</label>
-								<input type="text" class="form-control" id="editProductName" name="name" required>
-							</div>
-							<div class="form-group">
-								<label for="editProductPrice">Preis:</label>
-								<input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" required>
-							</div>
-						</div>
-						<div class="modal-footer">
-							<button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
-							<button type="submit" class="btn btn-primary" name="update_product">Änderungen speichern</button>
-						</div>
-					</form>
-				</div>
-			</div>
-		</div>
-
-        <a href="dashboard.php" class="btn btn-primary btn-block mt-3">Zurück zum Dashboard</a>
+        <a href="dashboard.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zum Dashboard</a>
     </div>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>

@@ -1,15 +1,15 @@
 <?php
 // Debug configuration
-define('DEBUG', true); // Set to false to disable debug outputs
+define('DEBUG', false); // Set to false to disable debug outputs
 
-define('BASE_URI', 'https://www.example.de/bazaar');
+define('BASE_URI', '<?php echo $base_uri; ?>');
 
 define('DB_SERVER', '<?php echo $db_host; ?>');
 define('DB_USERNAME', '<?php echo $db_username; ?>');
 define('DB_PASSWORD', '<?php echo $db_password; ?>');
 define('DB_NAME', '<?php echo $db_name; ?>');
 
-define('SECRET', 'Of3lG8HGdf452nF653oFG93hGF93hf');
+define('SECRET', '<?php echo $secret; ?>');
 
 // SMTP configuration
 define('SMTP_FROM', '<?php echo $smtp_from; ?>');
@@ -42,7 +42,10 @@ function initialize_database($conn) {
     $sql = "CREATE TABLE IF NOT EXISTS bazaar (
         id INT AUTO_INCREMENT PRIMARY KEY,
         startDate DATE NOT NULL,
-        startReqDate DATE NOT NULL
+        startReqDate DATE NOT NULL,
+        brokerage DOUBLE,
+        products_count_all INT(11),
+        products_count_sold INT(11)
     )";
     if ($conn->query($sql) !== TRUE) {
         die("Error creating bazaar table: " . $conn->error);
@@ -51,7 +54,7 @@ function initialize_database($conn) {
     // Create the sellers table if it doesn't exist
     $sql = "CREATE TABLE IF NOT EXISTS sellers (
         id INT AUTO_INCREMENT PRIMARY KEY,
-		hash VARCHAR(255) NOT NULL,
+        hash VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL,
         reserved BOOLEAN DEFAULT FALSE,
         verified BOOLEAN DEFAULT FALSE,
@@ -72,7 +75,7 @@ function initialize_database($conn) {
     $sql = "CREATE TABLE IF NOT EXISTS products (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-		size VARCHAR(255) NOT NULL,
+        size VARCHAR(255) NOT NULL,
         price DOUBLE NOT NULL,
         barcode VARCHAR(255) NOT NULL,
         seller_id INT,
@@ -104,8 +107,10 @@ function initialize_database($conn) {
 // Function to send verification email using PHP's mail function
 function send_verification_email($to, $subject, $body) {
     $headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\n";
-    $headers .= "MIME-Version: 1.0\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\n";
+    $headers .= "MIME-Version: 1.0
+";
+    $headers .= "Content-Type: text/html; charset=UTF-8
+";
 
     if (mail($to, $subject, $body, $headers)) {
         return true;

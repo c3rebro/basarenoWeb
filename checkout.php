@@ -55,12 +55,31 @@ $seller = $result->fetch_assoc();
 $sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
 $products_result = $conn->query($sql);
 
+$total = 0.0;
+$total_brokerage = 0.0;
+$brokerage = 0.0;
+$current_date = date('Y-m-d');
+
+// Retrieve the current bazaar based on the current date
+$sql = "SELECT brokerage FROM bazaar WHERE startDate <= '$current_date' AND DATE_ADD(startDate, INTERVAL 30 DAY) >= '$current_date' LIMIT 1";
+$result = $conn->query($sql);
+
+if ($result->num_rows > 0) {
+    $row = $result->fetch_assoc();
+    $brokerage = $row['brokerage'];
+} else {
+    echo "Kein aktueller Bazaar gefunden.";
+    exit;
+}
+
 $conn->close();
 
 function send_checkout_email($to, $subject, $body) {
     $headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\n";
-    $headers .= "MIME-Version: 1.0\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\n";
+    $headers .= "MIME-Version: 1.0
+";
+    $headers .= "Content-Type: text/html; charset=UTF-8
+";
 
     if (mail($to, $subject, $body, $headers)) {
         return true;
@@ -71,23 +90,28 @@ function send_checkout_email($to, $subject, $body) {
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $total = 0;
+    $total_brokerage = 0;
     $email_body = "<html><body>";
     $email_body .= "<h1>Checkout für Verkäufer: {$seller['name']} (Verkäufernummer: {$seller['id']})</h1>";
     $email_body .= "<table border='1' cellpadding='10'>";
-    $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th></tr>";
+    $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th><th>Provision</th></tr>";
     
     $products_result->data_seek(0); // Reset the result pointer to the beginning
     while ($product = $products_result->fetch_assoc()) {
         $sold = isset($_POST['sold_' . $product['id']]) ? 1 : 0;
-		$size = $product['size'];
+        $size = $product['size'];
         $price = number_format($product['price'], 2, ',', '.') . ' €';
-        $email_body .= "<tr><td>{$product['name']}</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td></tr>";
+        $provision = $sold ? number_format($product['price'] * $brokerage, 2, ',', '.') . ' €' : '0,00 €';
+        $email_body .= "<tr><td>{$product['name']}</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td><td>{$provision}</td></tr>";
         if ($sold) {
             $total += $product['price'];
+            $total_brokerage += $product['price'] * $brokerage;
         }
     }
     $email_body .= "</table>";
     $email_body .= "<h2>Gesamt: " . number_format($total, 2, ',', '.') . " €</h2>";
+    $email_body .= "<h2>Einbehaltene Provision: " . number_format($total_brokerage, 2, ',', '.') . " €</h2>";
+    $email_body .= "<h2>Auszahlungsbetrag: " . number_format($total - $total_brokerage, 2, ',', '.') . " €</h2>";
     $email_body .= "</body></html>";
 
     $subject = "Checkout für Verkäufer: {$seller['name']} (Verkäufernummer: {$seller['id']})";
@@ -125,7 +149,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 </head>
 <body>
     <div class="container">
-        <h1 class="mt-5">Checkout - Verkäufer: <?php echo htmlspecialchars($seller['name']); ?> (Verkäufernummer: <?php echo htmlspecialchars($seller['id']); ?>)</h1>
+        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['name']); ?> </h3>
         <?php if (isset($error)) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
         <?php if (isset($success)) { echo "<div class='alert alert-success'>$success</div>"; } ?>
 
@@ -138,33 +162,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 							<th>Größe</th>
                             <th>Preis</th>
                             <th>Verkauft</th>
+                            <th>Provision</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php
                         $total = 0;
+                        $total_brokerage = 0;
                         while ($product = $products_result->fetch_assoc()) {
                             $price = number_format($product['price'], 2, ',', '.') . ' €';
                             $sold_checked = $product['sold'] ? 'checked' : '';
+                            $provision = $product['sold'] ? number_format($product['price'] * $brokerage, 2, ',', '.') . ' €' : '0,00 €';
                             echo "<tr>
                                     <td>{$product['name']}</td>
 									<td>{$product['size']}</td>
                                     <td>{$price}</td>
                                     <td><input type='checkbox' name='sold_{$product['id']}' $sold_checked></td>
+                                    <td>{$provision}</td>
                                   </tr>";
                             if ($product['sold']) {
                                 $total += $product['price'];
+                                $total_brokerage += $product['price'] * $brokerage;
                             }
                         }
                         ?>
                     </tbody>
                 </table>
             </div>
-            <h3>Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h3>
+            <h4>Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h4>
+            <h4>Provision: <?php echo number_format($total_brokerage, 2, ',', '.'); ?> €</h4>
+            <h4>Auszahlungsbetrag: <?php echo number_format($total - $total_brokerage, 2, ',', '.'); ?> €</h4>
             <button type="submit" class="btn btn-primary btn-block" name="notify_seller">Verkäufer benachrichtigen</button>
         </form>
         <button onclick="window.print()" class="btn btn-secondary btn-block mt-3">Drucken</button>
-        <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3">Zurück zu Verkäufer verwalten</a>
+        <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zu Verkäufer verwalten</a>
     </div>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>

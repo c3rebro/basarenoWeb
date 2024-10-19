@@ -254,6 +254,7 @@ $conn->close();
                                                 <thead>
                                                     <tr>
                                                         <th>Produktname</th>
+														<th>Größe</th>
                                                         <th>Preis</th>
                                                         <th>Aktionen</th>
                                                     </tr>
@@ -273,7 +274,7 @@ $conn->close();
                 </tbody>
             </table>
         </div>
-        <a href="dashboard.php" class="btn btn-primary btn-block mt-3">Zurück zum Dashboard</a>
+        <a href="dashboard.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zum Dashboard</a>
     </div>
 
     <!-- Edit Seller Modal -->
@@ -356,6 +357,10 @@ $conn->close();
                             <label for="editProductName">Produktname:</label>
                             <input type="text" class="form-control" id="editProductName" name="name" required>
                         </div>
+						<div class="form-group">
+                            <label for="editProductSize">Größe:</label>
+                            <input type="text" class="form-control" id="editProductSize" name="size">
+                        </div>
                         <div class="form-group">
                             <label for="editProductPrice">Preis:</label>
                             <input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" required>
@@ -413,9 +418,10 @@ $conn->close();
             });
         }
 
-        function editProduct(productId, name, price) {
+        function editProduct(productId, name, size, price) {
             $('#editProductId').val(productId);
             $('#editProductName').val(name);
+			$('#editProductSize').val(size);
             $('#editProductPrice').val(price.toFixed(2));
             $('#editProductModal').modal('show');
         }
