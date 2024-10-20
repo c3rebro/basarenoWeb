@@ -74,43 +74,27 @@ if ($result->num_rows > 0) {
 
 $conn->close();
 
-function send_checkout_email($to, $subject, $body) {
-    $headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\n";
-    $headers .= "MIME-Version: 1.0
-";
-    $headers .= "Content-Type: text/html; charset=UTF-8
-";
-
-    if (mail($to, $subject, $body, $headers)) {
-        return true;
-    } else {
-        return 'Mail Error: Unable to send email.';
-    }
-}
-
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $total = 0;
     $total_brokerage = 0;
     $email_body = "<html><body>";
     $email_body .= "<h1>Checkout für Verkäufer: {$seller['name']} (Verkäufernummer: {$seller['id']})</h1>";
     $email_body .= "<table border='1' cellpadding='10'>";
-    $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th><th>Provision</th></tr>";
+    $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th></tr>";
     
     $products_result->data_seek(0); // Reset the result pointer to the beginning
     while ($product = $products_result->fetch_assoc()) {
         $sold = isset($_POST['sold_' . $product['id']]) ? 1 : 0;
         $size = $product['size'];
         $price = number_format($product['price'], 2, ',', '.') . ' €';
-        $provision = $sold ? number_format($product['price'] * $brokerage, 2, ',', '.') . ' €' : '0,00 €';
-        $email_body .= "<tr><td>{$product['name']}</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td><td>{$provision}</td></tr>";
+        $seller_brokerage = $sold ? $product['price'] * $brokerage : 0;
+        $email_body .= "<tr><td>{$product['name']}</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td></tr>";
         if ($sold) {
             $total += $product['price'];
-            $total_brokerage += $product['price'] * $brokerage;
+            $total_brokerage += $seller_brokerage;
         }
     }
     $email_body .= "</table>";
-    $email_body .= "<h2>Gesamt: " . number_format($total, 2, ',', '.') . " €</h2>";
-    $email_body .= "<h2>Einbehaltene Provision: " . number_format($total_brokerage, 2, ',', '.') . " €</h2>";
     $email_body .= "<h2>Auszahlungsbetrag: " . number_format($total - $total_brokerage, 2, ',', '.') . " €</h2>";
     $email_body .= "</body></html>";
 
@@ -121,7 +105,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
         $email_body .= "<p>Leider wurden keine Artikel verkauft. Wir hoffen auf das Beste beim nächsten Mal.</p>";
     }
 
-    $send_result = send_checkout_email($seller['email'], $subject, $email_body);
+    $send_result = send_email($seller['email'], $subject, $email_body);
     if ($send_result === true) {
         $success = "E-Mail erfolgreich an den Verkäufer gesendet.";
     } else {
@@ -145,6 +129,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                 overflow-x: auto;
             }
         }
+        @media print {
+            .no-print {
+                display: none;
+            }
+            .no-print-brokerage .brokerage,
+            .no-print-brokerage .auszahlung,
+            .no-print-brokerage .gesamt,
+            .no-print-brokerage .provision {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
@@ -159,10 +154,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                     <thead>
                         <tr>
                             <th>Produktname</th>
-							<th>Größe</th>
+                            <th>Größe</th>
                             <th>Preis</th>
                             <th>Verkauft</th>
-                            <th>Provision</th>
+                            <th class="brokerage">Provision</th>
+                            <th class="auszahlung">Auszahlung</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -172,33 +168,48 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                         while ($product = $products_result->fetch_assoc()) {
                             $price = number_format($product['price'], 2, ',', '.') . ' €';
                             $sold_checked = $product['sold'] ? 'checked' : '';
-                            $provision = $product['sold'] ? number_format($product['price'] * $brokerage, 2, ',', '.') . ' €' : '0,00 €';
+                            $seller_brokerage = $product['sold'] ? $product['price'] * $brokerage : 0;
+                            $provision = number_format($seller_brokerage, 2, ',', '.') . ' €';
+                            $auszahlung = number_format($product['price'] - $seller_brokerage, 2, ',', '.') . ' €';
                             echo "<tr>
                                     <td>{$product['name']}</td>
-									<td>{$product['size']}</td>
+                                    <td>{$product['size']}</td>
                                     <td>{$price}</td>
                                     <td><input type='checkbox' name='sold_{$product['id']}' $sold_checked></td>
-                                    <td>{$provision}</td>
+                                    <td class='brokerage'>{$provision}</td>
+                                    <td class='auszahlung'>{$auszahlung}</td>
                                   </tr>";
                             if ($product['sold']) {
                                 $total += $product['price'];
-                                $total_brokerage += $product['price'] * $brokerage;
+                                $total_brokerage += $seller_brokerage;
                             }
                         }
                         ?>
                     </tbody>
                 </table>
             </div>
-            <h4>Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h4>
-            <h4>Provision: <?php echo number_format($total_brokerage, 2, ',', '.'); ?> €</h4>
+            <h4 class="gesamt">Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h4>
+            <h4 class="provision">Provision: <?php echo number_format($total_brokerage, 2, ',', '.'); ?> €</h4>
             <h4>Auszahlungsbetrag: <?php echo number_format($total - $total_brokerage, 2, ',', '.'); ?> €</h4>
-            <button type="submit" class="btn btn-primary btn-block" name="notify_seller">Verkäufer benachrichtigen</button>
+            <button type="submit" class="btn btn-primary btn-block no-print" name="notify_seller">Verkäufer benachrichtigen</button>
         </form>
-        <button onclick="window.print()" class="btn btn-secondary btn-block mt-3">Drucken</button>
-        <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zu Verkäufer verwalten</a>
+        <button id="printWithBrokerage" class="btn btn-secondary btn-block mt-3 no-print">Drucken (mit Provision)</button>
+        <button id="printWithoutBrokerage" class="btn btn-secondary btn-block mt-3 no-print">Drucken (ohne Provision)</button>
+        <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3 mb-5 no-print">Zurück zu Verkäufer verwalten</a>
     </div>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
+    <script>
+        document.getElementById('printWithBrokerage').addEventListener('click', function() {
+            window.print();
+        });
+
+        document.getElementById('printWithoutBrokerage').addEventListener('click', function() {
+            document.body.classList.add('no-print-brokerage');
+            window.print();
+            document.body.classList.remove('no-print-brokerage');
+        });
+    </script>
 </body>
 </html>

@@ -93,11 +93,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
             $sql = "UPDATE sellers SET verification_token='$verification_token', verified=0 WHERE id='$seller_id'";
 
             if ($conn->query($sql) === TRUE) {
-                $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
-                $subject = "Verifizierung Ihrer Verkäufer-ID";
-                $message = "Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: <a href='$verification_link'>$verification_link</a>";
-
-                $send_result = send_verification_email($email, $subject, $message);
+				// Send verification email
+				$verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
+				$subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
+				$message = "<html><body>";
+				$message .= "<p>Hallo $given_name $family_name.</p>";
+				$message .= "<p></p>";
+				$message .= "<p>Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: <a href='$verification_link'>$verification_link</a></p>";
+				$message .= "<p>Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:</p>";
+				$message .= "<p><a href='" . BASE_URI . "/seller_products.php?seller_id=$seller_id&hash=$hash'>Artikel erstellen</a></p>";
+				$message .= "<p><strong>WICHTIG:</strong> Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter.</p>";
+				$message .= "</body></html>";
+                $send_result = send_email($email, $subject, $message);
 				
                 if ($send_result === true) {
                     $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
@@ -139,7 +146,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 			$message .= "<p><strong>WICHTIG:</strong> Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter.</p>";
 			$message .= "</body></html>";
 
-            $send_result = send_verification_email($email, $subject, $message);
+            $send_result = send_email($email, $subject, $message);
             if ($send_result === true) {
                 $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
             } else {

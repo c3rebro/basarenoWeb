@@ -20,6 +20,19 @@ function seller_id_exists($conn, $seller_id) {
     return $result->num_rows > 0;
 }
 
+// Function to get the current bazaar ID
+function get_current_bazaar_id($conn) {
+    $currentDateTime = date('Y-m-d H:i:s');
+    $sql = "SELECT id FROM bazaar WHERE startReqDate <= '$currentDateTime' AND startDate >= '$currentDateTime' LIMIT 1";
+    $result = $conn->query($sql);
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        return $row['id'];
+    } else {
+        return null;
+    }
+}
+
 // Handle seller addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
     $family_name = $conn->real_escape_string($_POST['family_name']);
@@ -113,14 +126,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
 
 // Handle product update
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
+	$bazaar_id = get_current_bazaar_id($conn);
     $product_id = $conn->real_escape_string($_POST['product_id']);
     $name = $conn->real_escape_string($_POST['name']);
+	$size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
-    $sql = "UPDATE products SET name='$name', price='$price' WHERE id='$product_id'";
+    $sql = "UPDATE products SET name='$name', size='$size', price='$price', bazaar_id='$bazaar_id' WHERE id='$product_id'";
     if ($conn->query($sql) === TRUE) {
         $success = "Produkt erfolgreich aktualisiert.";
-        debug_log("Product updated: ID=$product_id, Name=$name, Price=$price");
+        debug_log("Product updated: ID=$product_id, Name=$name, Size=$size, Basar-ID=$bazaar_id, Price=$price");
     } else {
         $error = "Fehler beim Aktualisieren des Produkts: " . $conn->error;
         debug_log("Error updating product: " . $conn->error);

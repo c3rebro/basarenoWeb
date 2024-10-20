@@ -52,8 +52,22 @@ function calculateCheckDigit($barcode) {
     return ($mod === 0) ? 0 : 10 - $mod;
 }
 
+// Function to get the current bazaar ID
+function get_current_bazaar_id($conn) {
+    $currentDateTime = date('Y-m-d H:i:s');
+    $sql = "SELECT id FROM bazaar WHERE startReqDate <= '$currentDateTime' AND startDate >= '$currentDateTime' LIMIT 1";
+    $result = $conn->query($sql);
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        return $row['id'];
+    } else {
+        return null;
+    }
+}
+
 // Handle product creation form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
+	$bazaar_id = get_current_bazaar_id($conn);
     $name = $conn->real_escape_string($_POST['name']);
 	$size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
@@ -68,7 +82,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
     } while ($result->num_rows > 0);
 
     // Insert product into the database
-    $sql = "INSERT INTO products (name, size, price, barcode, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$seller_id')";
+    $sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$bazaar_id', '$seller_id')";
     if ($conn->query($sql) === TRUE) {
         echo "<div class='alert alert-success'>Artikel erfolgreich erstellt.</div>";
     } else {
@@ -78,12 +92,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
 
 // Handle product update form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
+	$bazaar_id = get_current_bazaar_id($conn);
     $product_id = $conn->real_escape_string($_POST['product_id']);
     $name = $conn->real_escape_string($_POST['name']);
 	$size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
-    $sql = "UPDATE products SET name='$name', price='$price', size='$size' WHERE id='$product_id' AND seller_id='$seller_id'";
+    $sql = "UPDATE products SET name='$name', price='$price', size='$size', bazaar_id='$bazaar_id' WHERE id='$product_id' AND seller_id='$seller_id'";
     if ($conn->query($sql) === TRUE) {
         echo "<div class='alert alert-success'>Artikel erfolgreich aktualisiert.</div>";
     } else {

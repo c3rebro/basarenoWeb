@@ -1,12 +1,38 @@
-<!-- admin_manage_bazaar.php -->
 <?php
 session_start();
+require_once 'config.php';
+
+if (isset($_POST['action']) && $_POST['action'] === 'fetch_bazaar_data') {
+    $bazaar_id = $_POST['bazaar_id'];
+    $conn = get_db_connection();
+
+    // Fetch products count
+    $products_count_all = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id")->fetch_assoc()['count'];
+    // Fetch sold products count
+    $products_count_sold = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['count'];
+    // Fetch total sum of sold products
+    $total_sum_sold = $conn->query("SELECT SUM(price) as total FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['total'];
+    // Fetch brokerage percentage for the bazaar
+    $brokerage_percentage = $conn->query("SELECT brokerage FROM bazaar WHERE id = $bazaar_id")->fetch_assoc()['brokerage'];
+    // Calculate total brokerage for sold products
+    $total_brokerage = $total_sum_sold * $brokerage_percentage;
+
+    $conn->close();
+
+    echo json_encode([
+        'products_count_all' => $products_count_all,
+        'products_count_sold' => $products_count_sold,
+        'total_sum_sold' => number_format($total_sum_sold, 2, ',', '.') . ' €',
+        'total_brokerage' => number_format($total_brokerage, 2, ',', '.') . ' €'
+    ]);
+    exit;
+}
+
+// The rest of your PHP code
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
     header("location: index.php");
     exit;
 }
-
-require_once 'config.php';
 
 $conn = get_db_connection();
 initialize_database($conn);
@@ -123,7 +149,7 @@ $conn->close();
                             <td><?php echo htmlspecialchars($row['brokerage'] * 100); ?></td>
                             <td>
                                 <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo $row['id']; ?>">Bearbeiten</button>
-                                <button class="btn btn-info btn-sm" data-toggle="modal" data-target="#viewBazaarModal<?php echo $row['id']; ?>">Auswertung</button>
+                                <button class="btn btn-info btn-sm view-bazaar" data-id="<?php echo $row['id']; ?>" data-toggle="modal" data-target="#viewBazaarModal">Auswertung</button>
                                 <!-- Edit Bazaar Modal -->
                                 <div class="modal fade" id="editBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="editBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
                                     <div class="modal-dialog" role="document">
@@ -155,31 +181,6 @@ $conn->close();
                                         </div>
                                     </div>
                                 </div>
-                                <!-- View Bazaar Modal -->
-                                <div class="modal fade" id="viewBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="viewBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
-                                    <div class="modal-dialog" role="document">
-                                        <div class="modal-content">
-                                            <div class="modal-header">
-                                                <h5 class="modal-title" id="viewBazaarModalLabel<?php echo $row['id']; ?>">Bazaar Auswertung</h5>
-                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                                                    <span aria-hidden="true">&times;</span>
-                                                </button>
-                                            </div>
-                                            <div class="modal-body">
-                                                <form>
-                                                    <div class="form-group">
-                                                        <label for="productsCountAll<?php echo $row['id']; ?>">Gesamtzahl aller Artikel:</label>
-                                                        <input type="text" class="form-control" id="productsCountAll<?php echo $row['id']; ?>" value="<?php echo htmlspecialchars($row['products_count_all']); ?>" readonly>
-                                                    </div>
-                                                    <div class="form-group">
-                                                        <label for="productsCountSold<?php echo $row['id']; ?>">Davon verkauft:</label>
-                                                        <input type="text" class="form-control" id="productsCountSold<?php echo $row['id']; ?>" value="<?php echo htmlspecialchars($row['products_count_sold']); ?>" readonly>
-                                                    </div>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
                             </td>
                         </tr>
                     <?php } ?>
@@ -188,8 +189,65 @@ $conn->close();
         </div>
         <a href="dashboard.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zum Dashboard</a>
     </div>
+
+    <!-- View Bazaar Modal -->
+    <div class="modal fade" id="viewBazaarModal" tabindex="-1" role="dialog" aria-labelledby="viewBazaarModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="viewBazaarModalLabel">Bazaar Auswertung</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form>
+                        <div class="form-group">
+                            <label for="productsCountAll">Gesamtzahl aller Artikel:</label>
+                            <input type="text" class="form-control" id="productsCountAll" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label for="productsCountSold">Davon verkauft:</label>
+                            <input type="text" class="form-control" id="productsCountSold" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label for="totalSumSold">Gesamtsumme der verkauften Artikel:</label>
+                            <input type="text" class="form-control" id="totalSumSold" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label for="totalBrokerage">Gesamtsumme der Provision:</label>
+                            <input type="text" class="form-control" id="totalBrokerage" readonly>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('.view-bazaar').on('click', function() {
+                var bazaar_id = $(this).data('id');
+                $.ajax({
+                    url: 'admin_manage_bazaar.php',
+                    type: 'POST',
+                    data: {
+                        action: 'fetch_bazaar_data',
+                        bazaar_id: bazaar_id
+                    },
+                    success: function(response) {
+                        var data = JSON.parse(response);
+                        $('#productsCountAll').val(data.products_count_all);
+                        $('#productsCountSold').val(data.products_count_sold);
+                        $('#totalSumSold').val(data.total_sum_sold);
+                        $('#totalBrokerage').val(data.total_brokerage);
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>

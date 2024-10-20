@@ -43,9 +43,7 @@ function initialize_database($conn) {
         id INT AUTO_INCREMENT PRIMARY KEY,
         startDate DATE NOT NULL,
         startReqDate DATE NOT NULL,
-        brokerage DOUBLE,
-        products_count_all INT(11),
-        products_count_sold INT(11)
+        brokerage DOUBLE
     )";
     if ($conn->query($sql) !== TRUE) {
         die("Error creating bazaar table: " . $conn->error);
@@ -56,8 +54,10 @@ function initialize_database($conn) {
         id INT AUTO_INCREMENT PRIMARY KEY,
         hash VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL,
+		last_bazaarId INT(10),
         reserved BOOLEAN DEFAULT FALSE,
         verified BOOLEAN DEFAULT FALSE,
+		checkout BOOLEAN DEFAULT FALSE,
         verification_token VARCHAR(255),
         family_name VARCHAR(255) NOT NULL,
         given_name VARCHAR(255) NOT NULL,
@@ -74,6 +74,7 @@ function initialize_database($conn) {
     // Create the products table if it doesn't exist
     $sql = "CREATE TABLE IF NOT EXISTS products (
         id INT AUTO_INCREMENT PRIMARY KEY,
+		bazaar_id INT(10),
         name VARCHAR(255) NOT NULL,
         size VARCHAR(255) NOT NULL,
         price DOUBLE NOT NULL,
@@ -104,15 +105,19 @@ function initialize_database($conn) {
     return $row['count'] == 0;
 }
 
-// Function to send verification email using PHP's mail function
-function send_verification_email($to, $subject, $body) {
-    $headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\n";
-    $headers .= "MIME-Version: 1.0
-";
-    $headers .= "Content-Type: text/html; charset=UTF-8
-";
+// Function to encode the subject to handle non-ASCII characters
+function encode_subject($subject) {
+    return '=?UTF-8?B?' . base64_encode($subject) . '?=';
+}
 
-    if (mail($to, $subject, $body, $headers)) {
+// Function to send verification email using PHP's mail function
+function send_email($to, $subject, $body) {
+	$headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\r\n"; 
+	$headers .= "Reply-to: " . SMTP_FROM . "\r\n";
+	$headers .= "MIME-Version: 1.0\r\n";
+	$headers .= "Content-Type: text/html; charset=utf-8";
+
+    if (mail($to, encode_subject($subject), $body, $headers, "-f " . SMTP_FROM)) {
         return true;
     } else {
         return 'Mail Error: Unable to send email.';
