@@ -54,7 +54,6 @@ function initialize_database($conn) {
         id INT AUTO_INCREMENT PRIMARY KEY,
         hash VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL,
-		last_bazaarId INT(10),
         reserved BOOLEAN DEFAULT FALSE,
         verified BOOLEAN DEFAULT FALSE,
 		checkout BOOLEAN DEFAULT FALSE,

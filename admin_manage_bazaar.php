@@ -40,6 +40,14 @@ initialize_database($conn);
 $error = '';
 $success = '';
 
+// Function to check for active bazaars
+function has_active_bazaar($conn) {
+    $current_date = date('Y-m-d');
+    $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate <= '$current_date'";
+    $result = $conn->query($sql)->fetch_assoc();
+    return $result['count'] > 0;
+}
+
 // Handle bazaar addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
     $startDate = $_POST['startDate'];
@@ -48,6 +56,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
 
     if (empty($startDate) || empty($startReqDate) || empty($brokerage)) {
         $error = "Alle Felder sind erforderlich.";
+    } elseif (has_active_bazaar($conn)) {
+        $error = "Sie können keinen neuen Bazaar erstellen, bevor der aktuelle Bazaar nicht vorbei ist.";
     } else {
         $brokerage = $brokerage / 100; // Convert percentage to decimal
         $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage) VALUES ('$startDate', '$startReqDate', '$brokerage')";
