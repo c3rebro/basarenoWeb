@@ -2,6 +2,10 @@
 session_start();
 require_once 'config.php';
 
+// Set default sorting options
+$sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'startDate';
+$sortOrder = isset($_GET['sortOrder']) ? $_GET['sortOrder'] : 'DESC';
+
 if (isset($_POST['action']) && $_POST['action'] === 'fetch_bazaar_data') {
     $bazaar_id = $_POST['bazaar_id'];
     $conn = get_db_connection();
@@ -56,15 +60,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
 
     if (empty($startDate) || empty($startReqDate) || empty($brokerage)) {
         $error = "Alle Felder sind erforderlich.";
-    } elseif (has_active_bazaar($conn)) {
-        $error = "Sie können keinen neuen Bazaar erstellen, bevor der aktuelle Bazaar nicht vorbei ist.";
     } else {
-        $brokerage = $brokerage / 100; // Convert percentage to decimal
-        $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage) VALUES ('$startDate', '$startReqDate', '$brokerage')";
-        if ($conn->query($sql) === TRUE) {
-            $success = "Bazaar erfolgreich hinzugefügt.";
+        // Check if a newer bazaar already exists
+        $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate > '$startDate'";
+        $result = $conn->query($sql)->fetch_assoc();
+        if ($result['count'] > 0) {
+            $error = "Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.";
         } else {
-            $error = "Fehler beim Hinzufügen des Bazaars: " . $conn->error;
+            $brokerage = $brokerage / 100; // Convert percentage to decimal
+            $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage) VALUES ('$startDate', '$startReqDate', '$brokerage')";
+            if ($conn->query($sql) === TRUE) {
+                $success = "Bazaar erfolgreich hinzugefügt.";
+            } else {
+                $error = "Fehler beim Hinzufügen des Bazaars: " . $conn->error;
+            }
         }
     }
 }
@@ -89,8 +98,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     }
 }
 
-// Fetch bazaar details
-$sql = "SELECT * FROM bazaar";
+// Handle bazaar removal
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
+    $bazaar_id = $_POST['bazaar_id'];
+
+    $sql = "DELETE FROM bazaar WHERE id='$bazaar_id'";
+    if ($conn->query($sql) === TRUE) {
+        echo json_encode(['status' => 'success']);
+    } else {
+        echo json_encode(['status' => 'error']);
+    }
+    exit;
+}
+
+// Fetch bazaar details with sorting
+$sql = "SELECT * FROM bazaar ORDER BY $sortBy $sortOrder";
 $result = $conn->query($sql);
 
 $conn->close();
@@ -139,6 +161,23 @@ $conn->close();
         </form>
 
         <h3 class="mt-5">Bestehende Bazaars</h3>
+        <div class="form-row">
+            <div class="form-group col-md-3">
+                <label for="sortBy">Sortieren nach:</label>
+                <select class="form-control" id="sortBy">
+                    <option value="startDate" <?php echo $sortBy == 'startDate' ? 'selected' : ''; ?>>Startdatum</option>
+                    <option value="id" <?php echo $sortBy == 'id' ? 'selected' : ''; ?>>ID</option>
+                </select>
+            </div>
+            <div class="form-group col-md-3">
+                <label for="sortOrder">Reihenfolge:</label>
+                <select class="form-control" id="sortOrder">
+                    <option value="DESC" <?php echo $sortOrder == 'DESC' ? 'selected' : ''; ?>>Absteigend</option>
+                    <option value="ASC" <?php echo $sortOrder == 'ASC' ? 'selected' : ''; ?>>Aufsteigend</option>
+                </select>
+            </div>
+        </div>
+
         <div class="table-responsive">
             <table class="table table-bordered mt-3">
                 <thead>
@@ -150,9 +189,9 @@ $conn->close();
                         <th>Aktionen</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="bazaarTable">
                     <?php while ($row = $result->fetch_assoc()) { ?>
-                        <tr>
+                        <tr id="bazaar-<?php echo $row['id']; ?>">
                             <td><?php echo htmlspecialchars($row['id']); ?></td>
                             <td><?php echo htmlspecialchars($row['startDate']); ?></td>
                             <td><?php echo htmlspecialchars($row['startReqDate']); ?></td>
@@ -160,6 +199,7 @@ $conn->close();
                             <td>
                                 <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo $row['id']; ?>">Bearbeiten</button>
                                 <button class="btn btn-info btn-sm view-bazaar" data-id="<?php echo $row['id']; ?>" data-toggle="modal" data-target="#viewBazaarModal">Auswertung</button>
+                                <button class="btn btn-danger btn-sm remove-bazaar" data-id="<?php echo $row['id']; ?>">Entfernen</button>
                                 <!-- Edit Bazaar Modal -->
                                 <div class="modal fade" id="editBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="editBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
                                     <div class="modal-dialog" role="document">
@@ -234,11 +274,59 @@ $conn->close();
         </div>
     </div>
 
+    <!-- Error Modal -->
+    <div class="modal fade" id="errorModal" tabindex="-1" role="dialog" aria-labelledby="errorModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="errorModalLabel">Fehler</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
     <script>
         $(document).ready(function() {
+            // Handle removal of bazaar
+            $('.remove-bazaar').on('click', function() {
+                var bazaarId = $(this).data('id');
+                
+                if (confirm('Sind Sie sicher, dass Sie diesen Bazaar entfernen möchten?')) {
+                    $.ajax({
+                        url: 'admin_manage_bazaar.php',
+                        type: 'POST',
+                        data: {
+                            remove_bazaar: true,
+                            bazaar_id: bazaarId
+                        },
+                        success: function(response) {
+                            var data = JSON.parse(response);
+                            if (data.status === 'success') {
+                                $('#bazaar-' + bazaarId).remove();
+                            } else {
+                                alert('Fehler beim Entfernen des Bazaars.');
+                            }
+                        },
+                        error: function() {
+                            alert('Fehler beim Entfernen des Bazaars.');
+                        }
+                    });
+                }
+            });
+
+            // Handle viewing bazaar details
             $('.view-bazaar').on('click', function() {
                 var bazaar_id = $(this).data('id');
                 $.ajax({
@@ -256,6 +344,13 @@ $conn->close();
                         $('#totalBrokerage').val(data.total_brokerage);
                     }
                 });
+            });
+
+            // Handle sorting changes
+            $('#sortBy, #sortOrder').on('change', function() {
+                var sortBy = $('#sortBy').val();
+                var sortOrder = $('#sortOrder').val();
+                window.location.href = 'admin_manage_bazaar.php?sortBy=' + sortBy + '&sortOrder=' + sortOrder;
             });
         });
     </script>
