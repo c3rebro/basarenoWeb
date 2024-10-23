@@ -42,6 +42,10 @@ if ($result->num_rows == 0) {
     exit();
 }
 
+// Fetch the seller to get the checkout_id
+$seller = $result->fetch_assoc();
+$checkout_id = $seller['checkout_id'];
+
 $sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
 $result = $conn->query($sql);
 
@@ -68,20 +72,41 @@ $conn->close();
             border: 1px solid black;
             width: 8cm;
             height: 6cm;
-            text-align: center;
-            vertical-align: middle;
+            text-align: left;
+            vertical-align: top;
             padding: 5px;
+            position: relative;
         }
         .barcode-digits {
             font-family: Arial, sans-serif;
             font-size: 14px;
             margin-top: 5px;
+            text-align: center;
         }
-        .seller-id, .product-name, .price {
+        .seller-id {
             font-size: 22px; /* Default text size */
+            padding-top: 5px; /* Padding for top */
+            padding-left: 5px; /* Padding for left */
+        }
+        .product-name, .price {
+            font-size: 22px; /* Default text size */
+            padding-left: 5px; /* Padding for left */
         }
         .product-name {
             color: darkred; /* Default color for product name */
+        }
+        .checkout-id {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            font-size: 30px; /* Larger text size for checkout ID */
+            font-weight: bold;
+            padding-top: 5px; /* Padding for top */
+            padding-right: 10px; /* Padding for right */
+        }
+        .barcode-container {
+            text-align: center;
+            margin-top: 10px;
         }
         @media print {
             body {
@@ -92,9 +117,10 @@ $conn->close();
                 border: 1px solid black;
                 width: 8cm;
                 height: 6cm;
-                text-align: center;
-                vertical-align: middle;
+                text-align: left;
+                vertical-align: top;
                 padding: 5px;
+                position: relative;
             }
         }
     </style>
@@ -114,7 +140,7 @@ $conn->close();
                     // Generate the barcode
                     $barcode_data = encode($product['barcode'], 'EAN13', true);
                     // Adjust the width and height as needed
-                    $barcode_image = generate_barcode_image(barcode($barcode_data), 3, 150); // Example: 4px width, 200px height
+                    $barcode_image = generate_barcode_image(barcode($barcode_data), 3, 150); // Example: 3px width, 150px height
 
                     if (DEBUG) {
                         debug_log("Generating barcode for product: " . $product['name']);
@@ -126,11 +152,14 @@ $conn->close();
                     $barcode_base64 = base64_encode($barcode_image);
                 ?>
                     <td>
+                        <div class="checkout-id"><?php echo $checkout_id; ?></div>
                         <div class="seller-id">Verkäufernummer: <strong><?php echo $seller_id; ?></strong></div>
                         <div class="product-name"><strong><?php echo $product['name']; ?></strong> Größe: <?php echo $product['size']; ?></div>
                         <div class="price">Preis: <?php echo number_format($product['price'], 2, ',', '.'); ?> €</div>
-                        <img src="data:image/png;base64,<?php echo $barcode_base64; ?>" alt="Barcode"><br>
-                        <div class="barcode-digits"><?php echo $product['barcode']; ?></div>
+                        <div class="barcode-container">
+                            <img src="data:image/png;base64,<?php echo $barcode_base64; ?>" alt="Barcode"><br>
+                            <div class="barcode-digits"><?php echo $product['barcode']; ?></div>
+                        </div>
                     </td>
                 <?php
                     $counter++;

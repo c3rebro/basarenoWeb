@@ -67,8 +67,17 @@ $result = $conn->query($sql);
 if ($result->num_rows > 0) {
     $row = $result->fetch_assoc();
     $brokerage = $row['brokerage'];
+	
+    $sql = "UPDATE sellers SET checkout=TRUE WHERE id='$seller_id'";
+    if ($conn->query($sql) === TRUE) {
+        $success = "Verkäufer erfolgreich ausgecheckt.";
+        debug_log("Seller checked out: ID=$seller_id");
+    } else {
+        $error = "Fehler beim Auschecken des Verkäufers: " . $conn->error;
+        debug_log("Error checking out seller: " . $conn->error);
+    }
 } else {
-    echo "Kein aktueller Bazaar gefunden.";
+    echo "Es wurde kein Bazaar gefunden, der abgerechnet werden kann.<br>Läuft der aktuelle Basar eventuell noch? (siehe Startdatum)";
     exit;
 }
 

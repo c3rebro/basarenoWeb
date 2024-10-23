@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
 
             // Set verification token to NULL and verified to 1
             $verification_token = NULL;
-            $verified = 1;
+            $verified = 0;
 
             $sql = "INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, hash, verified) 
                     VALUES ('$seller_id', '$email', '$reserved', '$verification_token', '$family_name', '$given_name', '$phone', '$street', '$house_number', '$zip', '$city', '$hash', '$verified')";

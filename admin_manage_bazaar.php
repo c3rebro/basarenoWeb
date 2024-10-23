@@ -57,22 +57,44 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
     $startDate = $_POST['startDate'];
     $startReqDate = $_POST['startReqDate'];
     $brokerage = $_POST['brokerage'];
+    $min_price = $_POST['min_price'];
+    $price_stepping = $_POST['price_stepping'];
+    $max_sellers = $_POST['max_sellers'];
+    $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
+    $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
-    if (empty($startDate) || empty($startReqDate) || empty($brokerage)) {
+    if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
         // Check if a newer bazaar already exists
-        $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate > '$startDate'";
-        $result = $conn->query($sql)->fetch_assoc();
+        $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate > ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $startDate);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
         if ($result['count'] > 0) {
             $error = "Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.";
         } else {
+            // Handle deletion of sellers with no consent
+            $delete_sellers_sql = "SELECT id FROM sellers WHERE consent = 0";
+            $delete_sellers_result = $conn->query($delete_sellers_sql);
+            while ($seller = $delete_sellers_result->fetch_assoc()) {
+                $seller_id = $seller['id'];
+                $conn->query("DELETE FROM products WHERE seller_id = $seller_id");
+                $conn->query("DELETE FROM sellers WHERE id = $seller_id");
+            }
+
+            // Reset all checkout_id's to 0
+            $conn->query("UPDATE sellers SET checkout_id = 0");
+
             $brokerage = $brokerage / 100; // Convert percentage to decimal
-            $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage) VALUES ('$startDate', '$startReqDate', '$brokerage')";
-            if ($conn->query($sql) === TRUE) {
+            $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("sssddiss", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid);
+            if ($stmt->execute()) {
                 $success = "Bazaar erfolgreich hinzugefügt.";
             } else {
-                $error = "Fehler beim Hinzufügen des Bazaars: " . $conn->error;
+                $error = "Fehler beim Hinzufügen des Bazaars: " . $stmt->error;
             }
         }
     }
@@ -84,16 +106,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     $startDate = $_POST['startDate'];
     $startReqDate = $_POST['startReqDate'];
     $brokerage = $_POST['brokerage'];
+    $min_price = $_POST['min_price'];
+    $price_stepping = $_POST['price_stepping'];
+    $max_sellers = $_POST['max_sellers'];
+    $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
+    $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
-    if (empty($startDate) || empty($startReqDate) || empty($brokerage)) {
+    if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
         $brokerage = $brokerage / 100; // Convert percentage to decimal
-        $sql = "UPDATE bazaar SET startDate='$startDate', startReqDate='$startReqDate', brokerage='$brokerage' WHERE id='$bazaar_id'";
-        if ($conn->query($sql) === TRUE) {
+        $sql = "UPDATE bazaar SET startDate=?, startReqDate=?, brokerage=?, min_price=?, price_stepping=?, max_sellers=?, mailtxt_reqnewsellerid=?, mailtxt_reqexistingsellerid=? WHERE id=?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $bazaar_id);
+        if ($stmt->execute()) {
             $success = "Bazaar erfolgreich aktualisiert.";
         } else {
-            $error = "Fehler beim Aktualisieren des Bazaars: " . $conn->error;
+            $error = "Fehler beim Aktualisieren des Bazaars: " . $stmt->error;
         }
     }
 }
@@ -133,7 +162,27 @@ $conn->close();
                 overflow-x: auto;
             }
         }
+        .expander {
+            margin-bottom: 1rem;
+        }
+        .expander-header {
+            cursor: pointer;
+            background-color: #f8f9fa;
+            padding: 0.5rem;
+            border: 1px solid #ced4da;
+            border-radius: 0.25rem;
+        }
+        .expander-content {
+            display: none;
+            padding: 0.5rem;
+            border: 1px solid #ced4da;
+            border-top: none;
+            border-radius: 0 0 0.25rem 0.25rem;
+        }
     </style>
+    <script src="js/jquery-3.7.1.min.js"></script>
+    <script src="js/popper.min.js"></script>
+    <script src="js/bootstrap.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -152,11 +201,126 @@ $conn->close();
                     <label for="startReqDate">Anforderungsdatum:</label>
                     <input type="date" class="form-control" id="startReqDate" name="startReqDate" required>
                 </div>
-                <div class="form-group col-md-4">
+            </div>
+            <div class="form-row">
+                <div class="form-group col-md-3">
                     <label for="brokerage">Provision (%):</label>
                     <input type="number" step="0.01" class="form-control" id="brokerage" name="brokerage" required>
                 </div>
+                <div class="form-group col-md-3">
+                    <label for="min_price">Mindestpreis (€):</label>
+                    <input type="number" step="0.01" class="form-control" id="min_price" name="min_price" required>
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="max_sellers">Maximale Verkäufer:</label>
+                    <input type="number" class="form-control" id="max_sellers" name="max_sellers" required>
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="price_stepping">Preisabstufung (€):</label>
+                    <select class="form-control" id="price_stepping" name="price_stepping" required>
+                        <option value="0.01">0.01</option>
+                        <option value="0.1">0.1</option>
+                        <option value="0.2">0.2</option>
+                        <option value="0.25">0.25</option>
+                        <option value="0.5">0.5</option>
+                        <option value="1.0">1.0</option>
+                    </select>
+                </div>
             </div>
+            <div class="expander">
+                <div class="expander-header">
+                    Mailtext für neue Verkäufer-ID
+                </div>
+                <div class="expander-content">
+                    <div class="form-group">
+                        <label for="mailtxt_reqnewsellerid">HTML Text mit Platzhaltern:</label>
+                        <textarea class="form-control" id="mailtxt_reqnewsellerid" name="mailtxt_reqnewsellerid" rows="10" required></textarea>
+                    </div>
+                    <div class="expander">
+                        <div class="expander-header">
+                            Beschreibung und Beispiel
+                        </div>
+                        <div class="expander-content">
+                            <p>Verfügbare Platzhalter:</p>
+                            <ul>
+                                <li><code>{BASE_URI}</code>: Basis-URL der Anwendung</li>
+                                <li><code>{given_name}</code>: Vorname des Benutzers</li>
+                                <li><code>{family_name}</code>: Nachname des Benutzers</li>
+                                <li><code>{verification_link}</code>: Verifizierungslink</li>
+                                <li><code>{seller_id}</code>: Verkäufer-ID</li>
+                                <li><code>{hash}</code>: Sicherer Hash</li>
+                            </ul>
+                            <p>Beispiel:</p>
+                            <pre><code>&lt;html&gt;&lt;body&gt;
+&lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:&lt;/p&gt;
+&lt;p&gt;&lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.basar-horrheim.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@basar-horrheim.de'&gt;basarteam@basar-horrheim.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0177 977 6225 melden.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt; 
+&lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
+&lt;p&gt;das Basarteam&lt;/p&gt;
+&lt;/body&gt;&lt;/html&gt;
+                            </code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="expander">
+                <div class="expander-header">
+                    Mailtext für bestehende Verkäufer-ID
+                </div>
+                <div class="expander-content">
+                    <div class="form-group">
+                        <label for="mailtxt_reqexistingsellerid">HTML Text mit Platzhaltern:</label>
+                        <textarea class="form-control" id="mailtxt_reqexistingsellerid" name="mailtxt_reqexistingsellerid" rows="10" required></textarea>
+                    </div>
+                    <div class="expander">
+                        <div class="expander-header">
+                            Beschreibung und Beispiel
+                        </div>
+                        <div class="expander-content">
+                            <p>Verfügbare Platzhalter:</p>
+                            <ul>
+                                <li><code>{BASE_URI}</code>: Basis-URL der Anwendung</li>
+                                <li><code>{given_name}</code>: Vorname des Benutzers</li>
+                                <li><code>{family_name}</code>: Nachname des Benutzers</li>
+                                <li><code>{verification_link}</code>: Verifizierungslink</li>
+                                <li><code>{seller_id}</code>: Verkäufer-ID</li>
+                                <li><code>{hash}</code>: Sicherer Hash</li>
+                            </ul>
+                            <p>Beispiel:</p>
+                            <pre><code>&lt;html&gt;&lt;body&gt;
+&lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
+&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.basar-horrheim.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@basar-horrheim.de'&gt;basarteam@basar-horrheim.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0177 977 6225 melden.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt; 
+&lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
+&lt;p&gt;das Basarteam&lt;/p&gt;
+&lt;/body&gt;&lt;/html&gt;
+                            </code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-primary btn-block" name="add_bazaar">Bazaar hinzufügen</button>
         </form>
 
@@ -186,6 +350,9 @@ $conn->close();
                         <th>Startdatum</th>
                         <th>Anforderungsdatum</th>
                         <th>Provision (%)</th>
+                        <th>Mindestpreis (€)</th>
+                        <th>Preisabstufung (€)</th>
+                        <th>Maximale Verkäufer</th>
                         <th>Aktionen</th>
                     </tr>
                 </thead>
@@ -196,6 +363,9 @@ $conn->close();
                             <td><?php echo htmlspecialchars($row['startDate']); ?></td>
                             <td><?php echo htmlspecialchars($row['startReqDate']); ?></td>
                             <td><?php echo htmlspecialchars($row['brokerage'] * 100); ?></td>
+                            <td><?php echo htmlspecialchars($row['min_price']); ?></td>
+                            <td><?php echo htmlspecialchars($row['price_stepping']); ?></td>
+                            <td><?php echo htmlspecialchars($row['max_sellers']); ?></td>
                             <td>
                                 <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo $row['id']; ?>">Bearbeiten</button>
                                 <button class="btn btn-info btn-sm view-bazaar" data-id="<?php echo $row['id']; ?>" data-toggle="modal" data-target="#viewBazaarModal">Auswertung</button>
@@ -224,6 +394,33 @@ $conn->close();
                                                     <div class="form-group">
                                                         <label for="brokerage<?php echo $row['id']; ?>">Provision (%):</label>
                                                         <input type="number" step="0.01" class="form-control" id="brokerage<?php echo $row['id']; ?>" name="brokerage" value="<?php echo htmlspecialchars($row['brokerage'] * 100); ?>" required>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="min_price<?php echo $row['id']; ?>">Mindestpreis (€):</label>
+                                                        <input type="number" step="0.01" class="form-control" id="min_price<?php echo $row['id']; ?>" name="min_price" value="<?php echo htmlspecialchars($row['min_price']); ?>" required>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="max_sellers<?php echo $row['id']; ?>">Maximale Verkäufer:</label>
+                                                        <input type="number" class="form-control" id="max_sellers<?php echo $row['id']; ?>" name="max_sellers" value="<?php echo htmlspecialchars($row['max_sellers']); ?>" required>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="price_stepping<?php echo $row['id']; ?>">Preisabstufung (€):</label>
+                                                        <select class="form-control" id="price_stepping<?php echo $row['id']; ?>" name="price_stepping" required>
+                                                            <option value="0.01" <?php echo $row['price_stepping'] == '0.01' ? 'selected' : ''; ?>>0.01</option>
+                                                            <option value="0.1" <?php echo $row['price_stepping'] == '0.1' ? 'selected' : ''; ?>>0.1</option>
+                                                            <option value="0.2" <?php echo $row['price_stepping'] == '0.2' ? 'selected' : ''; ?>>0.2</option>
+                                                            <option value="0.25" <?php echo $row['price_stepping'] == '0.25' ? 'selected' : ''; ?>>0.25</option>
+                                                            <option value="0.5" <?php echo $row['price_stepping'] == '0.5' ? 'selected' : ''; ?>>0.5</option>
+                                                            <option value="1.0" <?php echo $row['price_stepping'] == '1.0' ? 'selected' : ''; ?>>1.0</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="mailtxt_reqnewsellerid<?php echo $row['id']; ?>">Mailtext für neue Verkäufer-ID:</label>
+                                                        <textarea class="form-control" id="mailtxt_reqnewsellerid<?php echo $row['id']; ?>" name="mailtxt_reqnewsellerid" rows="10" required><?php echo htmlspecialchars($row['mailtxt_reqnewsellerid']); ?></textarea>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="mailtxt_reqexistingsellerid<?php echo $row['id']; ?>">Mailtext für bestehende Verkäufer-ID:</label>
+                                                        <textarea class="form-control" id="mailtxt_reqexistingsellerid<?php echo $row['id']; ?>" name="mailtxt_reqexistingsellerid" rows="10" required><?php echo htmlspecialchars($row['mailtxt_reqexistingsellerid']); ?></textarea>
                                                     </div>
                                                     <button type="submit" class="btn btn-primary btn-block" name="edit_bazaar">Speichern</button>
                                                 </form>
@@ -293,12 +490,17 @@ $conn->close();
             </div>
         </div>
     </div>
-
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
     <script>
         $(document).ready(function() {
+            // Handle expander
+            $('.expander-header').on('click', function(event) {
+                // Prevent the click event from bubbling up
+                event.stopPropagation();
+                
+                // Toggle the next expander content
+                $(this).next('.expander-content').slideToggle();
+            });
+            
             // Handle removal of bazaar
             $('.remove-bazaar').on('click', function() {
                 var bazaarId = $(this).data('id');

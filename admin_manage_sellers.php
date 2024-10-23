@@ -161,10 +161,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
 
 // Handle product update
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
-	$bazaar_id = get_current_bazaar_id($conn);
+    $bazaar_id = get_current_bazaar_id($conn);
     $product_id = $conn->real_escape_string($_POST['product_id']);
     $name = $conn->real_escape_string($_POST['name']);
-	$size = $conn->real_escape_string($_POST['size']);
+    $size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
     $sql = "UPDATE products SET name='$name', size='$size', price='$price', bazaar_id='$bazaar_id' WHERE id='$product_id'";
@@ -174,19 +174,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
     } else {
         $error = "Fehler beim Aktualisieren des Produkts: " . $conn->error;
         debug_log("Error updating product: " . $conn->error);
-    }
-}
-
-// Handle seller checkout
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout_seller'])) {
-    $seller_id = $conn->real_escape_string($_POST['seller_id']);
-    $sql = "UPDATE sellers SET checkout=TRUE WHERE id='$seller_id'";
-    if ($conn->query($sql) === TRUE) {
-        $success = "Verkäufer erfolgreich ausgecheckt.";
-        debug_log("Seller checked out: ID=$seller_id");
-    } else {
-        $error = "Fehler beim Auschecken des Verkäufers: " . $conn->error;
-        debug_log("Error checking out seller: " . $conn->error);
     }
 }
 
@@ -236,6 +223,11 @@ $conn->close();
         .done {
             background-color: #d4edda; /* Light green background */
         }
+        @media print {
+            @page {
+                size: landscape;
+            }
+        }
     </style>
 </head>
 <body>
@@ -247,9 +239,45 @@ $conn->close();
         <h3 class="mt-5">Neuen Verkäufer hinzufügen</h3>
         <form action="admin_manage_sellers.php" method="post">
             <div class="form-row">
-                <!-- Form fields for adding a new seller -->
+                 <div class="form-group col-md-3">
+                    <label for="family_name">Nachname:</label>
+                    <input type="text" class="form-control" id="family_name" name="family_name" required>
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="given_name">Vorname:</label>
+                    <input type="text" class="form-control" id="given_name" name="given_name">
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="email">E-Mail:</label>
+                    <input type="email" class="form-control" id="email" name="email" required>
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="phone">Telefon:</label>
+                    <input type="text" class="form-control" id="phone" name="phone">
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="street">Straße:</label>
+                    <input type="text" class="form-control" id="street" name="street">
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="house_number">Hausnummer:</label>
+                    <input type="text" class="form-control" id="house_number" name="house_number">
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="zip">PLZ:</label>
+                    <input type="text" class="form-control" id="zip" name="zip">
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="city">Stadt:</label>
+                    <input type="text" class="form-control" id="city" name="city">
+                </div>
+                <div class="form-group col-md-3">
+                    <label for="verified">Verifiziert:</label>
+                    <input type="checkbox" class="form-control" id="verified" name="verified">
+                </div>
             </div>
             <button type="submit" class="btn btn-primary btn-block" name="add_seller">Verkäufer hinzufügen</button>
+            <button type="button" class="btn btn-secondary btn-block" id="printVerifiedSellers">Verkäuferliste drucken</button>
         </form>
 
         <h3 class="mt-5">Verkäuferliste</h3>
@@ -266,7 +294,8 @@ $conn->close();
             <table class="table table-bordered mt-3">
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th>Verk.Nr.</th>
+						<th>Abr.Nr.</th>
                         <th>Nachname</th>
                         <th>Vorname</th>
                         <th>E-Mail</th>
@@ -282,6 +311,7 @@ $conn->close();
                             $checkout_class = $row['checkout'] ? 'done' : '';
                             echo "<tr class='$checkout_class'>
                                     <td>{$row['id']}</td>
+									<td>{$row['checkout_id']}</td>
                                     <td>{$row['family_name']}</td>
                                     <td>{$row['given_name']}</td>
                                     <td>{$row['email']}</td>
@@ -328,8 +358,125 @@ $conn->close();
         <a href="dashboard.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zum Dashboard</a>
     </div>
 
-    <!-- Modals for edit seller, edit product, and confirm delete -->
-    <!-- Include your modals here -->
+    <!-- Edit Seller Modal -->
+    <div class="modal fade" id="editSellerModal" tabindex="-1" role="dialog" aria-labelledby="editSellerModalLabel" aria-hidden="true"> 
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <form action="admin_manage_sellers.php" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editSellerModalLabel">Verkäufer bearbeiten</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="seller_id" id="editSellerId">
+                        <div class="form-group">
+                            <label for="editSellerIdDisplay">Verkäufer-ID:</label>
+                            <input type="text" class="form-control" id="editSellerIdDisplay" name="seller_id_display" disabled>
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerFamilyName">Nachname:</label>
+                            <input type="text" class="form-control" id="editSellerFamilyName" name="family_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerGivenName">Vorname:</label>
+                            <input type="text" class="form-control" id="editSellerGivenName" name="given_name">
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerEmail">E-Mail:</label>
+                            <input type="email" class="form-control" id="editSellerEmail" name="email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerPhone">Telefon:</label>
+                            <input type="text" class="form-control" id="editSellerPhone" name="phone">
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerStreet">Straße:</label>
+                            <input type="text" class="form-control" id="editSellerStreet" name="street">
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerHouseNumber">Hausnummer:</label>
+                            <input type="text" class="form-control" id="editSellerHouseNumber" name="house_number">
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerZip">PLZ:</label>
+                            <input type="text" class="form-control" id="editSellerZip" name="zip">
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerCity">Stadt:</label>
+                            <input type="text" class="form-control" id="editSellerCity" name="city">
+                        </div>
+                        <div class="form-group">
+                            <label for="editSellerVerified">Verifiziert:</label>
+                            <input type="checkbox" class="form-control" id="editSellerVerified" name="verified">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
+                        <button type="submit" class="btn btn-primary" name="edit_seller">Änderungen speichern</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Product Modal -->
+    <div class="modal fade" id="editProductModal" tabindex="-1" role="dialog" aria-labelledby="editProductModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <form action="admin_manage_sellers.php" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editProductModalLabel">Produkt bearbeiten</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="product_id" id="editProductId">
+                        <div class="form-group">
+                            <label for="editProductName">Produktname:</label>
+                            <input type="text" class="form-control" id="editProductName" name="name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="editProductSize">Größe:</label>
+                            <input type="text" class="form-control" id="editProductSize" name="size">
+                        </div>
+                        <div class="form-group">
+                            <label for="editProductPrice">Preis:</label>
+                            <input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
+                        <button type="submit" class="btn btn-primary" name="update_product">Änderungen speichern</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Delete Seller Modal -->
+    <div class="modal fade" id="confirmDeleteModal" tabindex="-1" role="dialog" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmDeleteModalLabel">Verkäufer löschen</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Dieser Verkäufer hat noch Produkte. Möchten Sie wirklich fortfahren und alle Produkte löschen?</p>
+                    <input type="hidden" id="confirmDeleteSellerId">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteButton">Verkäufer und Produkte löschen</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
@@ -413,9 +560,7 @@ $conn->close();
                 window.location.href = `seller_products.php?seller_id=${sellerId}&hash=${hash}`;
             } else if (action === 'checkout') {
                 if (confirm('Möchten Sie diesen Verkäufer wirklich auschecken?')) {
-                    $.post('admin_manage_sellers.php', { checkout_seller: true, seller_id: sellerId }, function(response) {
-                        window.location.href = `checkout.php?seller_id=${sellerId}&hash=${hash}`;
-                    });
+                    window.location.href = `checkout.php?seller_id=${sellerId}&hash=${hash}`;
                 }
             }
         });
@@ -430,6 +575,26 @@ $conn->close();
         $('#filter').on('change', function() {
             const filter = $(this).val();
             window.location.href = `admin_manage_sellers.php?filter=${filter}`;
+        });
+
+        $('#printVerifiedSellers').on('click', function() {
+            $.ajax({
+                url: 'print_verified_sellers.php',
+                method: 'GET',
+                success: function(response) {
+                    const printWindow = window.open('', '', 'height=600,width=800');
+                    printWindow.document.write('<html><head><title>Verifizierte Verkäufer</title>');
+                    printWindow.document.write('<link href="css/bootstrap.min.css" rel="stylesheet">');
+                    printWindow.document.write('</head><body>');
+                    printWindow.document.write(response);
+                    printWindow.document.write('</body></html>');
+                    printWindow.document.close();
+                    printWindow.print();
+                },
+                error: function() {
+                    alert('Fehler beim Laden der verifizierten Verkäufer.');
+                }
+            });
         });
     </script>
 </body>

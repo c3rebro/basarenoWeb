@@ -65,44 +65,87 @@ function get_current_bazaar_id($conn) {
     }
 }
 
+// Function to get bazaar pricing rules
+function get_bazaar_pricing_rules($conn, $bazaar_id) {
+    $sql = "SELECT min_price, price_stepping FROM bazaar WHERE id='$bazaar_id'";
+    $result = $conn->query($sql);
+    if ($result->num_rows > 0) {
+        return $result->fetch_assoc();
+    } else {
+        return null;
+    }
+}
+
 // Handle product creation form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
-	$bazaar_id = get_current_bazaar_id($conn);
+    $bazaar_id = get_current_bazaar_id($conn);
     $name = $conn->real_escape_string($_POST['name']);
-	$size = $conn->real_escape_string($_POST['size']);
+    $size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
-    // Generate a unique EAN-13 barcode
-    do {
-        $barcode = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT) . str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT); // Ensure 12-digit barcode as string
-        $checkDigit = calculateCheckDigit($barcode);
-        $barcode .= $checkDigit; // Append the check digit to make it a valid EAN-13 barcode
-        $sql = "SELECT id FROM products WHERE barcode='$barcode'";
-        $result = $conn->query($sql);
-    } while ($result->num_rows > 0);
+    $rules = get_bazaar_pricing_rules($conn, $bazaar_id);
+    $min_price = $rules['min_price'];
+    $price_stepping = $rules['price_stepping'];
 
-    // Insert product into the database
-    $sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$bazaar_id', '$seller_id')";
-    if ($conn->query($sql) === TRUE) {
-        echo "<div class='alert alert-success'>Artikel erfolgreich erstellt.</div>";
+    // Validate price
+    if ($price < $min_price) {
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelector('#priceValidationModal .modal-body').textContent = 'Der eingegebene Preis ist niedriger als der Mindestpreis von ' + $min_price + ' €.';
+                $('#priceValidationModal').modal('show');
+            });
+        </script>";
+    } elseif (fmod($price, $price_stepping) != 0) {
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelector('#priceValidationModal .modal-body').textContent = 'Der Preis muss in Schritten von ' + $price_stepping + ' € eingegeben werden.';
+                $('#priceValidationModal').modal('show');
+            });
+        </script>";
     } else {
-        echo "<div class='alert alert-danger'>Fehler beim Erstellen des Artikels: " . $conn->error . "</div>";
+        // Generate a unique EAN-13 barcode
+        do {
+            $barcode = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT) . str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT); // Ensure 12-digit barcode as string
+            $checkDigit = calculateCheckDigit($barcode);
+            $barcode .= $checkDigit; // Append the check digit to make it a valid EAN-13 barcode
+            $sql = "SELECT id FROM products WHERE barcode='$barcode'";
+            $result = $conn->query($sql);
+        } while ($result->num_rows > 0);
+
+        // Insert product into the database
+        $sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$bazaar_id', '$seller_id')";
+        if ($conn->query($sql) === TRUE) {
+            echo "<div class='alert alert-success'>Artikel erfolgreich erstellt.</div>";
+        } else {
+            echo "<div class='alert alert-danger'>Fehler beim Erstellen des Artikels: " . $conn->error . "</div>";
+        }
     }
 }
 
 // Handle product update form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
-	$bazaar_id = get_current_bazaar_id($conn);
+    $bazaar_id = get_current_bazaar_id($conn);
     $product_id = $conn->real_escape_string($_POST['product_id']);
     $name = $conn->real_escape_string($_POST['name']);
-	$size = $conn->real_escape_string($_POST['size']);
+    $size = $conn->real_escape_string($_POST['size']);
     $price = $conn->real_escape_string($_POST['price']);
 
-    $sql = "UPDATE products SET name='$name', price='$price', size='$size', bazaar_id='$bazaar_id' WHERE id='$product_id' AND seller_id='$seller_id'";
-    if ($conn->query($sql) === TRUE) {
-        echo "<div class='alert alert-success'>Artikel erfolgreich aktualisiert.</div>";
+    $rules = get_bazaar_pricing_rules($conn, $bazaar_id);
+    $min_price = $rules['min_price'];
+    $price_stepping = $rules['price_stepping'];
+
+    // Validate price
+    if ($price < $min_price) {
+        $update_validation_message = "Der eingegebene Preis ist niedriger als der Mindestpreis von $min_price €.";
+    } elseif (fmod($price, $price_stepping) != 0) {
+        $update_validation_message = "Der Preis muss in Schritten von $price_stepping € eingegeben werden.";
     } else {
-        echo "<div class='alert alert-danger'>Fehler beim Aktualisieren des Artikels: " . $conn->error . "</div>";
+        $sql = "UPDATE products SET name='$name', price='$price', size='$size', bazaar_id='$bazaar_id' WHERE id='$product_id' AND seller_id='$seller_id'";
+        if ($conn->query($sql) === TRUE) {
+            echo "<div class='alert alert-success'>Artikel erfolgreich aktualisiert.</div>";
+        } else {
+            echo "<div class='alert alert-danger'>Fehler beim Aktualisieren des Artikels: " . $conn->error . "</div>";
+        }
     }
 }
 
@@ -164,10 +207,10 @@ $conn->close();
                         <label for="name">Artikelname:</label>
                         <input type="text" class="form-control" id="name" name="name" required>
                     </div>
-					<div class="form-group col-md-4">
+                    <div class="form-group col-md-4">
                         <label for="size">Größe:</label>
                         <input type="text" class="form-control" id="size" name="size">
-                    </div>					
+                    </div>
                     <div class="form-group col-md-4">
                         <label for="price">Preis:</label>
                         <input type="number" class="form-control" id="price" name="price" step="0.01" required>
@@ -184,7 +227,7 @@ $conn->close();
                 <thead>
                     <tr>
                         <th>Artikelname</th>
-						<th>Größe</th>
+                        <th>Größe</th>
                         <th>Preis</th>
                         <th>Aktionen</th>
                     </tr>
@@ -196,7 +239,7 @@ $conn->close();
                             $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
                             echo "<tr>
                                     <td>{$row['name']}</td>
-									<td>{$row['size']}</td>
+                                    <td>{$row['size']}</td>
                                     <td>{$formatted_price}</td>
                                     <td>
                                         <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
@@ -213,7 +256,7 @@ $conn->close();
                     ?>
                 </tbody>
             </table>
-			<form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
+            <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
                 <button type="submit" class="btn btn-danger mb-3" name="delete_all_products">Alle Artikel löschen</button>
             </form>
         </div>
@@ -235,7 +278,7 @@ $conn->close();
                                 <label for="editProductName">Artikelname:</label>
                                 <input type="text" class="form-control" id="editProductName" name="name" required>
                             </div>
-							<div class="form-group">
+                            <div class="form-group">
                                 <label for="editProductSize">Größe:</label>
                                 <input type="text" class="form-control" id="editProductSize" name="size">
                             </div>
@@ -243,12 +286,33 @@ $conn->close();
                                 <label for="editProductPrice">Preis:</label>
                                 <input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" required>
                             </div>
+                            <div id="editProductAlert" class="alert alert-danger d-none"></div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
                             <button type="submit" class="btn btn-primary" name="update_product">Änderungen speichern</button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Price Validation Modal -->
+        <div class="modal fade" id="priceValidationModal" tabindex="-1" role="dialog" aria-labelledby="priceValidationModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="priceValidationModalLabel">Preisvalidierung</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- The message will be set dynamically via JavaScript -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -260,10 +324,26 @@ $conn->close();
         function editProduct(id, name, size, price) {
             $('#editProductId').val(id);
             $('#editProductName').val(name);
-			$('#editProductSize').val(size);
+            $('#editProductSize').val(size);
             $('#editProductPrice').val(price.toFixed(2));
             $('#editProductModal').modal('show');
         }
     </script>
+    <?php if (isset($validation_message)) { ?>
+        <script>
+            $(document).ready(function() {
+                $('#priceValidationModal .modal-body').text('<?php echo $validation_message; ?>');
+                $('#priceValidationModal').modal('show');
+            });
+        </script>
+    <?php } ?>
+    <?php if (isset($update_validation_message)) { ?>
+        <script>
+            $(document).ready(function() {
+                $('#editProductAlert').text('<?php echo $update_validation_message; ?>').removeClass('d-none');
+                $('#editProductModal').modal('show');
+            });
+        </script>
+    <?php } ?>
 </body>
 </html>
