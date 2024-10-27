@@ -93,7 +93,7 @@ $conn->close();
     <style>
 		.scanner-wrapper {
 			width: 100%;
-			height: 400px;
+			height: 200px;
 			overflow: hidden;
 			display: flex;
 			justify-content: center;
@@ -110,8 +110,8 @@ $conn->close();
 		video {
 			width: 90vw;
 		}
-		
-        #scanner-line {
+	
+#scanner-line {
             position: absolute;
             top: 50%;
             left: 0;
