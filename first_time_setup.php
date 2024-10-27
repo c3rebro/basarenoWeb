@@ -1,4 +1,5 @@
 <?php
+// Initialize error and success messages
 $db_error = '';
 $db_success = '';
 $mail_error = '';
@@ -6,24 +7,23 @@ $mail_success = '';
 $setup_error = '';
 $setup_success = '';
 
+// Initialize form variables with POST data or defaults
 $db_host = isset($_POST['db_host']) ? $_POST['db_host'] : '';
 $db_name = isset($_POST['db_name']) ? $_POST['db_name'] : '';
 $db_username = isset($_POST['db_username']) ? $_POST['db_username'] : '';
 $db_password = isset($_POST['db_password']) ? $_POST['db_password'] : '';
-
 $smtp_from = isset($_POST['smtp_from']) ? $_POST['smtp_from'] : '';
 $smtp_from_name = isset($_POST['smtp_from_name']) ? $_POST['smtp_from_name'] : '';
 $admin_email = isset($_POST['admin_email']) ? $_POST['admin_email'] : '';
-
 $admin_username = isset($_POST['admin_username']) ? $_POST['admin_username'] : '';
 $admin_password = isset($_POST['admin_password']) ? $_POST['admin_password'] : '';
-
 $secret = isset($_POST['secret']) ? $_POST['secret'] : 'Of3lG8HGdf452nF653oFG93hGF93hf';
 $base_uri = isset($_POST['base_uri']) ? $_POST['base_uri'] : 'https://www.example.de/bazaar';
 
+// Check if the form is submitted
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Test database connection
     if (isset($_POST['test_db'])) {
-        // Test database connection
         $db_conn = new mysqli($db_host, $db_username, $db_password);
         if ($db_conn->connect_error) {
             $db_error = "Datenbankverbindung fehlgeschlagen: " . $db_conn->connect_error;
@@ -33,13 +33,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
+    // Test mail settings
     if (isset($_POST['test_mail'])) {
-        // Test mail settings
         $subject = "Test-E-Mail";
         $body = "Dies ist eine Test-E-Mail.";
         $headers = "From: " . $smtp_from_name . " <" . $smtp_from . ">\n";
-        $headers .= "MIME-Version: 1.0\n";
-        $headers .= "Content-Type: text/html; charset=UTF-8\n";
+        $headers .= "MIME-Version: 1.0
+";
+        $headers .= "Content-Type: text/html; charset=UTF-8
+";
 
         if (mail($admin_email, $subject, $body, $headers)) {
             $mail_success = "Test-E-Mail erfolgreich gesendet!";
@@ -48,9 +50,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
+    // Complete setup
     if (isset($_POST['complete_setup'])) {
-        // If no errors, create config.php
+        // Ensure no errors before proceeding
         if (!$db_error && !$mail_error) {
+            // Create config.php from template
             $config_content = file_get_contents('config.php.template');
             $config_content = str_replace(
                 ['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>'],
@@ -59,7 +63,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             );
             file_put_contents('config.php', $config_content);
 
-            // Initialize the database
+            // Initialize the database and insert settings
             require_once 'config.php';
             $conn = get_db_connection();
             initialize_database($conn);
@@ -68,8 +72,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $password_hash = password_hash($admin_password, PASSWORD_BCRYPT);
             $sql = "INSERT INTO users (username, password_hash, role) VALUES ('$admin_username', '$password_hash', 'admin')";
             if ($conn->query($sql) === TRUE) {
-                $setup_success = "Administrator-Konto erfolgreich erstellt. Weiterleitung zur Login-Seite...";
-                header("refresh:5;url=index.php");
+                // Insert initial settings including Betriebsart
+                $sql = "INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')";
+                if ($conn->query($sql) !== TRUE) {
+                    $setup_error = "Fehler beim Speichern der Einstellungen: " . $conn->error;
+                } else {
+                    $setup_success = "Ersteinrichtung abgeschlossen. Administrator-Konto erstellt. Weiterleitung zur Login-Seite...";
+                    header("refresh:5;url=index.php");
+                }
             } else {
                 $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . $conn->error;
             }
@@ -87,6 +97,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <title>Ersteinrichtung</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <style>
+        /* Styling for the setup page */
         body {
             background-color: #f8f9fa;
         }
@@ -117,6 +128,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <div class="container">
         <h2 class="text-center mt-3">Ersteinrichtung</h2>
         <p class="text-center">Bitte geben Sie die folgenden Informationen ein, um die Ersteinrichtung abzuschließen.</p>
+        <!-- Display error and success messages -->
         <?php if ($db_error) { echo "<div class='alert alert-danger'>$db_error</div>"; } ?>
         <?php if ($db_success) { echo "<div class='alert alert-success'>$db_success</div>"; } ?>
         <?php if ($mail_error) { echo "<div class='alert alert-danger'>$mail_error</div>"; } ?>
@@ -125,6 +137,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <?php if ($setup_success) { echo "<div class='alert alert-success'>$setup_success</div>"; } ?>
 
         <form action="first_time_setup.php" method="post">
+            <!-- Database settings -->
             <h4>Datenbankeinstellungen</h4>
             <div class="form-group">
                 <label for="db_host">Datenbank-Host:</label>
@@ -144,6 +157,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </div>
             <button type="submit" class="btn btn-secondary" name="test_db">Datenbankverbindung testen</button>
 
+            <!-- Mail settings -->
             <h4>Mail-Einstellungen</h4>
             <div class="form-group">
                 <label for="smtp_from">SMTP Von E-Mail:</label>
@@ -159,6 +173,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </div>
             <button type="submit" class="btn btn-secondary" name="test_mail">Mail-Einstellungen testen</button>
 
+            <!-- Admin account settings -->
             <h4>Administrator-Konto</h4>
             <div class="form-group">
                 <label for="admin_username">Administrator-Benutzername:</label>
@@ -169,6 +184,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <input type="password" class="form-control" id="admin_password" name="admin_password" required value="<?php echo htmlspecialchars($admin_password); ?>">
             </div>
 
+            <!-- Additional settings -->
             <h4>Zusätzliche Einstellungen</h4>
             <div class="form-group">
                 <label for="secret">Geheimnis:</label>
@@ -179,6 +195,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="base_uri">Basis-URI:</label>
                 <input type="text" class="form-control" id="base_uri" name="base_uri" required value="<?php echo htmlspecialchars($base_uri); ?>">
             </div>
+
             <button type="submit" class="btn btn-primary" name="complete_setup">Ersteinrichtung abschließen</button>
         </form>
     </div>

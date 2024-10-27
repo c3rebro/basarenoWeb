@@ -91,28 +91,90 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
     $reserve = isset($_POST['reserve']) ? 1 : 0;
     $use_existing_number = $_POST['use_existing_number'] === 'yes';
     $consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
-			
-    if ($use_existing_number) {
-        $seller_id = $_POST['seller_id'];
-        // Validate seller ID and email
-        $sql = "SELECT id FROM sellers WHERE id='$seller_id' AND email='$email'";
-        $result = $conn->query($sql);
 
-        if ($result->num_rows > 0) {
+    // Check if a seller ID request already exists for this email
+    $sql = "SELECT verification_token, verified FROM sellers WHERE email='$email'";
+    $result = $conn->query($sql);
+    $existing_seller = $result->fetch_assoc();
 
-			// Assign next available checkout_id
-			$sql = "SELECT MAX(checkout_id) AS max_checkout_id FROM sellers";
-			$result = $conn->query($sql);
-			$max_checkout_id = $result->fetch_assoc()['max_checkout_id'];
-			$next_checkout_id = $max_checkout_id + 1;
-			
+    if ($existing_seller) {
+        if (!empty($existing_seller['verification_token'])) {
+            // Show modal for existing seller ID request
+            echo "<script>
+                alert('Eine Verkäufernr-Anfrage wurde bereits generiert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten, oder wenn Sie Probleme haben, Ihre bereits angefragte Nummer frei zu Schalten.');
+            </script>";
+        } elseif ($existing_seller['verified']) {
+            // Show modal for active seller ID
+            echo "<script>
+                alert('Eine Verkäufer Nummer wurde bereits für Sie aktiviert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten.');
+            </script>";
+        }
+    } else {
+        if ($use_existing_number) {
+            $seller_id = $_POST['seller_id'];
+            // Validate seller ID and email
+            $sql = "SELECT id FROM sellers WHERE id='$seller_id' AND email='$email'";
+            $result = $conn->query($sql);
+
+            if ($result->num_rows > 0) {
+
+                // Assign next available checkout_id
+                $sql = "SELECT MAX(checkout_id) AS max_checkout_id FROM sellers";
+                $result = $conn->query($sql);
+                $max_checkout_id = $result->fetch_assoc()['max_checkout_id'];
+                $next_checkout_id = $max_checkout_id + 1;
+
+                // Generate a secure hash using the seller's email and ID
+                $hash = hash('sha256', $email . $seller_id . SECRET);
+                // Send verification email
+                $verification_token = bin2hex(random_bytes(16));
+                // Update existing seller
+                $sql = "UPDATE sellers SET verification_token='$verification_token', verified=0, consent='$consent', checkout_id='$next_checkout_id' WHERE id='$seller_id'";
+
+                if ($conn->query($sql) === TRUE) {
+                    // Send verification email
+                    $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
+                    $subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
+                    $message = str_replace(
+                        ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{seller_id}', '{hash}'],
+                        [BASE_URI, $given_name, $family_name, $verification_link, $seller_id, $hash],
+                        $mailtxt_reqexistingsellerid
+                    );
+                    $send_result = send_email($email, $subject, $message);
+
+                    if ($send_result === true) {
+                        $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
+                    } else {
+                        $seller_message = "Fehler beim Senden der Bestätigungs-E-Mail: $send_result";
+                    }
+                } else {
+                    $seller_message = "Fehler: " . $sql . "<br>" . $conn->error;
+                }
+            } else {
+                $seller_message = "Ungültige Verkäufer-ID oder E-Mail.";
+            }
+        } else {
+            // Generate a random unique ID between 1 and 10000
+            do {
+                $seller_id = rand(1, 10000);
+                $sql = "SELECT id FROM sellers WHERE id='$seller_id'";
+                $result = $conn->query($sql);
+            } while ($result->num_rows > 0);
+
+            // Assign next available checkout_id
+            $sql = "SELECT MAX(checkout_id) AS max_checkout_id FROM sellers";
+            $result = $conn->query($sql);
+            $max_checkout_id = $result->fetch_assoc()['max_checkout_id'];
+            $next_checkout_id = $max_checkout_id + 1;
+
             // Generate a secure hash using the seller's email and ID
             $hash = hash('sha256', $email . $seller_id . SECRET);
-            // Send verification email
-            $verification_token = bin2hex(random_bytes(16));
-            // Update existing seller
-			$sql = "UPDATE sellers SET verification_token='$verification_token', verified=0, consent='$consent', checkout_id='$next_checkout_id' WHERE id='$seller_id'";
 
+            // Generate a verification token
+            $verification_token = bin2hex(random_bytes(16));
+
+            // Insert new seller
+            $sql = "INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, hash, bazaar_id, consent, checkout_id) VALUES ('$seller_id', '$email', '$reserve', '$verification_token', '$family_name', '$given_name', '$phone', '$street', '$house_number', '$zip', '$city', '$hash', '$bazaarId', '$consent', '$next_checkout_id')";
 
             if ($conn->query($sql) === TRUE) {
                 // Send verification email
@@ -121,10 +183,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
                 $message = str_replace(
                     ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{seller_id}', '{hash}'],
                     [BASE_URI, $given_name, $family_name, $verification_link, $seller_id, $hash],
-                    $mailtxt_reqexistingsellerid
+                    $mailtxt_reqnewsellerid
                 );
-                $send_result = send_email($email, $subject, $message);
 
+                $send_result = send_email($email, $subject, $message);
                 if ($send_result === true) {
                     $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
                 } else {
@@ -133,50 +195,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
             } else {
                 $seller_message = "Fehler: " . $sql . "<br>" . $conn->error;
             }
-        } else {
-            $seller_message = "Ungültige Verkäufer-ID oder E-Mail.";
-        }
-    } else {
-        // Generate a random unique ID between 1 and 10000
-        do {
-            $seller_id = rand(1, 10000);
-            $sql = "SELECT id FROM sellers WHERE id='$seller_id'";
-            $result = $conn->query($sql);
-        } while ($result->num_rows > 0);
-
-		// Assign next available checkout_id
-		$sql = "SELECT MAX(checkout_id) AS max_checkout_id FROM sellers";
-		$result = $conn->query($sql);
-		$max_checkout_id = $result->fetch_assoc()['max_checkout_id'];
-		$next_checkout_id = $max_checkout_id + 1;
-
-        // Generate a secure hash using the seller's email and ID
-        $hash = hash('sha256', $email . $seller_id . SECRET);
-
-        // Generate a verification token
-        $verification_token = bin2hex(random_bytes(16));
-
-        // Insert new seller
-		$sql = "INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, hash, bazaar_id, consent, checkout_id) VALUES ('$seller_id', '$email', '$reserve', '$verification_token', '$family_name', '$given_name', '$phone', '$street', '$house_number', '$zip', '$city', '$hash', '$bazaarId', '$consent', '$next_checkout_id')";
-
-        if ($conn->query($sql) === TRUE) {
-            // Send verification email
-            $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
-            $subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
-            $message = str_replace(
-                ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{seller_id}', '{hash}'],
-                [BASE_URI, $given_name, $family_name, $verification_link, $seller_id, $hash],
-                $mailtxt_reqnewsellerid
-            );
-
-            $send_result = send_email($email, $subject, $message);
-            if ($send_result === true) {
-                $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
-            } else {
-                $seller_message = "Fehler beim Senden der Bestätigungs-E-Mail: $send_result";
-            }
-        } else {
-            $seller_message = "Fehler: " . $sql . "<br>" . $conn->error;
         }
     }
 }
@@ -297,6 +315,7 @@ $conn->close();
                         </label>
                     </div>
                 </div>
+                <p>Weitere Hinweise zum Datenschutz und wie wir mit Ihren Daten umgehen, erhalten Sie in unserer <a href='https://www.basar-horrheim.de/index.php/datenschutzerklaerung'>Datenschutzerklärung</a>. Bei Nutzung unserer Dienste erklären Sie sich mit den dort aufgeführen Bedingungen einverstanden.</p>
                 <button type="submit" class="btn btn-primary btn-block" name="request_seller_id">Verkäufer-ID anfordern</button>
             </form>
             <p class="mt-3 text-muted">* Diese Felder sind Pflichtfelder.</p>

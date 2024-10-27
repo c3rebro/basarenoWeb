@@ -66,6 +66,7 @@ $conn->close();
                     <li><a href="admin_manage_users.php">Benutzer verwalten</a></li>
                     <li><a href="admin_manage_bazaar.php">Bazaar verwalten</a></li>
                     <li><a href="admin_manage_sellers.php">Verkäufer verwalten</a></li>
+					<li><a href="system_settings.php">Systemeinstellungen</a></li>
                     <!-- Add more admin-specific links here -->
                 </ul>
             </div>

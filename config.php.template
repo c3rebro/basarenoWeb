@@ -101,10 +101,23 @@ function initialize_database($conn) {
         password_hash VARCHAR(255) NOT NULL,
         role ENUM('admin', 'cashier') NOT NULL
     )";
+	
     if ($conn->query($sql) !== TRUE) {
         die("Error creating users table: " . $conn->error);
     }
 
+        // SQL to create the settings table if it doesn't exist
+    $sql = "CREATE TABLE IF NOT EXISTS settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        operationMode VARCHAR(50) NOT NULL DEFAULT 'online',
+        wifi_ssid VARCHAR(255) DEFAULT '',
+        wifi_password VARCHAR(255) DEFAULT ''
+    )";
+	
+	if ($conn->query($sql) !== TRUE) {
+        die("Error creating users table: " . $conn->error);
+    }
+	
     // Check if the users table is empty (first time setup)
     $sql = "SELECT COUNT(*) as count FROM users";
     $result = $conn->query($sql);

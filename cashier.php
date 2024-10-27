@@ -1,7 +1,7 @@
 <?php
 session_start();
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("location: index.php");
+    header("location: cashier_login.php");
     exit;
 }
 
@@ -13,6 +13,7 @@ initialize_database($conn);
 $message = '';
 $scanned_products = [];
 $sum_of_prices = isset($_SESSION['sum_of_prices']) ? $_SESSION['sum_of_prices'] : 0.0;
+$groups = isset($_SESSION['groups']) ? $_SESSION['groups'] : [];
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['barcode'])) {
@@ -37,6 +38,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $conn->query($sql);
                 debug_log("Product found and marked as sold.");
 
+                // Add the product to the current group
+                if (!isset($groups[0])) {
+                    $groups[0] = ['products' => [], 'sum' => 0];
+                }
+                $groups[0]['products'][] = $row;
+                $groups[0]['sum'] += $row['price'];
+
                 // Add the price to the sum
                 $sum_of_prices += $row['price'];
                 $_SESSION['sum_of_prices'] = $sum_of_prices;
@@ -53,9 +61,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $conn->query($sql);
         debug_log("Product ID $product_id marked as unsold.");
     } elseif (isset($_POST['reset_sum'])) {
+        // Collapse the current group and start a new one
+        array_unshift($groups, ['products' => [], 'sum' => 0]);
         $sum_of_prices = 0.0;
         $_SESSION['sum_of_prices'] = $sum_of_prices;
     }
+    $_SESSION['groups'] = $groups;
 }
 
 // Clear the scanned products array before fetching the last 30 scanned products
@@ -80,12 +91,26 @@ $conn->close();
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <script src="js/quagga.min.js"></script>
     <style>
-        #scanner-container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            border: 1px solid #ddd;
-        }
+		.scanner-wrapper {
+			width: 100%;
+			height: 400px;
+			overflow: hidden;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+		}
+
+		#scanner-container {
+			position: relative;
+			width: 90vw;
+			height: 100%;
+			overflow: hidden;
+		}
+
+		video {
+			width: 90vw;
+		}
+		
         #scanner-line {
             position: absolute;
             top: 50%;
@@ -95,11 +120,7 @@ $conn->close();
             background-color: red;
             z-index: 1;
         }
-        .scanner-wrapper {
-            width: 100%;
-            height: 400px;
-            overflow: hidden;
-        }
+
         .overlay {
             position: absolute;
             top: 50%;
@@ -139,7 +160,7 @@ $conn->close();
                 locate: true,
                 locator: {
                     halfSample: true,
-                    patchSize: "medium", // x-small, small, medium, large, x-large
+                    patchSize: "medium",
                     debug: {
                         showCanvas: true,
                         showPatches: true,
@@ -218,16 +239,29 @@ $conn->close();
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($scanned_products as $product): ?>
-                    <tr>
-                        <td><?php echo $product['name']; ?></td>
-                        <td><?php echo number_format($product['price'], 2, ',', '.'); ?> €</td>
-                        <td><?php echo $product['seller_id']; ?></td>
-                        <td>
-                            <form action="cashier.php?nocache=<?php echo time(); ?>" method="post" style="display:inline-block">
-                                <input type="hidden" name="product_id" value="<?php echo $product['id']; ?>">
-                                <button type="submit" name="unsell_product" class="btn btn-danger btn-sm">Entfernen</button>
-                            </form>
+                    <?php foreach ($groups as $index => $group): ?>
+                    <tr data-toggle="collapse" data-target="#group-<?php echo $index; ?>" class="clickable">
+                        <td colspan="4">
+                            Gruppe <?php echo $index + 1; ?> - Artikelanzahl: <?php echo count($group['products']); ?> - Summe: €<?php echo number_format($group['sum'], 2, ',', '.'); ?>
+                        </td>
+                    </tr>
+                    <tr id="group-<?php echo $index; ?>" class="collapse <?php echo $index === 0 ? 'show' : ''; ?>">
+                        <td colspan="4">
+                            <table class="table">
+                                <?php foreach ($group['products'] as $product): ?>
+                                <tr>
+                                    <td><?php echo $product['name']; ?></td>
+                                    <td><?php echo number_format($product['price'], 2, ',', '.'); ?> €</td>
+                                    <td><?php echo $product['seller_id']; ?></td>
+                                    <td>
+                                        <form action="cashier.php?nocache=<?php echo time(); ?>" method="post" style="display:inline-block">
+                                            <input type="hidden" name="product_id" value="<?php echo $product['id']; ?>">
+                                            <button type="submit" name="unsell_product" class="btn btn-danger btn-sm">Entfernen</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </table>
                         </td>
                     </tr>
                     <?php endforeach; ?>
