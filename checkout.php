@@ -1,4 +1,3 @@
-<!-- checkout.php -->
 <?php
 require_once 'config.php';
 session_start();
@@ -17,7 +16,7 @@ $seller_id = $_GET['seller_id'];
 $hash = $_GET['hash'];
 
 $conn = get_db_connection();
-$sql = "SELECT * FROM sellers WHERE id='$seller_id' AND hash='$hash' AND verified=1";
+$sql = "SELECT * FROM sellers WHERE id='$seller_id' AND hash='$hash'";
 $result = $conn->query($sql);
 
 if ($result->num_rows == 0) {
@@ -33,7 +32,7 @@ if ($result->num_rows == 0) {
 <body>
     <div class='container'>
         <div class='alert alert-warning mt-5'>
-            <h4 class='alert-heading'>Ungültige oder nicht verifizierte Verkäufer-ID oder Hash.</h4>
+            <h4 class='alert-heading'>Ungültige Verkäufer-ID oder Hash.</h4>
             <p>Bitte überprüfen Sie Ihre Verkäufer-ID und versuchen Sie es erneut.</p>
             <hr>
             <p class='mb-0'>Haben Sie auf den Verifizierungslink in der E-Mail geklickt?</p>
@@ -48,9 +47,33 @@ if ($result->num_rows == 0) {
     exit();
 }
 
-$sql = "SELECT * FROM sellers WHERE id='$seller_id'";
-$result = $conn->query($sql);
 $seller = $result->fetch_assoc();
+
+if ($seller['verified'] != 1) {
+    echo "
+<!DOCTYPE html>
+<html lang='de'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
+    <title>Unverifizierter Verkäufer</title>
+    <link href='css/bootstrap.min.css' rel='stylesheet'>
+</head>
+<body>
+    <div class='container'>
+        <div class='alert alert-danger mt-5'>
+            <h4 class='alert-heading'>Unverifizierte Verkäufer können nicht abgerechnet werden.</h4>
+            <p>Bitte verifizieren Sie Ihren Account, um fortzufahren.</p>
+        </div>
+    </div>
+    <script src='js/jquery-3.7.1.min.js'></script>
+    <script src='js/popper.min.js'></script>
+    <script src='js/bootstrap.min.js'></script>
+</body>
+</html>
+";
+    exit();
+}
 
 $sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
 $products_result = $conn->query($sql);
@@ -87,7 +110,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $total = 0;
     $total_brokerage = 0;
     $email_body = "<html><body>";
-    $email_body .= "<h1>Checkout für Verkäufer: {$seller['name']} (Verkäufernummer: {$seller['id']})</h1>";
+    $email_body .= "<h1>Checkout für Verkäufer: {$seller['given_name']} {$seller['family_name']} (Verkäufernummer: {$seller['id']})</h1>";
     $email_body .= "<table border='1' cellpadding='10'>";
     $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th></tr>";
     
@@ -107,7 +130,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $email_body .= "<h2>Auszahlungsbetrag: " . number_format($total - $total_brokerage, 2, ',', '.') . " €</h2>";
     $email_body .= "</body></html>";
 
-    $subject = "Checkout für Verkäufer: {$seller['name']} (Verkäufernummer: {$seller['id']})";
+    $subject = "Checkout für Verkäufer: {$seller['given_name']} {$seller['family_name']} (Verkäufernummer: {$seller['id']})";
     if ($total > 0) {
         $email_body .= "<p>Vielen Dank für Ihre Unterstützung!</p>";
     } else {
@@ -127,7 +150,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Checkout - Verkäufer: <?php echo htmlspecialchars($seller['name']); ?> (Verkäufernummer: <?php echo htmlspecialchars($seller['id']); ?>)</title>
+    <title>Checkout - Verkäufer: <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> (Verkäufernummer: <?php echo htmlspecialchars($seller['id']); ?>)</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <style>
         .table-responsive {
@@ -153,7 +176,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 </head>
 <body>
     <div class="container">
-        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['name']); ?> </h3>
+        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?></h3>
         <?php if (isset($error)) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
         <?php if (isset($success)) { echo "<div class='alert alert-success'>$success</div>"; } ?>
 
