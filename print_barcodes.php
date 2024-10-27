@@ -63,67 +63,76 @@ $conn->close();
     <meta charset="UTF-8">
     <title>Etiketten drucken</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .barcode-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .barcode-table td {
-            border: 1px solid black;
-            width: 8cm;
-            height: 6cm;
-            text-align: left;
-            vertical-align: top;
-            padding: 5px;
-            position: relative;
-        }
-        .barcode-digits {
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            margin-top: 5px;
-            text-align: center;
-        }
-        .seller-id {
-            font-size: 22px; /* Default text size */
-            padding-top: 5px; /* Padding for top */
-            padding-left: 5px; /* Padding for left */
-        }
-        .product-name, .price {
-            font-size: 22px; /* Default text size */
-            padding-left: 5px; /* Padding for left */
-        }
-        .product-name {
-            color: darkred; /* Default color for product name */
-        }
-        .checkout-id {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            font-size: 30px; /* Larger text size for checkout ID */
-            font-weight: bold;
-            padding-top: 5px; /* Padding for top */
-            padding-right: 10px; /* Padding for right */
-        }
-        .barcode-container {
-            text-align: center;
-            margin-top: 10px;
-        }
-        @media print {
-            body {
-                margin: 0;
-                padding: 0;
-            }
-            .barcode-table td {
-                border: 1px solid black;
-                width: 8cm;
-                height: 6cm;
-                text-align: left;
-                vertical-align: top;
-                padding: 5px;
-                position: relative;
-            }
-        }
-    </style>
+	<style>
+		.barcode-table {
+			width: 100%;
+			border-collapse: collapse;
+		}
+		.barcode-table td {
+			border: 1px solid black;
+			width: 6cm;
+			height: 4cm;
+			text-align: left;
+			vertical-align: top;
+			padding: 4px;
+			position: relative;
+		}
+		.barcode-digits {
+			font-family: Arial, sans-serif;
+			font-size: 14px;
+			margin-top: 5px;
+			text-align: center;
+		}
+		.seller-price-container {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+		.seller-id {
+			font-size: 22px;
+			padding-top: 5px;
+			padding-left: 5px;
+			text-align: left;
+			color: black; /* Default color for seller-id */
+		}
+		.price {
+			font-size: 22px;
+			padding-right: 5px;
+			text-align: right;
+		}
+		.product-name {
+			font-size: 22px;
+			padding-left: 5px;
+			color: darkred;
+		}
+		.product-size {
+			color: black; /* Match the seller-id color */
+		}
+		.checkout-id {
+			font-size: 18px;
+			color: blue;
+			font-weight: bold;
+		}
+		.barcode-container {
+			text-align: center;
+			margin-top: 10px;
+		}
+		@media print {
+			body {
+				margin: 0;
+				padding: 0;
+			}
+			.barcode-table td {
+				border: 1px solid black;
+				width: 6cm;
+				height: 4cm;
+				text-align: left;
+				vertical-align: top;
+				padding: 5px;
+				position: relative;
+			}
+		}
+	</style>
 </head>
 <body>
     <div class="container">
@@ -140,7 +149,7 @@ $conn->close();
                     // Generate the barcode
                     $barcode_data = encode($product['barcode'], 'EAN13', true);
                     // Adjust the width and height as needed
-                    $barcode_image = generate_barcode_image(barcode($barcode_data), 3, 150); // Example: 3px width, 150px height
+                    $barcode_image = generate_barcode_image(barcode($barcode_data), 3, 50); // Example: 3px width, 150px height
 
                     if (DEBUG) {
                         debug_log("Generating barcode for product: " . $product['name']);
@@ -151,16 +160,25 @@ $conn->close();
                     // Encode the barcode image as a base64 string
                     $barcode_base64 = base64_encode($barcode_image);
                 ?>
-                    <td>
-                        <div class="checkout-id"><?php echo $checkout_id; ?></div>
-                        <div class="seller-id">Verkäufernummer: <strong><?php echo $seller_id; ?></strong></div>
-                        <div class="product-name"><strong><?php echo $product['name']; ?></strong> Größe: <?php echo $product['size']; ?></div>
-                        <div class="price">Preis: <?php echo number_format($product['price'], 2, ',', '.'); ?> €</div>
-                        <div class="barcode-container">
-                            <img src="data:image/png;base64,<?php echo $barcode_base64; ?>" alt="Barcode"><br>
-                            <div class="barcode-digits"><?php echo $product['barcode']; ?></div>
-                        </div>
-                    </td>
+					<td>
+						<div class="product-name">
+							<strong><?php echo $product['name']; ?></strong>
+							<?php if (!empty(trim($product['size']))): ?>
+								<span class="product-size">Größe: <?php echo $product['size']; ?></span>
+							<?php endif; ?>
+						</div>
+						<div class="seller-price-container">
+							<div class="seller-id">Verkäufer: <strong><?php echo $seller_id; ?></strong></div>
+							<div class="price">Preis: <?php echo number_format($product['price'], 2, ',', '.'); ?> €</div>
+						</div>
+						<div class="barcode-container">
+							<img src="data:image/png;base64,<?php echo $barcode_base64; ?>" alt="Barcode"><br>
+							<div class="barcode-digits">
+								<?php echo $product['barcode']; ?> - 
+								<span class="checkout-id"><?php echo $checkout_id; ?></span>
+							</div>
+						</div>
+					</td>
                 <?php
                     $counter++;
                     if ($counter % 2 == 0) {
