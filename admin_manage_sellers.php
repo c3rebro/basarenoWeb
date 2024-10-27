@@ -606,6 +606,28 @@ $conn->close();
         </div>
     </div>
 	
+	<!-- Confirm Delete Seller Modal -->
+    <div class="modal fade" id="confirmDeleteModal" tabindex="-1" role="dialog" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmDeleteModalLabel">Verkäufer löschen</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Dieser Verkäufer hat noch Produkte. Möchten Sie wirklich fortfahren und alle Produkte löschen?</p>
+                    <input type="hidden" id="confirmDeleteSellerId">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteButton">Verkäufer und Produkte löschen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+	
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
