@@ -85,7 +85,7 @@ function check_and_add_columns($conn, $table, $header) {
 }
 
 // PAGE: index.php
-function process_existing_number($conn, $email, $consent) {
+function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid) {
     $seller_id = $_POST['seller_id'];
     $sql = "SELECT id FROM sellers WHERE id='$seller_id' AND email='$email'";
     $result = $conn->query($sql);
@@ -103,7 +103,7 @@ function process_existing_number($conn, $email, $consent) {
     }
 }
 
-function process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent) {
+function process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid) {
     $seller_id = generate_unique_seller_id($conn);
     $next_checkout_id = get_next_checkout_id($conn);
     $hash = generate_hash($email, $seller_id);

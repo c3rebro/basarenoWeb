@@ -30,7 +30,9 @@ $startDate = null;
 $canRequestSellerId = false;
 $bazaarOver = true; // Default to bazaar being over
 $maxSellersReached = false;
-
+$mailtxt_reqnewsellerid = null;
+$mailtxt_reqexistingsellerid = null;
+    
 if ($bazaar) {
     $startReqDate = !empty($bazaar['startReqDate']) ? new DateTime($bazaar['startReqDate']) : null;
     $startDate = !empty($bazaar['startDate']) ? new DateTime($bazaar['startDate']) : null;
@@ -38,7 +40,7 @@ if ($bazaar) {
     $maxSellers = $bazaar['max_sellers'];
     $mailtxt_reqnewsellerid = $bazaar['mailtxt_reqnewsellerid'];
     $mailtxt_reqexistingsellerid = $bazaar['mailtxt_reqexistingsellerid'];
-
+    
     $formattedDate = $startReqDate->format('d.m.Y');
 
     if ($startReqDate && $startDate) {
@@ -99,7 +101,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
     $existing_seller = $result->fetch_assoc();
 
     if ($use_existing_number) {
-        process_existing_number($conn, $email, $consent);
+        process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
     } else {
         if ($existing_seller) {
             if (!empty($existing_seller['verification_token'])) {
@@ -107,10 +109,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
            } elseif ($existing_seller['verified']) {
                show_alert_active_id();
            } else {
-               process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent);
+               process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
            }
        } else {
-           process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent);
+           process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
        }
     }
 }
