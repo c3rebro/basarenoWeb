@@ -140,69 +140,80 @@ $conn->close();
         }
     </style>
     <script>
-        function startScanner() {
-            Quagga.init({
-                inputStream: {
-                    name: "Live",
-                    type: "LiveStream",
-                    target: document.querySelector('#scanner-container')
-                },
-                decoder: {
-                    readers: ["ean_reader"],
-                    debug: {
-                        drawBoundingBox: true,
-                        showFrequency: true,
-                        drawScanline: true,
-                        showPattern: true
-                    },
-                    multiple: false
-                },
-                locate: true,
-                locator: {
-                    halfSample: true,
-                    patchSize: "medium",
-                    debug: {
-                        showCanvas: true,
-                        showPatches: true,
-                        showFoundPatches: true,
-                        showSkeleton: true,
-                        showLabels: true,
-                        showPatchLabels: true,
-                        showRemainingPatchLabels: true,
-                        boxFromPatches: {
-                            showTransformed: true,
-                            showTransformedBox: true,
-                            showBB: true
-                        }
-                    }
-                }
-            }, function (err) {
-                if (err) {
-                    console.log(err);
-                    return;
-                }
-                Quagga.start();
-            });
+		function startScanner() {
+			Quagga.init({
+				inputStream: {
+					name: "Live",
+					type: "LiveStream",
+					target: document.querySelector('#scanner-container')
+				},
+				decoder: {
+					readers: ["ean_reader"],
+					debug: {
+						drawBoundingBox: true,
+						showFrequency: true,
+						drawScanline: true,
+						showPattern: true
+					},
+					multiple: false
+				},
+				locate: true,
+				locator: {
+					halfSample: true,
+					patchSize: "medium",
+					debug: {
+						showCanvas: true,
+						showPatches: true,
+						showFoundPatches: true,
+						showSkeleton: true,
+						showLabels: true,
+						showPatchLabels: true,
+						showRemainingPatchLabels: true,
+						boxFromPatches: {
+							showTransformed: true,
+							showTransformedBox: true,
+							showBB: true
+						}
+					}
+				}
+			}, function (err) {
+				if (err) {
+					console.log(err);
+					return;
+				}
+				Quagga.start();
+			});
 
-            Quagga.onDetected(function (data) {
-                document.getElementById('barcode').value = data.codeResult.code;
-                document.getElementById('scan-form').submit();
-                showNotification();
-            });
-        }
+			Quagga.onDetected(function (data) {
+				document.getElementById('barcode').value = data.codeResult.code;
+				document.getElementById('scan-form').submit();
+				showNotification();
+			});
+		}
 
-        function showNotification() {
-            if (Notification.permission === "granted") {
-                new Notification("Produkt erfolgreich gescannt!");
-            } else if (Notification.permission !== "denied") {
-                Notification.requestPermission().then(permission => {
-                    if (permission === "granted") {
-                        new Notification("Produkt erfolgreich gescannt!");
-                    }
-                });
-            }
-        }
-    </script>
+		function showNotification() {
+			if (Notification.permission === "granted") {
+				new Notification("Produkt erfolgreich gescannt!");
+			} else if (Notification.permission !== "denied") {
+				Notification.requestPermission().then(permission => {
+					if (permission === "granted") {
+						new Notification("Produkt erfolgreich gescannt!");
+					}
+				});
+			}
+		}
+
+		document.addEventListener('visibilitychange', function() {
+			if (document.visibilityState === 'visible') {
+				Quagga.stop();
+				startScanner();
+			}
+		});
+
+		window.onload = function() {
+			startScanner();
+		};
+	</script>
 </head>
 <body onload="startScanner()">
     <div class="container">

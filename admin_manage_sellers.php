@@ -247,6 +247,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
     }
 }
 
+// Handle product deletion
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
+    $product_id = $conn->real_escape_string($_POST['product_id']);
+    $seller_id = $conn->real_escape_string($_POST['seller_id']);
+
+    $sql = "DELETE FROM products WHERE id='$product_id' AND seller_id='$seller_id'";
+    if ($conn->query($sql) === TRUE) {
+        $success = "Produkt erfolgreich gelöscht.";
+        debug_log("Product deleted: ID=$product_id, Seller ID=$seller_id");
+    } else {
+        $error = "Fehler beim Löschen des Produkts: " . $conn->error;
+        debug_log("Error deleting product: " . $conn->error);
+    }
+}
+
 // Default filter is "undone"
 $filter = isset($_GET['filter']) ? $_GET['filter'] : 'undone';
 
