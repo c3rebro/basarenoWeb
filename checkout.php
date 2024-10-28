@@ -84,12 +84,13 @@ $brokerage = 0.0;
 $current_date = date('Y-m-d');
 
 // Retrieve the current bazaar based on the current date
-$sql = "SELECT brokerage FROM bazaar WHERE startDate <= '$current_date' AND DATE_ADD(startDate, INTERVAL 30 DAY) >= '$current_date' LIMIT 1";
+$sql = "SELECT brokerage, price_stepping FROM bazaar WHERE startDate <= '$current_date' AND DATE_ADD(startDate, INTERVAL 30 DAY) >= '$current_date' LIMIT 1";
 $result = $conn->query($sql);
 
 if ($result->num_rows > 0) {
     $row = $result->fetch_assoc();
     $brokerage = $row['brokerage'];
+    $price_stepping = $row['price_stepping'];
 	
     $sql = "UPDATE sellers SET checkout=TRUE WHERE id='$seller_id'";
     if ($conn->query($sql) === TRUE) {
@@ -102,6 +103,11 @@ if ($result->num_rows > 0) {
 } else {
     echo "Es wurde kein Bazaar gefunden, der abgerechnet werden kann.<br>Läuft der aktuelle Basar eventuell noch? (siehe Startdatum)";
     exit;
+}
+
+// Function to round to nearest specified increment
+function round_to_nearest($value, $increment) {
+    return round($value / $increment) * $increment;
 }
 
 $conn->close();
@@ -221,8 +227,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                 </table>
             </div>
             <h4 class="gesamt">Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h4>
-            <h4 class="provision">Provision: <?php echo number_format($total_brokerage, 2, ',', '.'); ?> €</h4>
-            <h4>Auszahlungsbetrag: <?php echo number_format($total - $total_brokerage, 2, ',', '.'); ?> €</h4>
+            <h4 class="provision">Provision: <?php echo number_format(round_to_nearest($total_brokerage, $price_stepping), 2, ',', '.'); ?> € (gerundet)</h4>
+            <h4>Auszahlungsbetrag: <?php echo number_format($total - round_to_nearest($total_brokerage, $price_stepping), 2, ',', '.'); ?> € (abzgl. Provision - gerundet)</h4>
             <button type="submit" class="btn btn-primary btn-block no-print" name="notify_seller">Verkäufer benachrichtigen</button>
         </form>
         <button id="printWithBrokerage" class="btn btn-secondary btn-block mt-3 no-print">Drucken (mit Provision)</button>
