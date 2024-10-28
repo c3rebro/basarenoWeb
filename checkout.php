@@ -18,7 +18,7 @@ $hash = $_GET['hash'];
 $conn = get_db_connection();
 $sql = "SELECT * FROM sellers WHERE id='$seller_id' AND hash='$hash'";
 $result = $conn->query($sql);
-
+	
 if ($result->num_rows == 0) {
     echo "
 <!DOCTYPE html>
@@ -47,7 +47,10 @@ if ($result->num_rows == 0) {
     exit();
 }
 
-$seller = $result->fetch_assoc();
+if ($result->num_rows > 0) {
+    $seller = $result->fetch_assoc();
+    $checkout_id = $seller['checkout_id'];	
+}
 
 if ($seller['verified'] != 1) {
     echo "
@@ -75,6 +78,7 @@ if ($seller['verified'] != 1) {
     exit();
 }
 
+
 $sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
 $products_result = $conn->query($sql);
 
@@ -101,7 +105,34 @@ if ($result->num_rows > 0) {
         debug_log("Error checking out seller: " . $conn->error);
     }
 } else {
-    echo "Es wurde kein Bazaar gefunden, der abgerechnet werden kann.<br>Läuft der aktuelle Basar eventuell noch? (siehe Startdatum)";
+    echo "
+    <!DOCTYPE html>
+    <html lang='de'>
+    <head>
+        <meta charset='UTF-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
+        <title>Verkäufer-ID Verifizierung</title>
+        <link href='css/bootstrap.min.css' rel='stylesheet'>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='alert alert-warning mt-5 alert-dismissible fade show' role='alert'>
+                <h4 class='alert-heading'>Hinweis:</h4>
+                <p>Es wurde kein Bazaar gefunden, der abgerechnet werden kann.<br>Läuft der aktuelle Basar eventuell noch? (siehe Startdatum)</p>
+            </div>
+        </div>
+        <script src='js/jquery-3.7.1.min.js'></script>
+        <script src='js/popper.min.js'></script>
+        <script src='js/bootstrap.bundle.min.js'></script>
+    </body>
+    </html>
+    ";
+    
+    '<div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <strong>Hinweis:</strong> Es wurde kein Bazaar gefunden, der abgerechnet werden kann.<br>
+            Läuft der aktuelle Basar eventuell noch? (siehe Startdatum)
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>';
     exit;
 }
 
@@ -116,7 +147,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $total = 0;
     $total_brokerage = 0;
     $email_body = "<html><body>";
-    $email_body .= "<h1>Checkout für Verkäufer: {$seller['given_name']} {$seller['family_name']} (Verkäufernummer: {$seller['id']})</h1>";
+    $email_body .= "<h1>Checkout für Verkäufer: {$seller['given_name']} {$seller['family_name']} (VerkäuferNr: {$seller['id']})</h1>";
     $email_body .= "<table border='1' cellpadding='10'>";
     $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th></tr>";
     
@@ -156,7 +187,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Checkout - Verkäufer: <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> (Verkäufernummer: <?php echo htmlspecialchars($seller['id']); ?>)</title>
+    <title>Checkout - Verkäufer: <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> (Verkäufer Nr.: <?php echo htmlspecialchars($seller['id']); ?>) {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <style>
         .table-responsive {
@@ -182,7 +213,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 </head>
 <body>
     <div class="container">
-        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?></h3>
+        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</h3>
         <?php if (isset($error)) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
         <?php if (isset($success)) { echo "<div class='alert alert-success'>$success</div>"; } ?>
 

@@ -6,52 +6,13 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION
 }
 
 require_once 'config.php';
+require_once 'utilities.php';
 
 $conn = get_db_connection();
 initialize_database($conn);
 
 $error = '';
 $success = '';
-
-// Function to check if seller ID exists
-function seller_id_exists($conn, $seller_id) {
-    $sql = "SELECT id FROM sellers WHERE id='$seller_id'";
-    $result = $conn->query($sql);
-    return $result->num_rows > 0;
-}
-
-// Check if the seller has products
-function seller_has_products($conn, $seller_id) {
-    $sql = "SELECT COUNT(*) as product_count FROM products WHERE seller_id='$seller_id'";
-    $result = $conn->query($sql);
-    $row = $result->fetch_assoc();
-    return $row['product_count'] > 0;
-}
-
-// Function to get the current bazaar ID
-function get_current_bazaar_id($conn) {
-    $currentDateTime = date('Y-m-d H:i:s');
-    $sql = "SELECT id FROM bazaar WHERE startReqDate <= '$currentDateTime' AND startDate >= '$currentDateTime' LIMIT 1";
-    $result = $conn->query($sql);
-    if ($result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        return $row['id'];
-    } else {
-        return null;
-    }
-}
-
-function sanitize_input($input) {
-    $input = preg_replace('/[^\x20-\x7E]/', '', $input);
-    $input = trim($input);
-    return $input;
-}
-
-function sanitize_id($input) {
-    $input = preg_replace('/\D/', '', $input);
-    $input = trim($input);
-    return $input;
-}
 
 // Handle seller addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
@@ -64,8 +25,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
     $zip = $conn->real_escape_string($_POST['zip']);
     $city = $conn->real_escape_string($_POST['city']);
     $verified = isset($_POST['verified']) ? 1 : 0;
-	$consent = 0;
-	
+    $consent = 0;
+    
     if (empty($family_name) || empty($email)) {
         $error = "Erforderliche Felder fehlen.";
     } else {
@@ -155,8 +116,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
     $delimiter = $_POST['delimiter'];
     $encoding = $_POST['encoding'];
     $handle = fopen($file, 'r');
-	$consent = 0;
-	
+    $consent = 0;
+    
     if ($handle !== FALSE) {
         while (($data = fgetcsv($handle, 1000, $delimiter)) !== FALSE) {
             if ($encoding === 'ansi') {
@@ -263,7 +224,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
 }
 
 // Default filter is "undone"
-$filter = isset($_GET['filter']) ? $_GET['filter'] : 'undone';
+$filter = isset($_COOKIE['filter']) ? $_COOKIE['filter'] : 'undone';
+$sort_by = isset($_COOKIE['sort_by']) ? $_COOKIE['sort_by'] : 'id';
+$order = isset($_COOKIE['order']) ? $_COOKIE['order'] : 'ASC';
+
+// Validate sort_by to prevent SQL injection
+$valid_columns = ['id', 'checkout_id', 'family_name', 'checkout'];
+if (!in_array($sort_by, $valid_columns)) {
+    $sort_by = 'id'; // Default to 'id' if invalid
+}
 
 // Get all sellers
 $sql = "SELECT * FROM sellers";
@@ -273,8 +242,10 @@ if ($filter == 'done') {
     $sql .= " WHERE checkout=FALSE";
 }
 
+$sql .= " ORDER BY $sort_by $order";
+
 $sellers_result = $conn->query($sql);
-debug_log("Fetched sellers with filter '$filter': " . $sellers_result->num_rows);
+debug_log("Fetched sellers with filter '$filter' and sort '$sort_by $order': " . $sellers_result->num_rows);
 
 $conn->close();
 ?>
@@ -321,59 +292,93 @@ $conn->close();
         <?php if ($error) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
         <?php if ($success) { echo "<div class='alert alert-success'>$success</div>"; } ?>
 
-        <h3 class="mt-5">Neuen Verkäufer hinzufügen</h3>
         <form action="admin_manage_sellers.php" method="post">
-            <div class="form-row">
-                 <div class="form-group col-md-3">
-                    <label for="family_name">Nachname:</label>
-                    <input type="text" class="form-control" id="family_name" name="family_name" required>
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="given_name">Vorname:</label>
-                    <input type="text" class="form-control" id="given_name" name="given_name">
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="email">E-Mail:</label>
-                    <input type="email" class="form-control" id="email" name="email" required>
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="phone">Telefon:</label>
-                    <input type="text" class="form-control" id="phone" name="phone">
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="street">Straße:</label>
-                    <input type="text" class="form-control" id="street" name="street">
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="house_number">Hausnummer:</label>
-                    <input type="text" class="form-control" id="house_number" name="house_number">
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="zip">PLZ:</label>
-                    <input type="text" class="form-control" id="zip" name="zip">
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="city">Stadt:</label>
-                    <input type="text" class="form-control" id="city" name="city">
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="verified">Verifiziert:</label>
-                    <input type="checkbox" class="form-control" id="verified" name="verified">
+
+            <div class="container mt-3">
+                <button class="btn btn-primary mb-3 btn-block" type="button" data-toggle="collapse" data-target="#addSellerForm" aria-expanded="false" aria-controls="addSellerForm">
+                    Neuen Verkäufer hinzufügen
+                </button>
+                <div class="collapse" id="addSellerForm">
+                    <div class="card card-body">
+                        <form action="admin_manage_sellers.php" method="post">
+                            <div class="form-row">
+                                <div class="form-group col-md-3">
+                                    <label for="family_name">Nachname:</label>
+                                    <input type="text" class="form-control" id="family_name" name="family_name" required>
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="given_name">Vorname:</label>
+                                    <input type="text" class="form-control" id="given_name" name="given_name">
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="email">E-Mail:</label>
+                                    <input type="email" class="form-control" id="email" name="email" required>
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="phone">Telefon:</label>
+                                    <input type="text" class="form-control" id="phone" name="phone">
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="street">Straße:</label>
+                                    <input type="text" class="form-control" id="street" name="street">
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="house_number">Hausnummer:</label>
+                                    <input type="text" class="form-control" id="house_number" name="house_number">
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="zip">PLZ:</label>
+                                    <input type="text" class="form-control" id="zip" name="zip">
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="city">Stadt:</label>
+                                    <input type="text" class="form-control" id="city" name="city">
+                                </div>
+                                <div class="form-group col-md-3">
+                                    <label for="verified">Verifiziert:</label>
+                                    <input type="checkbox" class="form-control" id="verified" name="verified">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block" name="add_seller">Verkäufer hinzufügen</button>
+                        </form>
+                    </div>
                 </div>
             </div>
-            <button type="submit" class="btn btn-primary btn-block" name="add_seller">Verkäufer hinzufügen</button>
+            
             <button type="button" class="btn btn-info btn-block" data-toggle="modal" data-target="#importSellersModal">Verkäufer importieren</button>
             <button type="button" class="btn btn-secondary btn-block" id="printVerifiedSellers">Verkäuferliste drucken</button>
         </form>
 
         <h3 class="mt-5">Verkäuferliste</h3>
-        <div class="form-group">
-            <label for="filter">Filter:</label>
-            <select class="form-control" id="filter" name="filter">
-                <option value="all" <?php echo $filter == 'all' ? 'selected' : ''; ?>>Alle</option>
-                <option value="done" <?php echo $filter == 'done' ? 'selected' : ''; ?>>Abgeschlossen</option>
-                <option value="undone" <?php echo $filter == 'undone' ? 'selected' : ''; ?>>Nicht abgeschlossen</option>
-            </select>
+        <div class="form-row">
+            <div class="form-group col-md-12">
+                <label for="filter">Filter:</label>
+                <select class="form-control" id="filter" name="filter">
+                    <option value="all" <?php echo $filter == 'all' ? 'selected' : ''; ?>>Alle</option>
+                    <option value="done" <?php echo $filter == 'done' ? 'selected' : ''; ?>>Abgeschlossen</option>
+                    <option value="undone" <?php echo $filter == 'undone' ? 'selected' : ''; ?>>Nicht abgeschlossen</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group col-md-6">
+                <label for="sort_by">Sortieren nach:</label>
+                <select class="form-control" id="sort_by" name="sort_by">
+                    <option value="id" <?php echo $sort_by == 'id' ? 'selected' : ''; ?>>VerkäuferNr.</option>
+                    <option value="checkout_id" <?php echo $sort_by == 'checkout_id' ? 'selected' : ''; ?>>AbrNr.</option>
+                    <option value="family_name" <?php echo $sort_by == 'family_name' ? 'selected' : ''; ?>>Nachname</option>
+                    <option value="checkout" <?php echo $sort_by == 'checkout' ? 'selected' : ''; ?>>Checkout</option>
+                </select>
+            </div>
+
+            <div class="form-group col-md-6">
+                <label for="order">Reihenfolge:</label>
+                <select class="form-control" id="order" name="order">
+                    <option value="ASC" <?php echo $order == 'ASC' ? 'selected' : ''; ?>>Aufsteigend</option>
+                    <option value="DESC" <?php echo $order == 'DESC' ? 'selected' : ''; ?>>Absteigend</option>
+                </select>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -523,7 +528,7 @@ $conn->close();
         </div>
     </div>
 
-	<!-- Edit Seller Modal -->
+    <!-- Edit Seller Modal -->
     <div class="modal fade" id="editSellerModal" tabindex="-1" role="dialog" aria-labelledby="editSellerModalLabel" aria-hidden="true"> 
         <div class="modal-dialog" role="document">
             <div class="modal-content">
@@ -603,7 +608,7 @@ $conn->close();
                             <label for="editProductName">Produktname:</label>
                             <input type="text" class="form-control" id="editProductName" name="name" required>
                         </div>
-						<div class="form-group">
+                        <div class="form-group">
                             <label for="editProductSize">Größe:</label>
                             <input type="text" class="form-control" id="editProductSize" name="size">
                         </div>
@@ -620,8 +625,8 @@ $conn->close();
             </div>
         </div>
     </div>
-	
-	<!-- Confirm Delete Seller Modal -->
+
+    <!-- Confirm Delete Seller Modal -->
     <div class="modal fade" id="confirmDeleteModal" tabindex="-1" role="dialog" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
@@ -642,12 +647,12 @@ $conn->close();
             </div>
         </div>
     </div>
-	
+
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
-	<script>
-	function editSeller(id, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
+    <script>
+        function editSeller(id, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
             $('#editSellerId').val(id);
             $('#editSellerIdDisplay').val(id);
             $('#editSellerFamilyName').val(family_name);
@@ -739,7 +744,16 @@ $conn->close();
 
         $('#filter').on('change', function() {
             const filter = $(this).val();
+            document.cookie = `filter=${filter}; path=/`;
             window.location.href = `admin_manage_sellers.php?filter=${filter}`;
+        });
+
+        $('#sort_by, #order').on('change', function() {
+            const sort_by = $('#sort_by').val();
+            const order = $('#order').val();
+            document.cookie = `sort_by=${sort_by}; path=/`;
+            document.cookie = `order=${order}; path=/`;
+            window.location.href = `admin_manage_sellers.php?sort_by=${sort_by}&order=${order}`;
         });
 
         $('#printVerifiedSellers').on('click', function() {
@@ -761,7 +775,7 @@ $conn->close();
                 }
             });
         });
-	</script>
+    </script>
     <script>
     (function() {
         let selectedFile = null;
@@ -826,8 +840,8 @@ $conn->close();
                 elem.addEventListener('change', handleOptionChange);
             });
         });
-		
+
     })();
-</script>
+    </script>
 </body>
 </html>

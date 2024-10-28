@@ -1,41 +1,11 @@
 <?php
 session_start();
 require_once 'config.php';
+require_once 'utilities';
 
 // Set default sorting options
 $sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'startDate';
 $sortOrder = isset($_GET['sortOrder']) ? $_GET['sortOrder'] : 'DESC';
-
-// Function to encrypt data
-function encrypt_data($data, $secret) {
-    $iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('aes-256-cbc'));
-    $encrypted = openssl_encrypt($data, 'aes-256-cbc', $secret, 0, $iv);
-    return base64_encode($iv . $encrypted);
-}
-
-// Function to decrypt data
-function decrypt_data($data, $secret) {
-    $data = base64_decode($data);
-    $iv_length = openssl_cipher_iv_length('aes-256-cbc');
-    $iv = substr($data, 0, $iv_length);
-    $encrypted = substr($data, $iv_length);
-    return openssl_decrypt($encrypted, 'aes-256-cbc', $secret, 0, $iv);
-}
-
-// Function to check and add missing columns
-function check_and_add_columns($conn, $table, $header) {
-    $result = $conn->query("SHOW COLUMNS FROM $table");
-    $existing_columns = [];
-    while ($row = $result->fetch_assoc()) {
-        $existing_columns[] = $row['Field'];
-    }
-
-    foreach ($header as $column) {
-        if (!in_array($column, $existing_columns)) {
-            $conn->query("ALTER TABLE $table ADD $column VARCHAR(255)");
-        }
-    }
-}
 
 // CSV Export functionality
 if (isset($_POST['export_csv'])) {
@@ -175,14 +145,6 @@ initialize_database($conn);
 
 $error = '';
 $success = '';
-
-// Function to check for active bazaars
-function has_active_bazaar($conn) {
-    $current_date = date('Y-m-d');
-    $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate <= '$current_date'";
-    $result = $conn->query($sql)->fetch_assoc();
-    return $result['count'] > 0;
-}
 
 // Handle bazaar addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
@@ -392,9 +354,9 @@ $conn->close();
 &lt;p&gt;Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:&lt;/p&gt;
 &lt;p&gt;&lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.basar-horrheim.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@basar-horrheim.de'&gt;basarteam@basar-horrheim.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
+&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0177 977 6225 melden.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
 &lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
@@ -438,9 +400,9 @@ $conn->close();
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
-&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.basar-horrheim.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@basar-horrheim.de'&gt;basarteam@basar-horrheim.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
+&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0177 977 6225 melden.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
 &lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
