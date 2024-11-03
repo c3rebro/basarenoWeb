@@ -1,6 +1,6 @@
 <!-- load_seller_products.php -->
 <?php
-require_once 'config.php';
+require_once 'utilities.php';
 
 if (!isset($_GET['seller_id'])) {
     echo "Kein Verkäufer-ID angegeben.";

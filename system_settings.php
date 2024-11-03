@@ -5,10 +5,19 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     exit;
 }
 
-require_once 'config.php';
+require_once 'utilities.php';
 
 $conn = get_db_connection();
 initialize_database($conn);
+
+// Check if settings table is empty and insert default values if needed
+$sql = "SELECT COUNT(*) as count FROM settings";
+$result = $conn->query($sql);
+$row = $result->fetch_assoc();
+if ($row['count'] == 0) {
+    $sql = "INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')";
+    $conn->query($sql);
+}
 
 // Fetch current settings
 $sql = "SELECT * FROM settings WHERE id = 1";
@@ -64,7 +73,7 @@ rsn_pairwise=CCMP";
             while ($row = $result->fetch_assoc()) {
                 $seller_id = $row['id'];
                 $email = $row['email'];
-                $hash = hash('sha256', $email . $seller_id . SECRET);
+                $hash = generate_hash($email, $seller_id);
                 $updateStmt->bind_param('si', $hash, $seller_id);
                 $updateStmt->execute();
             }
@@ -91,14 +100,6 @@ rsn_pairwise=CCMP";
 }
 
 $conn->close();
-
-function decrypt_data($data, $secret) {
-    $data = base64_decode($data);
-    $iv_length = openssl_cipher_iv_length('aes-256-cbc');
-    $iv = substr($data, 0, $iv_length);
-    $encrypted = substr($data, $iv_length);
-    return openssl_decrypt($encrypted, 'aes-256-cbc', $secret, 0, $iv);
-}
 ?>
 
 <!DOCTYPE html>

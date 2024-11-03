@@ -1,5 +1,5 @@
 <?php
-require_once 'config.php';
+require_once 'utilities.php';
 
 $conn = get_db_connection();
 initialize_database($conn);

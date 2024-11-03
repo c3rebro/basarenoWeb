@@ -1,5 +1,5 @@
 <?php
-require_once 'config.php';
+require_once 'utilities.php';
 require_once 'barcode.php'; // Ensure the path to barcode.php is correct
 
 if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {

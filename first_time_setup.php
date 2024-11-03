@@ -1,4 +1,6 @@
 <?php
+require_once('utilities.php');
+
 // Initialize error and success messages
 $db_error = '';
 $db_success = '';

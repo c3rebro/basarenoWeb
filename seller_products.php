@@ -1,5 +1,5 @@
 <?php
-require_once 'config.php';
+require_once 'utilities.php';
 
 if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {
     echo "Kein Verkäufer-ID oder Hash angegeben.";
@@ -15,65 +15,30 @@ $result = $conn->query($sql);
 
 if ($result->num_rows == 0) {
     echo "
-<!DOCTYPE html>
-<html lang='de'>
-<head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
-    <title>Verkäufer-ID Verifizierung</title>
-    <link href='css/bootstrap.min.css' rel='stylesheet'>
-</head>
-<body>
-    <div class='container'>
-        <div class='alert alert-warning mt-5'>
-            <h4 class='alert-heading'>Ungültige oder nicht verifizierte Verkäufer-ID oder Hash.</h4>
-            <p>Bitte überprüfen Sie Ihre Verkäufer-ID und versuchen Sie es erneut.</p>
-            <hr>
-            <p class='mb-0'>Haben Sie auf den Verifizierungslink in der E-Mail geklickt?</p>
-        </div>
-    </div>
-    <script src='js/jquery-3.7.1.min.js'></script>
-    <script src='js/popper.min.js'></script>
-    <script src='js/bootstrap.min.js'></script>
-</body>
-</html>
-";
+		<!DOCTYPE html>
+		<html lang='de'>
+		<head>
+			<meta charset='UTF-8'>
+			<meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
+			<title>Verkäufer-ID Verifizierung</title>
+			<link href='css/bootstrap.min.css' rel='stylesheet'>
+		</head>
+		<body>
+			<div class='container'>
+				<div class='alert alert-warning mt-5'>
+					<h4 class='alert-heading'>Ungültige oder nicht verifizierte Verkäufer-ID oder Hash.</h4>
+					<p>Bitte überprüfen Sie Ihre Verkäufer-ID und versuchen Sie es erneut.</p>
+					<hr>
+					<p class='mb-0'>Haben Sie auf den Verifizierungslink in der E-Mail geklickt?</p>
+				</div>
+			</div>
+			<script src='js/jquery-3.7.1.min.js'></script>
+			<script src='js/popper.min.js'></script>
+			<script src='js/bootstrap.min.js'></script>
+		</body>
+		</html>
+		";
     exit();
-}
-
-// Function to calculate the check digit for EAN-13
-function calculateCheckDigit($barcode) {
-    $sum = 0;
-    for ($i = 0; $i < 12; $i++) {
-        $digit = (int)$barcode[$i];
-        $sum += ($i % 2 === 0) ? $digit : $digit * 3;
-    }
-    $mod = $sum % 10;
-    return ($mod === 0) ? 0 : 10 - $mod;
-}
-
-// Function to get the current bazaar ID
-function get_current_bazaar_id($conn) {
-    $currentDateTime = date('Y-m-d H:i:s');
-    $sql = "SELECT id FROM bazaar WHERE startReqDate <= '$currentDateTime' AND startDate >= '$currentDateTime' LIMIT 1";
-    $result = $conn->query($sql);
-    if ($result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        return $row['id'];
-    } else {
-        return null;
-    }
-}
-
-// Function to get bazaar pricing rules
-function get_bazaar_pricing_rules($conn, $bazaar_id) {
-    $sql = "SELECT min_price, price_stepping FROM bazaar WHERE id='$bazaar_id'";
-    $result = $conn->query($sql);
-    if ($result->num_rows > 0) {
-        return $result->fetch_assoc();
-    } else {
-        return null;
-    }
 }
 
 // Handle product creation form submission

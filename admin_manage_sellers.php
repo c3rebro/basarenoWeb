@@ -5,7 +5,6 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION
     exit;
 }
 
-require_once 'config.php';
 require_once 'utilities.php';
 
 $conn = get_db_connection();
@@ -38,7 +37,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
         } while ($result->num_rows > 0);
 
         // Generate a secure hash using the seller's email and ID
-        $hash = hash('sha256', $email . $seller_id . SECRET);
+        $hash = generate_hash($email, $seller_id);
 
         $sql = "INSERT INTO sellers (id, email, reserved, family_name, given_name, phone, street, house_number, zip, city, hash, verified, consent) VALUES ('$seller_id', '$email', 0, '$family_name', '$given_name', '$phone', '$street', '$house_number', '$zip', '$city', '$hash', '$verified', '$consent')";
         if ($conn->query($sql) === TRUE) {
@@ -148,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
             $street = "Nicht angegeben";
             $house_number = "Nicht angegeben";
             $zip = "Nicht angegeben";
-            $hash = hash('sha256', $email . $seller_id . SECRET);
+            $hash = generate_hash($email, $seller_id);
             $verification_token = NULL;
             $verified = 0;
 

@@ -6,7 +6,7 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     exit;
 }
 
-require_once 'config.php';
+require_once 'utilities.php';
 
 $username = $_SESSION['username'];
 $role = $_SESSION['role'];

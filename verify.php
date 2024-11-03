@@ -1,5 +1,5 @@
 <?php
-require_once 'config.php';
+require_once 'utilities.php';
 
 if (isset($_GET['token']) && isset($_GET['hash'])) {
     $token = $_GET['token'];
@@ -15,7 +15,7 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
         $email = $seller['email'];
 
         // Verify the hash
-        $expected_hash = hash('sha256', $email . $seller_id . SECRET);
+        $expected_hash = generate_hash($email, $seller_id);
         if ($hash === $expected_hash) {
             // Retrieve the current bazaar's ID
             $sql = "SELECT id FROM bazaar ORDER BY id DESC LIMIT 1";
@@ -24,9 +24,10 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
             if ($bazaar_result->num_rows > 0) {
                 $current_bazaar = $bazaar_result->fetch_assoc();
                 $current_bazaar_id = $current_bazaar['id'];
+				$next_checkout_id = get_next_checkout_id($conn);
 
                 // Mark the seller as verified and set the bazaar_id
-                $sql = "UPDATE sellers SET verified=1, verification_token=NULL, bazaar_id='$current_bazaar_id' WHERE id='$seller_id'";
+                $sql = "UPDATE sellers SET verified=1, verification_token=NULL, bazaar_id='$current_bazaar_id', checkout_id='$next_checkout_id' WHERE id='$seller_id'";
                 if ($conn->query($sql) === TRUE) {
                     // Redirect to product creation page
                     header("Location: seller_products.php?seller_id=$seller_id&hash=$hash");
