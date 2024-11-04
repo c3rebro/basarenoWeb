@@ -1,5 +1,8 @@
 <?php
-require_once('utilities.php');
+// Check if config.php exists before including utilities.php
+if (file_exists('config.php')) {
+    require_once('utilities.php');
+}
 
 // Initialize error and success messages
 $db_error = '';
@@ -68,24 +71,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Initialize the database and insert settings
             require_once 'config.php';
             $conn = get_db_connection();
-            initialize_database($conn);
+            if ($conn) {
+                initialize_database($conn);
 
-            // Create the admin user
-            $password_hash = password_hash($admin_password, PASSWORD_BCRYPT);
-            $sql = "INSERT INTO users (username, password_hash, role) VALUES ('$admin_username', '$password_hash', 'admin')";
-            if ($conn->query($sql) === TRUE) {
-                // Insert initial settings including Betriebsart
-                $sql = "INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')";
-                if ($conn->query($sql) !== TRUE) {
-                    $setup_error = "Fehler beim Speichern der Einstellungen: " . $conn->error;
+                // Create the admin user
+                $password_hash = password_hash($admin_password, PASSWORD_BCRYPT);
+                $sql = "INSERT INTO users (username, password_hash, role) VALUES ('$admin_username', '$password_hash', 'admin')";
+                if ($conn->query($sql) === TRUE) {
+                    // Insert initial settings including Betriebsart
+                    $sql = "INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')";
+                    if ($conn->query($sql) !== TRUE) {
+                        $setup_error = "Fehler beim Speichern der Einstellungen: " . $conn->error;
+                    } else {
+                        $setup_success = "Ersteinrichtung abgeschlossen. Administrator-Konto erstellt. Weiterleitung zur Login-Seite...";
+                        header("refresh:5;url=index.php");
+                    }
                 } else {
-                    $setup_success = "Ersteinrichtung abgeschlossen. Administrator-Konto erstellt. Weiterleitung zur Login-Seite...";
-                    header("refresh:5;url=index.php");
+                    $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . $conn->error;
                 }
+                $conn->close();
             } else {
-                $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . $conn->error;
+                $setup_error = "Fehler beim Herstellen der Datenbankverbindung.";
             }
-            $conn->close();
         } else {
             $setup_error = "Bitte beheben Sie die oben genannten Fehler, bevor Sie die Einrichtung abschließen.";
         }

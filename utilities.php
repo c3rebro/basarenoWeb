@@ -1,14 +1,20 @@
 <?php
 // utilities.php
-require_once 'config.php';
+function check_config_exists() {
+    return file_exists('config.php');
+}
 
 // GLOBAL
 
 // Function to initialize the database connection
 function get_db_connection() {
+    if (!check_config_exists()) {
+        return null;
+    }
+
+    require_once 'config.php';
     $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
 
-    // Check connection
     if ($conn->connect_error) {
         die("Connection failed: " . $conn->connect_error);
     }
@@ -33,6 +39,7 @@ function initialize_database($conn) {
         startDate DATE NOT NULL,
         startReqDate DATE NOT NULL,
 		max_sellers INT NOT NULL,
+		max_products_per_seller INT NOT NULL DEFAULT 0,
         brokerage DOUBLE,
 		min_price DOUBLE,
         price_stepping DOUBLE,
@@ -221,6 +228,17 @@ function check_and_add_columns($conn, $table, $header) {
 }
 
 // PAGE: index.php
+
+function get_operation_mode($conn) {
+    $sql = "SELECT operationMode FROM settings LIMIT 1";
+    $result = $conn->query($sql);
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        return $row['operationMode'];
+    }
+    return 'online'; // Default to 'online' if not set
+}
+
 function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid) {
     $seller_id = $_POST['seller_id'];
     $sql = "SELECT id FROM sellers WHERE id='$seller_id' AND email='$email'";

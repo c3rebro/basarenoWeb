@@ -16,6 +16,42 @@ if ($first_time_setup) {
     exit;
 }
 
+// Fetch the operation mode
+$operationMode = get_operation_mode($conn);
+
+if ($operationMode === 'offline') {
+    // Show the special welcome screen
+    echo '<!DOCTYPE html>
+		<html lang="de">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Hinweis zur Zertifikatssicherheit</title>
+			<link rel="stylesheet" href="/css/bootstrap.min.css">
+			<style>
+				body {
+					padding-top: 20px;
+					padding-bottom: 20px;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="container">
+				<div class="jumbotron text-center">
+					<h1 class="display-4">Zertifikats- Warnung</h1>
+					<p class="lead">Beim klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
+					<hr class="my-4">
+					<p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)".</p>
+					<a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/cashier_login.php" role="button">Weiter als Kassier</a>
+					<a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/admin_login.php" role="button">Weiter als Admin </a>
+				</div>
+			</div>
+			<script src="/js/bootstrap.bundle.min.js"></script>
+		</body>
+		</html>';
+    exit;
+}
+
 $error = '';
 
 // Fetch bazaar dates and max_sellers

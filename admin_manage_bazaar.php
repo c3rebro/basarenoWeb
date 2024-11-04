@@ -154,10 +154,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
     $min_price = $_POST['min_price'];
     $price_stepping = $_POST['price_stepping'];
     $max_sellers = $_POST['max_sellers'];
+	$max_products_per_seller = $_POST['max_products_per_seller'];
     $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
     $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
-    if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid)) {
+    if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
         $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate > ?";
@@ -179,9 +180,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
             $conn->query("UPDATE sellers SET checkout_id = 0");
 
             $brokerage = $brokerage / 100;
-            $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-            $stmt = $conn->prepare($sql);
-            $stmt->bind_param("sssddiss", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid);
+        $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid, max_products_per_seller) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller);
             if ($stmt->execute()) {
                 $success = "Bazaar erfolgreich hinzugefügt.";
             } else {
@@ -200,16 +201,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     $min_price = $_POST['min_price'];
     $price_stepping = $_POST['price_stepping'];
     $max_sellers = $_POST['max_sellers'];
+	$max_products_per_seller = $_POST['max_products_per_seller'];
     $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
     $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
-    if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid)) {
+    if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
         $brokerage = $brokerage / 100;
-        $sql = "UPDATE bazaar SET startDate=?, startReqDate=?, brokerage=?, min_price=?, price_stepping=?, max_sellers=?, mailtxt_reqnewsellerid=?, mailtxt_reqexistingsellerid=? WHERE id=?";
+        $sql = "UPDATE bazaar SET startDate=?, startReqDate=?, brokerage=?, min_price=?, price_stepping=?, max_sellers=?, mailtxt_reqnewsellerid=?, mailtxt_reqexistingsellerid=?, max_products_per_seller=? WHERE id=?";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $bazaar_id);
+        $stmt->bind_param("sssddissii", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller, $bazaar_id);
         if ($stmt->execute()) {
             $success = "Bazaar erfolgreich aktualisiert.";
         } else {
@@ -300,18 +302,22 @@ $conn->close();
                 </div>
             </div>
             <div class="form-row">
-                <div class="form-group col-md-3">
+                <div class="form-group col-md-2">
                     <label for="brokerage">Provision (%):</label>
                     <input type="number" step="0.01" class="form-control" id="brokerage" name="brokerage" required>
                 </div>
-                <div class="form-group col-md-3">
+                <div class="form-group col-md-2">
                     <label for="min_price">Mindestpreis (€):</label>
                     <input type="number" step="0.01" class="form-control" id="min_price" name="min_price" required>
                 </div>
-                <div class="form-group col-md-3">
+                <div class="form-group col-md-2">
                     <label for="max_sellers">Maximale Verkäufer:</label>
                     <input type="number" class="form-control" id="max_sellers" name="max_sellers" required>
                 </div>
+				<div class="form-group col-md-2">
+					<label for="max_products_per_seller">Max. Anz. Prod. / Verk.:</label>
+					<input type="number" class="form-control" id="max_products_per_seller" name="max_products_per_seller" required>
+				</div>
                 <div class="form-group col-md-3">
                     <label for="price_stepping">Preisabstufung (€):</label>
                     <select class="form-control" id="price_stepping" name="price_stepping" required>
@@ -354,9 +360,9 @@ $conn->close();
 &lt;p&gt;Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:&lt;/p&gt;
 &lt;p&gt;&lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.basar-horrheim.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@basar-horrheim.de'&gt;basarteam@basar-horrheim.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
+&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0177 977 6225 melden.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
 &lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
@@ -400,9 +406,9 @@ $conn->close();
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
-&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.basar-horrheim.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@basar-horrheim.de'&gt;basarteam@basar-horrheim.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
+&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0177 977 6225 melden.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
 &lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
@@ -473,6 +479,7 @@ $conn->close();
                         <th>Mindestpreis (€)</th>
                         <th>Preisabstufung (€)</th>
                         <th>Maximale Verkäufer</th>
+						<th>Max. Prod. pro Verk.</th>
                         <th>Aktionen</th>
                     </tr>
                 </thead>
@@ -486,10 +493,12 @@ $conn->close();
                             <td><?php echo htmlspecialchars($row['min_price']); ?></td>
                             <td><?php echo htmlspecialchars($row['price_stepping']); ?></td>
                             <td><?php echo htmlspecialchars($row['max_sellers']); ?></td>
+							<td><?php echo htmlspecialchars($row['max_products_per_seller']); ?></td>
                             <td>
                                 <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo $row['id']; ?>">Bearbeiten</button>
                                 <button class="btn btn-info btn-sm view-bazaar" data-id="<?php echo $row['id']; ?>" data-toggle="modal" data-target="#viewBazaarModal">Auswertung</button>
                                 <button class="btn btn-danger btn-sm remove-bazaar" data-id="<?php echo $row['id']; ?>">Entfernen</button>
+								
                                 <!-- Edit Bazaar Modal -->
                                 <div class="modal fade" id="editBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="editBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
                                     <div class="modal-dialog" role="document">
@@ -523,6 +532,10 @@ $conn->close();
                                                         <label for="max_sellers<?php echo $row['id']; ?>">Maximale Verkäufer:</label>
                                                         <input type="number" class="form-control" id="max_sellers<?php echo $row['id']; ?>" name="max_sellers" value="<?php echo htmlspecialchars($row['max_sellers']); ?>" required>
                                                     </div>
+													<div class="form-group">
+														<label for="max_products_per_seller<?php echo $row['id']; ?>">Maximale Produkte pro Verkäufer:</label>
+														<input type="number" class="form-control" id="max_products_per_seller<?php echo $row['id']; ?>" name="max_products_per_seller" value="<?php echo htmlspecialchars($row['max_products_per_seller']); ?>" required>
+													</div>
                                                     <div class="form-group">
                                                         <label for="price_stepping<?php echo $row['id']; ?>">Preisabstufung (€):</label>
                                                         <select class="form-control" id="price_stepping<?php echo $row['id']; ?>" name="price_stepping" required>

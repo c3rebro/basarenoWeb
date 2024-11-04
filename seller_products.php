@@ -41,48 +41,65 @@ if ($result->num_rows == 0) {
     exit();
 }
 
+// Fetch the current bazaar ID
+$bazaar_id = get_current_bazaar_id($conn);
+
+// Fetch max products per seller from the bazaar
+$sql = "SELECT max_products_per_seller FROM bazaar WHERE id='$bazaar_id'";
+$result = $conn->query($sql);
+$bazaar_settings = $result->fetch_assoc();
+$max_products_per_seller = $bazaar_settings['max_products_per_seller'];
+
+// Check the current number of products for this seller
+$sql = "SELECT COUNT(*) as product_count FROM products WHERE seller_id='$seller_id'";
+$result = $conn->query($sql);
+$current_product_count = $result->fetch_assoc()['product_count'];
+
 // Handle product creation form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_product'])) {
-    $bazaar_id = get_current_bazaar_id($conn);
-    $name = $conn->real_escape_string($_POST['name']);
-    $size = $conn->real_escape_string($_POST['size']);
-    $price = $conn->real_escape_string($_POST['price']);
-
-    $rules = get_bazaar_pricing_rules($conn, $bazaar_id);
-    $min_price = $rules['min_price'];
-    $price_stepping = $rules['price_stepping'];
-
-    // Validate price
-    if ($price < $min_price) {
-        echo "<script>
-            document.addEventListener('DOMContentLoaded', function() {
-                document.querySelector('#priceValidationModal .modal-body').textContent = 'Der eingegebene Preis ist niedriger als der Mindestpreis von ' + $min_price + ' €.';
-                $('#priceValidationModal').modal('show');
-            });
-        </script>";
-    } elseif (fmod($price, $price_stepping) != 0) {
-        echo "<script>
-            document.addEventListener('DOMContentLoaded', function() {
-                document.querySelector('#priceValidationModal .modal-body').textContent = 'Der Preis muss in Schritten von ' + $price_stepping + ' € eingegeben werden.';
-                $('#priceValidationModal').modal('show');
-            });
-        </script>";
+    if ($current_product_count >= $max_products_per_seller) {
+        echo "<div class='alert alert-danger'>Sie haben die maximale Anzahl an Artikeln erreicht, die Sie erstellen können.</div>";
     } else {
-        // Generate a unique EAN-13 barcode
-        do {
-            $barcode = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT) . str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT); // Ensure 12-digit barcode as string
-            $checkDigit = calculateCheckDigit($barcode);
-            $barcode .= $checkDigit; // Append the check digit to make it a valid EAN-13 barcode
-            $sql = "SELECT id FROM products WHERE barcode='$barcode'";
-            $result = $conn->query($sql);
-        } while ($result->num_rows > 0);
+        $name = $conn->real_escape_string($_POST['name']);
+        $size = $conn->real_escape_string($_POST['size']);
+        $price = $conn->real_escape_string($_POST['price']);
 
-        // Insert product into the database
-        $sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$bazaar_id', '$seller_id')";
-        if ($conn->query($sql) === TRUE) {
-            echo "<div class='alert alert-success'>Artikel erfolgreich erstellt.</div>";
+        $rules = get_bazaar_pricing_rules($conn, $bazaar_id);
+        $min_price = $rules['min_price'];
+        $price_stepping = $rules['price_stepping'];
+
+        // Validate price
+        if ($price < $min_price) {
+            echo "<script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.querySelector('#priceValidationModal .modal-body').textContent = 'Der eingegebene Preis ist niedriger als der Mindestpreis von ' + $min_price + ' €.';
+                    $('#priceValidationModal').modal('show');
+                });
+            </script>";
+        } elseif (fmod($price, $price_stepping) != 0) {
+            echo "<script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.querySelector('#priceValidationModal .modal-body').textContent = 'Der Preis muss in Schritten von ' + $price_stepping + ' € eingegeben werden.';
+                    $('#priceValidationModal').modal('show');
+                });
+            </script>";
         } else {
-            echo "<div class='alert alert-danger'>Fehler beim Erstellen des Artikels: " . $conn->error . "</div>";
+            // Generate a unique EAN-13 barcode
+            do {
+                $barcode = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT) . str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT); // Ensure 12-digit barcode as string
+                $checkDigit = calculateCheckDigit($barcode);
+                $barcode .= $checkDigit; // Append the check digit to make it a valid EAN-13 barcode
+                $sql = "SELECT id FROM products WHERE barcode='$barcode'";
+                $result = $conn->query($sql);
+            } while ($result->num_rows > 0);
+
+            // Insert product into the database
+            $sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, seller_id) VALUES ('$name', '$size', '$price', '$barcode', '$bazaar_id', '$seller_id')";
+            if ($conn->query($sql) === TRUE) {
+                echo "<div class='alert alert-success'>Artikel erfolgreich erstellt.</div>";
+            } else {
+                echo "<div class='alert alert-danger'>Fehler beim Erstellen des Artikels: " . $conn->error . "</div>";
+            }
         }
     }
 }
