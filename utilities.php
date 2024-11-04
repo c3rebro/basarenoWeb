@@ -212,6 +212,17 @@ function decrypt_data($data, $secret) {
 
 // PAGE: admin_manage_bazaar.php
 
+// Function to get expected columns from database
+function get_expected_columns($conn, $table_name) {
+    $columns = [];
+    $result = $conn->query("SHOW COLUMNS FROM $table_name");
+    while ($row = $result->fetch_assoc()) {
+        $columns[] = $row['Field'];
+    }
+    return $columns;
+}
+
+
 // Function to check and add missing columns
 function check_and_add_columns($conn, $table, $header) {
     $result = $conn->query("SHOW COLUMNS FROM $table");
