@@ -191,7 +191,7 @@ function get_next_checkout_id($conn) {
 
 // Function to generate a hash
 function generate_hash($email, $seller_id) {
-    return hash('sha256', $email . $seller_id . SECRET);
+    return hash('sha256', strtolower($email) . $seller_id . SECRET);
 }
 
 // Function to encrypt data
