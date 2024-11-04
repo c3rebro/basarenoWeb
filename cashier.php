@@ -91,27 +91,27 @@ $conn->close();
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <script src="js/quagga.min.js"></script>
     <style>
-		.scanner-wrapper {
-			width: 100%;
-			height: 200px;
-			overflow: hidden;
-			display: flex;
-			justify-content: center;
-			align-items: center;
-		}
+        .scanner-wrapper {
+            width: 100%;
+            height: 200px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
 
-		#scanner-container {
-			position: relative;
-			width: 90vw;
-			height: 100%;
-			overflow: hidden;
-		}
+        #scanner-container {
+            position: relative;
+            width: 90vw;
+            height: 100%;
+            overflow: hidden;
+        }
 
-		video {
-			width: 90vw;
-		}
-	
-#scanner-line {
+        video {
+            width: 90vw;
+        }
+
+        #scanner-line {
             position: absolute;
             top: 50%;
             left: 0;
@@ -138,84 +138,110 @@ $conn->close();
         .manual-entry-form {
             margin: 20px 0;
         }
+		
+		/* Custom styles for buttons */
+        .button-container {
+            margin-top: 20px;
+        }
+
+        @media (max-width: 576px) {
+            .btn-full-width {
+                width: 100%;
+            }
+        }
+		
+		/* Alternating row colors */
+        .table-striped tbody tr:nth-of-type(odd) {
+            background-color: #f9f9f9;
+        }
+        .table-striped tbody tr:nth-of-type(even) {
+            background-color: #ffffff;
+        }
     </style>
     <script>
-		function startScanner() {
-			Quagga.init({
-				inputStream: {
-					name: "Live",
-					type: "LiveStream",
-					target: document.querySelector('#scanner-container')
-				},
-				decoder: {
-					readers: ["ean_reader"],
-					debug: {
-						drawBoundingBox: true,
-						showFrequency: true,
-						drawScanline: true,
-						showPattern: true
-					},
-					multiple: false
-				},
-				locate: true,
-				locator: {
-					halfSample: true,
-					patchSize: "medium",
-					debug: {
-						showCanvas: true,
-						showPatches: true,
-						showFoundPatches: true,
-						showSkeleton: true,
-						showLabels: true,
-						showPatchLabels: true,
-						showRemainingPatchLabels: true,
-						boxFromPatches: {
-							showTransformed: true,
-							showTransformedBox: true,
-							showBB: true
-						}
-					}
-				}
-			}, function (err) {
-				if (err) {
-					console.log(err);
-					return;
-				}
-				Quagga.start();
-			});
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("Document loaded");
 
-			Quagga.onDetected(function (data) {
-				document.getElementById('barcode').value = data.codeResult.code;
-				document.getElementById('scan-form').submit();
-				showNotification();
-			});
-		}
+            let scannerActive = false;
 
-		function showNotification() {
-			if (Notification.permission === "granted") {
-				new Notification("Produkt erfolgreich gescannt!");
-			} else if (Notification.permission !== "denied") {
-				Notification.requestPermission().then(permission => {
-					if (permission === "granted") {
-						new Notification("Produkt erfolgreich gescannt!");
-					}
-				});
-			}
-		}
+            function startScanner() {
+                if (scannerActive) return;
 
-		document.addEventListener('visibilitychange', function() {
-			if (document.visibilityState === 'visible') {
-				Quagga.stop();
-				startScanner();
-			}
-		});
+                console.log("Starting scanner");
+                Quagga.init({
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: document.querySelector('#scanner-container'),
+                        constraints: {
+                            width: 640,
+                            height: 480,
+                            frameRate: { max: 10 } // Limit to 10 FPS
+                        }
+                    },
+                    decoder: {
+                        readers: ["ean_reader"]
+                    },
+                    locate: true
+                }, function (err) {
+                    if (err) {
+                        console.log("Error initializing Quagga: ", err);
+                        return;
+                    }
+                    Quagga.start();
+                    scannerActive = true;
+                    document.getElementById('start-scanner').style.display = 'none';
+                    document.getElementById('stop-scanner').style.display = 'inline-block';
+                });
 
-		window.onload = function() {
-			startScanner();
-		};
-	</script>
+                Quagga.onDetected(function (data) {
+                    console.log("Barcode detected: ", data.codeResult.code);
+                    document.getElementById('barcode').value = data.codeResult.code;
+                    document.getElementById('scan-form').submit();
+                    showNotification();
+                });
+            }
+
+            function stopScanner() {
+                if (!scannerActive) return;
+
+                console.log("Stopping scanner");
+                Quagga.stop();
+                scannerActive = false;
+                document.getElementById('stop-scanner').style.display = 'none';
+                document.getElementById('start-scanner').style.display = 'inline-block';
+            }
+
+            function showNotification() {
+                if (Notification.permission === "granted") {
+                    new Notification("Produkt erfolgreich gescannt!");
+                } else if (Notification.permission !== "denied") {
+                    Notification.requestPermission().then(permission => {
+                        if (permission === "granted") {
+                            new Notification("Produkt erfolgreich gescannt!");
+                        }
+                    });
+                }
+            }
+
+            document.getElementById('start-scanner').addEventListener('click', startScanner);
+            document.getElementById('stop-scanner').addEventListener('click', stopScanner);
+
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    startScanner();
+                } else {
+                    stopScanner();
+                }
+            });
+
+            window.onload = function() {
+                startScanner();
+            };
+        });
+    </script>
 </head>
-<body onload="startScanner()">
+<body>
     <div class="container">
         <h2 class="mt-5">Kassierer</h2>
         <?php if ($message) { echo "<div class='alert alert-info'>$message</div>"; } ?>
@@ -226,6 +252,10 @@ $conn->close();
                 <div class="overlay"></div>
             </div>
         </div>
+        <div class="button-container text-center">
+            <button id="start-scanner" class="btn btn-primary btn-full-width">Start Scanner</button>
+            <button id="stop-scanner" class="btn btn-secondary btn-full-width" style="display:none;">Stop Scanner</button>
+        </div>
         <form id="scan-form" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
             <input type="hidden" id="barcode" name="barcode">
         </form>
@@ -235,10 +265,15 @@ $conn->close();
                     <label for="manual-barcode">Manuelle Barcodeeingabe:</label>
                     <input type="text" class="form-control" id="manual-barcode" name="barcode" required>
                 </div>
-                <button type="submit" class="btn btn-primary">Artikel hinzufügen</button>
+                <button type="submit" class="btn btn-primary btn-full-width">Artikel hinzufügen</button>
             </form>
         </div>
-        <h3 class="mt-5">Erfolgreich gescannte Artikel</h3>
+        <form action="cashier.php?nocache=<?php echo time(); ?>" method="post">
+            <button type="submit" name="reset_sum" class="btn btn-warning btn-full-width mb-2">Abschluss</button>
+        </form>
+		<h3 class="mt-2">Summe: €<?php echo number_format($sum_of_prices, 2, ',', '.'); ?></h3>
+		<hr>
+        <h3 class="mt-1">Erfolgreich gescannte Artikel</h3>
         <div class="table-container">
             <table class="table table-bordered mt-3">
                 <thead>
@@ -251,11 +286,11 @@ $conn->close();
                 </thead>
                 <tbody>
                     <?php foreach ($groups as $index => $group): ?>
-                    <tr data-toggle="collapse" data-target="#group-<?php echo $index; ?>" class="clickable">
-                        <td colspan="4">
-                            Gruppe <?php echo $index + 1; ?> - Artikelanzahl: <?php echo count($group['products']); ?> - Summe: €<?php echo number_format($group['sum'], 2, ',', '.'); ?>
-                        </td>
-                    </tr>
+					<tr data-toggle="collapse" data-target="#group-<?php echo $group['number']; ?>" class="clickable">
+						<td colspan="4">
+							Artikelanzahl: <?php echo count($group['products']); ?> - Summe: €<?php echo number_format($group['sum'], 2, ',', '.'); ?>
+						</td>
+					</tr>
                     <tr id="group-<?php echo $index; ?>" class="collapse <?php echo $index === 0 ? 'show' : ''; ?>">
                         <td colspan="4">
                             <table class="table">
@@ -279,10 +314,6 @@ $conn->close();
                 </tbody>
             </table>
         </div>
-        <h3 class="mt-5">Summe: €<?php echo number_format($sum_of_prices, 2, ',', '.'); ?></h3>
-        <form action="cashier.php?nocache=<?php echo time(); ?>" method="post">
-            <button type="submit" name="reset_sum" class="btn btn-warning mb-5">Abschluss</button>
-        </form>
     </div>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
