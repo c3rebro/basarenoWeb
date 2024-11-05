@@ -365,6 +365,9 @@ $conn->close();
                                 <li><code>{given_name}</code>: Vorname des Benutzers</li>
                                 <li><code>{family_name}</code>: Nachname des Benutzers</li>
                                 <li><code>{verification_link}</code>: Verifizierungslink</li>
+								<li><code>{create_products_link}</code>: Produkte erstellen Link</li>
+								<li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
+								<li><code>{delete_link}</code>: DSGVO-Löschlink</li>
                                 <li><code>{seller_id}</code>: Verkäufer-ID</li>
                                 <li><code>{hash}</code>: Sicherer Hash</li>
                             </ul>
@@ -374,13 +377,17 @@ $conn->close();
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:&lt;/p&gt;
-&lt;p&gt;&lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;a href='{create_products_link}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos". Wir bitten darum, bei nicht benötigten Verkäufernummern, über unseren Rückgabelink &lt;a href='{revert_link}'&gt;Nummer zurückgeben&lt;/a&gt; ab zu sagen.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Nach DSGVO haben Sie ein Recht auf &quot;vergessenwerden&quot;. Sie haben die Möglichkeit mit einem Klick auf diesen &lt;a href='{delete_link}'&gt;Löschlink&lt;/a&gt; all Ihre persönlichen Daten sowie alle von Ihnen angelegten Produkte aus unserem System zu entfernen. Bitte beachten Sie dass dieser Prozess von uns nicht Rückgängig gemacht werden kann.&lt;/p&gt;
+&lt;hr&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt; 
@@ -412,6 +419,9 @@ $conn->close();
                                 <li><code>{given_name}</code>: Vorname des Benutzers</li>
                                 <li><code>{family_name}</code>: Nachname des Benutzers</li>
                                 <li><code>{verification_link}</code>: Verifizierungslink</li>
+								<li><code>{create_products_link}</code>: Produkte erstellen Link</li>
+								<li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
+								<li><code>{delete_link}</code>: DSGVO-Löschlink</li>
                                 <li><code>{seller_id}</code>: Verkäufer-ID</li>
                                 <li><code>{hash}</code>: Sicherer Hash</li>
                             </ul>
@@ -420,13 +430,17 @@ $conn->close();
 &lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{BASE_URI}/seller_products.php?seller_id={seller_id}&amp;hash={hash}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
+&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{create_products_link}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
 &lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Bitte beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos"&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos". Wir bitten darum, bei nicht benötigten Verkäufernummern, über unseren Rückgabelink &lt;a href='{revert_link}'&gt;Nummer zurückgeben&lt;/a&gt; ab zu sagen.&lt;/p&gt;
+&lt;p&gt;&lt;/p&gt;
+&lt;p&gt;Nach DSGVO haben Sie ein Recht auf &quot;vergessenwerden&quot;. Sie haben die Möglichkeit mit einem Klick auf diesen &lt;a href='{delete_link}'&gt;Löschlink&lt;/a&gt; all Ihre persönlichen Daten sowie alle von Ihnen angelegten Produkte aus unserem System zu entfernen. Bitte beachten Sie dass dieser Prozess von uns nicht Rückgängig gemacht werden kann.&lt;/p&gt;
+&lt;hr&gt;
 &lt;p&gt;&lt;/p&gt;
 &lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
 &lt;p&gt;&lt;/p&gt; 

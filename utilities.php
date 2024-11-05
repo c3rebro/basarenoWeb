@@ -287,10 +287,14 @@ function execute_sql_and_send_email($conn, $sql, $email, $seller_id, $hash, $ver
 
     if ($conn->query($sql) === TRUE) {
         $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
+		$create_products_link = BASE_URI . "/seller_products.php?seller_id=$seller_id&hash=$hash";
+		$revert_link = BASE_URI . "/verify.php?action=revert&seller_id=$seller_id&hash=$hash";
+		$delete_link = BASE_URI . "/flush.php?seller_id=$seller_id&hash=$hash";
+
         $subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
         $message = str_replace(
-            ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{seller_id}', '{hash}'],
-            [BASE_URI, $given_name, $family_name, $verification_link, $seller_id, $hash],
+            ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{create_products_link}', '{revert_link}', '{delete_link}', '{seller_id}', '{hash}'],
+            [BASE_URI, $given_name, $family_name, $verification_link, $create_products_link, $revert_link, $delete_link, $seller_id, $hash],
             $mailtxt
         );
         $send_result = send_email($email, $subject, $message);
