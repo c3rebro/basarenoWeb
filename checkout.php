@@ -16,9 +16,13 @@ $seller_id = $_GET['seller_id'];
 $hash = $_GET['hash'];
 
 $conn = get_db_connection();
-$sql = "SELECT * FROM sellers WHERE id='$seller_id' AND hash='$hash'";
-$result = $conn->query($sql);
-	
+
+// Use prepared statement to prevent SQL Injection
+$stmt = $conn->prepare("SELECT * FROM sellers WHERE id=? AND hash=?");
+$stmt->bind_param("ss", $seller_id, $hash);
+$stmt->execute();
+$result = $stmt->get_result();
+
 if ($result->num_rows == 0) {
     echo "
 <!DOCTYPE html>
@@ -49,7 +53,7 @@ if ($result->num_rows == 0) {
 
 if ($result->num_rows > 0) {
     $seller = $result->fetch_assoc();
-    $checkout_id = $seller['checkout_id'];	
+    $checkout_id = $seller['checkout_id'];    
 }
 
 if ($seller['verified'] != 1) {
@@ -78,26 +82,32 @@ if ($seller['verified'] != 1) {
     exit();
 }
 
-
-$sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
-$products_result = $conn->query($sql);
+// Use prepared statement for fetching products
+$stmt = $conn->prepare("SELECT * FROM products WHERE seller_id=?");
+$stmt->bind_param("s", $seller_id);
+$stmt->execute();
+$products_result = $stmt->get_result();
 
 $total = 0.0;
 $total_brokerage = 0.0;
 $brokerage = 0.0;
 $current_date = date('Y-m-d');
 
-// Retrieve the current bazaar based on the current date
-$sql = "SELECT brokerage, price_stepping FROM bazaar WHERE startDate <= '$current_date' AND DATE_ADD(startDate, INTERVAL 30 DAY) >= '$current_date' LIMIT 1";
-$result = $conn->query($sql);
+// Use prepared statement for retrieving the current bazaar
+$stmt = $conn->prepare("SELECT brokerage, price_stepping FROM bazaar WHERE startDate <= ? AND DATE_ADD(startDate, INTERVAL 30 DAY) >= ? LIMIT 1");
+$stmt->bind_param("ss", $current_date, $current_date);
+$stmt->execute();
+$result = $stmt->get_result();
 
 if ($result->num_rows > 0) {
     $row = $result->fetch_assoc();
     $brokerage = $row['brokerage'];
     $price_stepping = $row['price_stepping'];
-	
-    $sql = "UPDATE sellers SET checkout=TRUE WHERE id='$seller_id'";
-    if ($conn->query($sql) === TRUE) {
+
+    // Use prepared statement for updating seller checkout
+    $stmt = $conn->prepare("UPDATE sellers SET checkout=TRUE WHERE id=?");
+    $stmt->bind_param("s", $seller_id);
+    if ($stmt->execute()) {
         $success = "Verkäufer erfolgreich ausgecheckt.";
         debug_log("Seller checked out: ID=$seller_id");
     } else {
@@ -127,12 +137,6 @@ if ($result->num_rows > 0) {
     </body>
     </html>
     ";
-    
-    '<div class="alert alert-warning alert-dismissible fade show" role="alert">
-            <strong>Hinweis:</strong> Es wurde kein Bazaar gefunden, der abgerechnet werden kann.<br>
-            Läuft der aktuelle Basar eventuell noch? (siehe Startdatum)
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>';
     exit;
 }
 
@@ -147,17 +151,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $total = 0;
     $total_brokerage = 0;
     $email_body = "<html><body>";
-    $email_body .= "<h1>Checkout für Verkäufer: {$seller['given_name']} {$seller['family_name']} (VerkäuferNr: {$seller['id']})</h1>";
+    $email_body .= "<h1>Checkout für Verkäufer: " . htmlspecialchars($seller['given_name']) . " " . htmlspecialchars($seller['family_name']) . " (VerkäuferNr: " . htmlspecialchars($seller['id']) . ")</h1>";
     $email_body .= "<table border='1' cellpadding='10'>";
     $email_body .= "<tr><th>Produktname</th><th>Größe</th><th>Preis</th><th>Verkauft</th></tr>";
     
     $products_result->data_seek(0); // Reset the result pointer to the beginning
     while ($product = $products_result->fetch_assoc()) {
         $sold = isset($_POST['sold_' . $product['id']]) ? 1 : 0;
-        $size = $product['size'];
+        $size = htmlspecialchars($product['size']);
         $price = number_format($product['price'], 2, ',', '.') . ' €';
         $seller_brokerage = $sold ? $product['price'] * $brokerage : 0;
-        $email_body .= "<tr><td>{$product['name']}</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td></tr>";
+        $email_body .= "<tr><td>" . htmlspecialchars($product['name']) . "</td><td>{$size}</td><td>{$price}</td><td>" . ($sold ? 'Ja' : 'Nein') . "</td></tr>";
         if ($sold) {
             $total += $product['price'];
             $total_brokerage += $seller_brokerage;
@@ -167,7 +171,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     $email_body .= "<h2>Auszahlungsbetrag: " . number_format($total - $total_brokerage, 2, ',', '.') . " €</h2>";
     $email_body .= "</body></html>";
 
-    $subject = "Checkout für Verkäufer: {$seller['given_name']} {$seller['family_name']} (Verkäufernummer: {$seller['id']})";
+    $subject = "Checkout für Verkäufer: " . htmlspecialchars($seller['given_name']) . " " . htmlspecialchars($seller['family_name']) . " (Verkäufernummer: " . htmlspecialchars($seller['id']) . ")";
     if ($total > 0) {
         $email_body .= "<p>Vielen Dank für Ihre Unterstützung!</p>";
     } else {
@@ -214,10 +218,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 <body>
     <div class="container">
         <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</h3>
-        <?php if (isset($error)) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
-        <?php if (isset($success)) { echo "<div class='alert alert-success'>$success</div>"; } ?>
+        <?php if (isset($error)) { echo "<div class='alert alert-danger'>" . htmlspecialchars($error) . "</div>"; } ?>
+        <?php if (isset($success)) { echo "<div class='alert alert-success'>" . htmlspecialchars($success) . "</div>"; } ?>
 
-        <form action="checkout.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
+        <form action="checkout.php?seller_id=<?php echo htmlspecialchars($seller_id); ?>&hash=<?php echo htmlspecialchars($hash); ?>" method="post">
             <div class="table-responsive">
                 <table class="table table-bordered mt-3">
                     <thead>
@@ -241,10 +245,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                             $provision = number_format($seller_brokerage, 2, ',', '.') . ' €';
                             $auszahlung = number_format($product['price'] - $seller_brokerage, 2, ',', '.') . ' €';
                             echo "<tr>
-                                    <td>{$product['name']}</td>
-                                    <td>{$product['size']}</td>
+                                    <td>" . htmlspecialchars($product['name']) . "</td>
+                                    <td>" . htmlspecialchars($product['size']) . "</td>
                                     <td>{$price}</td>
-                                    <td><input type='checkbox' name='sold_{$product['id']}' $sold_checked></td>
+                                    <td><input type='checkbox' name='sold_" . htmlspecialchars($product['id']) . "' $sold_checked></td>
                                     <td class='brokerage'>{$provision}</td>
                                     <td class='auszahlung'>{$auszahlung}</td>
                                   </tr>";

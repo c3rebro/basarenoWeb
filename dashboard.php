@@ -1,4 +1,3 @@
-<!-- dashboard.php -->
 <?php
 session_start();
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
@@ -14,9 +13,11 @@ $role = $_SESSION['role'];
 $conn = get_db_connection();
 initialize_database($conn);
 
-// Fetch additional user info if needed
-$sql = "SELECT * FROM users WHERE username='$username'";
-$result = $conn->query($sql);
+// Use prepared statement to prevent SQL Injection
+$stmt = $conn->prepare("SELECT * FROM users WHERE username=?");
+$stmt->bind_param("s", $username);
+$stmt->execute();
+$result = $stmt->get_result();
 $user = $result->fetch_assoc();
 
 $conn->close();
@@ -66,7 +67,7 @@ $conn->close();
                     <li><a href="admin_manage_users.php">Benutzer verwalten</a></li>
                     <li><a href="admin_manage_bazaar.php">Bazaar verwalten</a></li>
                     <li><a href="admin_manage_sellers.php">Verkäufer verwalten</a></li>
-					<li><a href="system_settings.php">Systemeinstellungen</a></li>
+                    <li><a href="system_settings.php">Systemeinstellungen</a></li>
                     <!-- Add more admin-specific links here -->
                 </ul>
             </div>

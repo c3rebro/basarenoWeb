@@ -6,13 +6,16 @@ $conn = get_db_connection();
 $message = '';
 $message_type = 'danger'; // Default message type for errors
 
-$seller_id = isset($_GET['seller_id']) ? $conn->real_escape_string($_GET['seller_id']) : null;
-$hash = isset($_GET['hash']) ? $conn->real_escape_string($_GET['hash']) : null;
+$seller_id = isset($_GET['seller_id']) ? $_GET['seller_id'] : null;
+$hash = isset($_GET['hash']) ? $_GET['hash'] : null;
 
 if ($seller_id && $hash) {
-    // Verify the seller_id and hash
-    $sql = "SELECT id, email FROM sellers WHERE id='$seller_id' AND hash='$hash'";
-    $result = $conn->query($sql);
+    // Verify the seller_id and hash using prepared statements
+    $sql = "SELECT id, email FROM sellers WHERE id=? AND hash=?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("is", $seller_id, $hash);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
         $seller = $result->fetch_assoc();
@@ -21,26 +24,32 @@ if ($seller_id && $hash) {
     } else {
         $message = "Ungültiger Link oder Verkäufer-ID.";
     }
+
+    $stmt->close();
 } else {
     $message = "Ungültiger oder fehlender Link.";
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_delete'])) {
-    $seller_id = $conn->real_escape_string($_POST['seller_id']);
+    $seller_id = $_POST['seller_id'];
 
     // Begin a transaction to ensure atomicity
     $conn->begin_transaction();
 
     try {
-        // Delete products associated with the seller
-        $sql = "DELETE FROM products WHERE seller_id='$seller_id'";
-        if ($conn->query($sql) !== TRUE) {
+        // Delete products associated with the seller using prepared statements
+        $sql = "DELETE FROM products WHERE seller_id=?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $seller_id);
+        if ($stmt->execute() !== TRUE) {
             throw new Exception("Fehler beim Löschen der Produkte: " . $conn->error);
         }
 
-        // Delete the seller
-        $sql = "DELETE FROM sellers WHERE id='$seller_id'";
-        if ($conn->query($sql) !== TRUE) {
+        // Delete the seller using prepared statements
+        $sql = "DELETE FROM sellers WHERE id=?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $seller_id);
+        if ($stmt->execute() !== TRUE) {
             throw new Exception("Fehler beim Löschen des Verkäufers: " . $conn->error);
         }
 
@@ -54,6 +63,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_delete'])) {
         $message = $e->getMessage();
         $message_type = 'danger';
     }
+
+    $stmt->close();
 }
 
 $conn->close();

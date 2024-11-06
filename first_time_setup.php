@@ -31,7 +31,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['test_db'])) {
         $db_conn = new mysqli($db_host, $db_username, $db_password);
         if ($db_conn->connect_error) {
-            $db_error = "Datenbankverbindung fehlgeschlagen: " . $db_conn->connect_error;
+            $db_error = "Datenbankverbindung fehlgeschlagen: " . htmlspecialchars($db_conn->connect_error);
         } else {
             $db_success = "Datenbankverbindung erfolgreich!";
             $db_conn->close();
@@ -42,7 +42,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['test_mail'])) {
         $subject = "Test-E-Mail";
         $body = "Dies ist eine Test-E-Mail.";
-        $headers = "From: " . $smtp_from_name . " <" . $smtp_from . ">\n";
+        $headers = "From: " . htmlspecialchars($smtp_from_name) . " <" . htmlspecialchars($smtp_from) . ">\n";
         $headers .= "MIME-Version: 1.0
 ";
         $headers .= "Content-Type: text/html; charset=UTF-8
@@ -63,7 +63,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $config_content = file_get_contents('config.php.template');
             $config_content = str_replace(
                 ['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>'],
-                [$db_host, $db_name, $db_username, $db_password, $smtp_from, $smtp_from_name, $secret, $base_uri],
+                [htmlspecialchars($db_host), htmlspecialchars($db_name), htmlspecialchars($db_username), htmlspecialchars($db_password), htmlspecialchars($smtp_from), htmlspecialchars($smtp_from_name), htmlspecialchars($secret), htmlspecialchars($base_uri)],
                 $config_content
             );
             file_put_contents('config.php', $config_content);
@@ -74,20 +74,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             if ($conn) {
                 initialize_database($conn);
 
-                // Create the admin user
+                // Use prepared statement to create the admin user
                 $password_hash = password_hash($admin_password, PASSWORD_BCRYPT);
-                $sql = "INSERT INTO users (username, password_hash, role) VALUES ('$admin_username', '$password_hash', 'admin')";
-                if ($conn->query($sql) === TRUE) {
+                $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')");
+                $stmt->bind_param("ss", $admin_username, $password_hash);
+                if ($stmt->execute()) {
                     // Insert initial settings including Betriebsart
-                    $sql = "INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')";
-                    if ($conn->query($sql) !== TRUE) {
-                        $setup_error = "Fehler beim Speichern der Einstellungen: " . $conn->error;
-                    } else {
+                    $stmt = $conn->prepare("INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')");
+                    if ($stmt->execute()) {
                         $setup_success = "Ersteinrichtung abgeschlossen. Administrator-Konto erstellt. Weiterleitung zur Login-Seite...";
                         header("refresh:5;url=index.php");
+                    } else {
+                        $setup_error = "Fehler beim Speichern der Einstellungen: " . htmlspecialchars($conn->error);
                     }
                 } else {
-                    $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . $conn->error;
+                    $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . htmlspecialchars($conn->error);
                 }
                 $conn->close();
             } else {
@@ -138,12 +139,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <h2 class="text-center mt-3">Ersteinrichtung</h2>
         <p class="text-center">Bitte geben Sie die folgenden Informationen ein, um die Ersteinrichtung abzuschließen.</p>
         <!-- Display error and success messages -->
-        <?php if ($db_error) { echo "<div class='alert alert-danger'>$db_error</div>"; } ?>
-        <?php if ($db_success) { echo "<div class='alert alert-success'>$db_success</div>"; } ?>
-        <?php if ($mail_error) { echo "<div class='alert alert-danger'>$mail_error</div>"; } ?>
-        <?php if ($mail_success) { echo "<div class='alert alert-success'>$mail_success</div>"; } ?>
-        <?php if ($setup_error) { echo "<div class='alert alert-danger'>$setup_error</div>"; } ?>
-        <?php if ($setup_success) { echo "<div class='alert alert-success'>$setup_success</div>"; } ?>
+        <?php if ($db_error) { echo "<div class='alert alert-danger'>" . htmlspecialchars($db_error) . "</div>"; } ?>
+        <?php if ($db_success) { echo "<div class='alert alert-success'>" . htmlspecialchars($db_success) . "</div>"; } ?>
+        <?php if ($mail_error) { echo "<div class='alert alert-danger'>" . htmlspecialchars($mail_error) . "</div>"; } ?>
+        <?php if ($mail_success) { echo "<div class='alert alert-success'>" . htmlspecialchars($mail_success) . "</div>"; } ?>
+        <?php if ($setup_error) { echo "<div class='alert alert-danger'>" . htmlspecialchars($setup_error) . "</div>"; } ?>
+        <?php if ($setup_success) { echo "<div class='alert alert-success'>" . htmlspecialchars($setup_success) . "</div>"; } ?>
 
         <form action="first_time_setup.php" method="post">
             <!-- Database settings -->

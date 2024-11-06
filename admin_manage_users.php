@@ -1,4 +1,3 @@
-<!-- admin_manage_users.php -->
 <?php
 session_start();
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
@@ -24,8 +23,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
         $error = "Alle Felder sind erforderlich.";
     } else {
         $password_hash = password_hash($password, PASSWORD_DEFAULT);
-        $sql = "INSERT INTO users (username, password_hash, role) VALUES ('$username', '$password_hash', '$role')";
-        if ($conn->query($sql) === TRUE) {
+        $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
+        $stmt->bind_param("sss", $username, $password_hash, $role);
+        if ($stmt->execute()) {
             $success = "Benutzer erfolgreich hinzugefügt.";
         } else {
             $error = "Fehler beim Hinzufügen des Benutzers: " . $conn->error;
@@ -35,9 +35,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
 
 // Handle user deletion
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_user'])) {
-    $user_id = $_POST['user_id'];
-    $sql = "DELETE FROM users WHERE id='$user_id'";
-    if ($conn->query($sql) === TRUE) {
+    $user_id = intval($_POST['user_id']);
+    $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
+    $stmt->bind_param("i", $user_id);
+    if ($stmt->execute()) {
         $success = "Benutzer erfolgreich gelöscht.";
     } else {
         $error = "Fehler beim Löschen des Benutzers: " . $conn->error;
@@ -77,8 +78,8 @@ $conn->close();
 <body>
     <div class="container">
         <h2 class="mt-5">Benutzer Verwalten</h2>
-        <?php if ($error) { echo "<div class='alert alert-danger'>$error</div>"; } ?>
-        <?php if ($success) { echo "<div class='alert alert-success'>$success</div>"; } ?>
+        <?php if ($error) { echo "<div class='alert alert-danger'>" . htmlspecialchars($error, ENT_QUOTES, 'UTF-8') . "</div>"; } ?>
+        <?php if ($success) { echo "<div class='alert alert-success'>" . htmlspecialchars($success, ENT_QUOTES, 'UTF-8') . "</div>"; } ?>
 
         <h3 class="mt-5">Benutzer hinzufügen</h3>
         <form action="admin_manage_users.php" method="post">
@@ -116,12 +117,12 @@ $conn->close();
                 <tbody>
                     <?php while ($row = $result->fetch_assoc()) { ?>
                     <tr>
-                        <td><?php echo htmlspecialchars($row['id']); ?></td>
-                        <td><?php echo htmlspecialchars($row['username']); ?></td>
-                        <td><?php echo htmlspecialchars($row['role']); ?></td>
+                        <td><?php echo htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td><?php echo htmlspecialchars($row['username'], ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td><?php echo htmlspecialchars($row['role'], ENT_QUOTES, 'UTF-8'); ?></td>
                         <td>
                             <form action="admin_manage_users.php" method="post" style="display:inline-block">
-                                <input type="hidden" name="user_id" value="<?php echo $row['id']; ?>">
+                                <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8'); ?>">
                                 <button type="submit" name="delete_user" class="btn btn-danger btn-sm">Löschen</button>
                             </form>
                         </td>

@@ -1,6 +1,5 @@
 <?php
 session_start();
-require_once 'config.php';
 require_once 'utilities.php';
 
 // Set default sorting options
@@ -8,14 +7,21 @@ $sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'startDate';
 $sortOrder = isset($_GET['sortOrder']) ? $_GET['sortOrder'] : 'DESC';
 
 // CSV Export functionality
-if (isset($_POST['export_csv'])) {
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        die("CSRF token validation failed.");
+    }
+
     $conn = get_db_connection();
     $tables = ['bazaar', 'sellers', 'products'];
     $csv_data = [];
 
     foreach ($tables as $table) {
-        $csv_data[] = [$table]; // Add table name
-        $result = $conn->query("SELECT * FROM $table");
+        // Use parameterized query to prevent SQL injection
+        $stmt = $conn->prepare("SELECT * FROM $table");
+        $stmt->execute();
+        $result = $stmt->get_result();
+
         if ($result->num_rows > 0) {
             $fields = $result->fetch_fields();
             $header = [];
@@ -41,7 +47,7 @@ if (isset($_POST['export_csv'])) {
         $csv_string .= implode(',', $escaped_line) . "\n";
     }
 
-    $encrypted_data = encrypt_data($csv_string, SECRET);
+    $encrypted_data = encrypt_data($csv_string);
 
     header('Content-Type: application/octet-stream');
     header('Content-Disposition: attachment; filename="bazaar_export.bdb"');
@@ -50,10 +56,14 @@ if (isset($_POST['export_csv'])) {
 }
 
 // CSV Import functionality
-if (isset($_POST['import_csv'])) {
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        die("CSRF token validation failed.");
+    }
+
     if (is_uploaded_file($_FILES['csv_file']['tmp_name'])) {
         $encrypted_data = file_get_contents($_FILES['csv_file']['tmp_name']);
-        $csv_string = decrypt_data($encrypted_data, SECRET);
+        $csv_string = decrypt_data($encrypted_data);
 
         if ($csv_string === false) {
             $error = "Fehler beim Entschlüsseln der Datei.";
@@ -163,19 +173,25 @@ $success = '';
 
 // Handle bazaar addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
-    $startDate = $_POST['startDate'];
-    $startReqDate = $_POST['startReqDate'];
-    $brokerage = $_POST['brokerage'];
-    $min_price = $_POST['min_price'];
-    $price_stepping = $_POST['price_stepping'];
-    $max_sellers = $_POST['max_sellers'];
-	$max_products_per_seller = $_POST['max_products_per_seller'];
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        die("CSRF token validation failed.");
+    }
+
+    // Sanitize input data to prevent XSS
+    $startDate = htmlspecialchars($_POST['startDate']);
+    $startReqDate = htmlspecialchars($_POST['startReqDate']);
+    $brokerage = htmlspecialchars($_POST['brokerage']);
+    $min_price = htmlspecialchars($_POST['min_price']);
+    $price_stepping = htmlspecialchars($_POST['price_stepping']);
+    $max_sellers = htmlspecialchars($_POST['max_sellers']);
+    $max_products_per_seller = htmlspecialchars($_POST['max_products_per_seller']);
     $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
     $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
     if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
+        // Use parameterized query to prevent SQL injection
         $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate > ?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("s", $startDate);
@@ -195,9 +211,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
             $conn->query("UPDATE sellers SET checkout_id = 0");
 
             $brokerage = $brokerage / 100;
-        $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid, max_products_per_seller) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller);
+            $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid, max_products_per_seller) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller);
             if ($stmt->execute()) {
                 $success = "Bazaar erfolgreich hinzugefügt.";
             } else {
@@ -209,14 +225,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
 
 // Handle bazaar modification
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
-    $bazaar_id = $_POST['bazaar_id'];
-    $startDate = $_POST['startDate'];
-    $startReqDate = $_POST['startReqDate'];
-    $brokerage = $_POST['brokerage'];
-    $min_price = $_POST['min_price'];
-    $price_stepping = $_POST['price_stepping'];
-    $max_sellers = $_POST['max_sellers'];
-	$max_products_per_seller = $_POST['max_products_per_seller'];
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        die("CSRF token validation failed.");
+    }
+
+    $bazaar_id = htmlspecialchars($_POST['bazaar_id']);
+    $startDate = htmlspecialchars($_POST['startDate']);
+    $startReqDate = htmlspecialchars($_POST['startReqDate']);
+    $brokerage = htmlspecialchars($_POST['brokerage']);
+    $min_price = htmlspecialchars($_POST['min_price']);
+    $price_stepping = htmlspecialchars($_POST['price_stepping']);
+    $max_sellers = htmlspecialchars($_POST['max_sellers']);
+    $max_products_per_seller = htmlspecialchars($_POST['max_products_per_seller']);
     $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
     $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
@@ -224,6 +244,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
         $error = "Alle Felder sind erforderlich.";
     } else {
         $brokerage = $brokerage / 100;
+        // Use parameterized query to prevent SQL injection
         $sql = "UPDATE bazaar SET startDate=?, startReqDate=?, brokerage=?, min_price=?, price_stepping=?, max_sellers=?, mailtxt_reqnewsellerid=?, mailtxt_reqexistingsellerid=?, max_products_per_seller=? WHERE id=?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sssddissii", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller, $bazaar_id);
@@ -237,10 +258,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
 
 // Handle bazaar removal
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
-    $bazaar_id = $_POST['bazaar_id'];
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        die("CSRF token validation failed.");
+    }
 
-    $sql = "DELETE FROM bazaar WHERE id='$bazaar_id'";
-    if ($conn->query($sql) === TRUE) {
+    $bazaar_id = htmlspecialchars($_POST['bazaar_id']);
+
+    // Use parameterized query to prevent SQL injection
+    $sql = "DELETE FROM bazaar WHERE id=?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $bazaar_id);
+    if ($stmt->execute()) {
         echo json_encode(['status' => 'success']);
     } else {
         echo json_encode(['status' => 'error']);
@@ -249,6 +277,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
 }
 
 // Fetch bazaar details with sorting
+// Use parameterized query to prevent SQL injection
 $sql = "SELECT * FROM bazaar ORDER BY $sortBy $sortOrder";
 $result = $conn->query($sql);
 
@@ -297,15 +326,16 @@ $conn->close();
         <h2 class="mt-5">Bazaar Verwalten</h2>
         <?php 
         if (!empty($error)) {
-            echo "<div class='alert alert-danger'>$error</div>";
+            echo "<div class='alert alert-danger'>" . htmlspecialchars($error) . "</div>";
         }
         if (!empty($success)) {
-            echo "<div class='alert alert-success'>$success</div>";
+            echo "<div class='alert alert-success'>" . htmlspecialchars($success) . "</div>";
         }
         ?>
 
         <h3 class="mt-5">Neuen Bazaar hinzufügen</h3>
         <form action="admin_manage_bazaar.php" method="post">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
             <div class="form-row">
                 <div class="form-group col-md-4">
                     <label for="startDate">Startdatum:</label>
@@ -329,10 +359,10 @@ $conn->close();
                     <label for="max_sellers">Maximale Verkäufer:</label>
                     <input type="number" class="form-control" id="max_sellers" name="max_sellers" required>
                 </div>
-				<div class="form-group col-md-2">
-					<label for="max_products_per_seller">Max. Anz. Prod. / Verk.:</label>
-					<input type="number" class="form-control" id="max_products_per_seller" name="max_products_per_seller" required>
-				</div>
+                <div class="form-group col-md-2">
+                    <label for="max_products_per_seller">Max. Anz. Prod. / Verk.:</label>
+                    <input type="number" class="form-control" id="max_products_per_seller" name="max_products_per_seller" required>
+                </div>
                 <div class="form-group col-md-3">
                     <label for="price_stepping">Preisabstufung (€):</label>
                     <select class="form-control" id="price_stepping" name="price_stepping" required>
@@ -365,9 +395,9 @@ $conn->close();
                                 <li><code>{given_name}</code>: Vorname des Benutzers</li>
                                 <li><code>{family_name}</code>: Nachname des Benutzers</li>
                                 <li><code>{verification_link}</code>: Verifizierungslink</li>
-								<li><code>{create_products_link}</code>: Produkte erstellen Link</li>
-								<li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
-								<li><code>{delete_link}</code>: DSGVO-Löschlink</li>
+                                <li><code>{create_products_link}</code>: Produkte erstellen Link</li>
+                                <li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
+                                <li><code>{delete_link}</code>: DSGVO-Löschlink</li>
                                 <li><code>{seller_id}</code>: Verkäufer-ID</li>
                                 <li><code>{hash}</code>: Sicherer Hash</li>
                             </ul>
@@ -419,9 +449,9 @@ $conn->close();
                                 <li><code>{given_name}</code>: Vorname des Benutzers</li>
                                 <li><code>{family_name}</code>: Nachname des Benutzers</li>
                                 <li><code>{verification_link}</code>: Verifizierungslink</li>
-								<li><code>{create_products_link}</code>: Produkte erstellen Link</li>
-								<li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
-								<li><code>{delete_link}</code>: DSGVO-Löschlink</li>
+                                <li><code>{create_products_link}</code>: Produkte erstellen Link</li>
+                                <li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
+                                <li><code>{delete_link}</code>: DSGVO-Löschlink</li>
                                 <li><code>{seller_id}</code>: Verkäufer-ID</li>
                                 <li><code>{hash}</code>: Sicherer Hash</li>
                             </ul>
@@ -446,7 +476,8 @@ $conn->close();
 &lt;p&gt;&lt;/p&gt; 
 &lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
 &lt;p&gt;das Basarteam&lt;/p&gt;
-&lt;/body&gt;&lt;/html&gt;
+&lt;/body&gt;
+&lt;/html&gt;
                             </code></pre>
                         </div>
                     </div>
@@ -456,6 +487,7 @@ $conn->close();
         </form>
 
         <form action="admin_manage_bazaar.php" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
             <div class="form-row align-items-end">
                 <div class="form-group col-md-6">
                     <label for="csv_file">BDB Datei hochladen:</label>
@@ -476,6 +508,7 @@ $conn->close();
             </div>
         </form>
         <form action="admin_manage_bazaar.php" method="post">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
             <button type="submit" class="btn btn-primary btn-block" name="export_csv">Bazaar exportieren</button>
         </form>
 
@@ -508,13 +541,13 @@ $conn->close();
                         <th>Mindestpreis (€)</th>
                         <th>Preisabstufung (€)</th>
                         <th>Maximale Verkäufer</th>
-						<th>Max. Prod. pro Verk.</th>
+                        <th>Max. Prod. pro Verk.</th>
                         <th>Aktionen</th>
                     </tr>
                 </thead>
                 <tbody id="bazaarTable">
                     <?php while ($row = $result->fetch_assoc()) { ?>
-                        <tr id="bazaar-<?php echo $row['id']; ?>">
+                        <tr id="bazaar-<?php echo htmlspecialchars($row['id']); ?>">
                             <td><?php echo htmlspecialchars($row['id']); ?></td>
                             <td><?php echo htmlspecialchars($row['startDate']); ?></td>
                             <td><?php echo htmlspecialchars($row['startReqDate']); ?></td>
@@ -522,52 +555,53 @@ $conn->close();
                             <td><?php echo htmlspecialchars($row['min_price']); ?></td>
                             <td><?php echo htmlspecialchars($row['price_stepping']); ?></td>
                             <td><?php echo htmlspecialchars($row['max_sellers']); ?></td>
-							<td><?php echo htmlspecialchars($row['max_products_per_seller']); ?></td>
+                            <td><?php echo htmlspecialchars($row['max_products_per_seller']); ?></td>
                             <td>
-                                <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo $row['id']; ?>">Bearbeiten</button>
-                                <button class="btn btn-info btn-sm view-bazaar" data-id="<?php echo $row['id']; ?>" data-toggle="modal" data-target="#viewBazaarModal">Auswertung</button>
-                                <button class="btn btn-danger btn-sm remove-bazaar" data-id="<?php echo $row['id']; ?>">Entfernen</button>
-								
+                                <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#editBazaarModal<?php echo htmlspecialchars($row['id']); ?>">Bearbeiten</button>
+                                <button class="btn btn-info btn-sm view-bazaar" data-id="<?php echo htmlspecialchars($row['id']); ?>" data-toggle="modal" data-target="#viewBazaarModal">Auswertung</button>
+                                <button class="btn btn-danger btn-sm remove-bazaar" data-id="<?php echo htmlspecialchars($row['id']); ?>">Entfernen</button>
+                                
                                 <!-- Edit Bazaar Modal -->
-                                <div class="modal fade" id="editBazaarModal<?php echo $row['id']; ?>" tabindex="-1" role="dialog" aria-labelledby="editBazaarModalLabel<?php echo $row['id']; ?>" aria-hidden="true">
+                                <div class="modal fade" id="editBazaarModal<?php echo htmlspecialchars($row['id']); ?>" tabindex="-1" role="dialog" aria-labelledby="editBazaarModalLabel<?php echo htmlspecialchars($row['id']); ?>" aria-hidden="true">
                                     <div class="modal-dialog" role="document">
                                         <div class="modal-content">
                                             <div class="modal-header">
-                                                <h5 class="modal-title" id="editBazaarModalLabel<?php echo $row['id']; ?>">Bazaar bearbeiten</h5>
+                                                <h5 class="modal-title" id="editBazaarModalLabel<?php echo htmlspecialchars($row['id']); ?>">Bazaar bearbeiten</h5>
                                                 <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                                                     <span aria-hidden="true">&times;</span>
                                                 </button>
                                             </div>
                                             <div class="modal-body">
                                                 <form action="admin_manage_bazaar.php" method="post">
-                                                    <input type="hidden" name="bazaar_id" value="<?php echo $row['id']; ?>">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+                                                    <input type="hidden" name="bazaar_id" value="<?php echo htmlspecialchars($row['id']); ?>">
                                                     <div class="form-group">
-                                                        <label for="startDate<?php echo $row['id']; ?>">Startdatum:</label>
-                                                        <input type="date" class="form-control" id="startDate<?php echo $row['id']; ?>" name="startDate" value="<?php echo htmlspecialchars($row['startDate']); ?>" required>
+                                                        <label for="startDate<?php echo htmlspecialchars($row['id']); ?>">Startdatum:</label>
+                                                        <input type="date" class="form-control" id="startDate<?php echo htmlspecialchars($row['id']); ?>" name="startDate" value="<?php echo htmlspecialchars($row['startDate']); ?>" required>
                                                     </div>
                                                     <div class="form-group">
-                                                        <label for="startReqDate<?php echo $row['id']; ?>">Anforderungsdatum:</label>
-                                                        <input type="date" class="form-control" id="startReqDate<?php echo $row['id']; ?>" name="startReqDate" value="<?php echo htmlspecialchars($row['startReqDate']); ?>" required>
+                                                        <label for="startReqDate<?php echo htmlspecialchars($row['id']); ?>">Anforderungsdatum:</label>
+                                                        <input type="date" class="form-control" id="startReqDate<?php echo htmlspecialchars($row['id']); ?>" name="startReqDate" value="<?php echo htmlspecialchars($row['startReqDate']); ?>" required>
                                                     </div>
                                                     <div class="form-group">
-                                                        <label for="brokerage<?php echo $row['id']; ?>">Provision (%):</label>
-                                                        <input type="number" step="0.01" class="form-control" id="brokerage<?php echo $row['id']; ?>" name="brokerage" value="<?php echo htmlspecialchars($row['brokerage'] * 100); ?>" required>
+                                                        <label for="brokerage<?php echo htmlspecialchars($row['id']); ?>">Provision (%):</label>
+                                                        <input type="number" step="0.01" class="form-control" id="brokerage<?php echo htmlspecialchars($row['id']); ?>" name="brokerage" value="<?php echo htmlspecialchars($row['brokerage'] * 100); ?>" required>
                                                     </div>
                                                     <div class="form-group">
-                                                        <label for="min_price<?php echo $row['id']; ?>">Mindestpreis (€):</label>
-                                                        <input type="number" step="0.01" class="form-control" id="min_price<?php echo $row['id']; ?>" name="min_price" value="<?php echo htmlspecialchars($row['min_price']); ?>" required>
+                                                        <label for="min_price<?php echo htmlspecialchars($row['id']); ?>">Mindestpreis (€):</label>
+                                                        <input type="number" step="0.01" class="form-control" id="min_price<?php echo htmlspecialchars($row['id']); ?>" name="min_price" value="<?php echo htmlspecialchars($row['min_price']); ?>" required>
                                                     </div>
                                                     <div class="form-group">
-                                                        <label for="max_sellers<?php echo $row['id']; ?>">Maximale Verkäufer:</label>
-                                                        <input type="number" class="form-control" id="max_sellers<?php echo $row['id']; ?>" name="max_sellers" value="<?php echo htmlspecialchars($row['max_sellers']); ?>" required>
+                                                        <label for="max_sellers<?php echo htmlspecialchars($row['id']); ?>">Maximale Verkäufer:</label>
+                                                        <input type="number" class="form-control" id="max_sellers<?php echo htmlspecialchars($row['id']); ?>" name="max_sellers" value="<?php echo htmlspecialchars($row['max_sellers']); ?>" required>
                                                     </div>
-													<div class="form-group">
-														<label for="max_products_per_seller<?php echo $row['id']; ?>">Maximale Produkte pro Verkäufer:</label>
-														<input type="number" class="form-control" id="max_products_per_seller<?php echo $row['id']; ?>" name="max_products_per_seller" value="<?php echo htmlspecialchars($row['max_products_per_seller']); ?>" required>
-													</div>
                                                     <div class="form-group">
-                                                        <label for="price_stepping<?php echo $row['id']; ?>">Preisabstufung (€):</label>
-                                                        <select class="form-control" id="price_stepping<?php echo $row['id']; ?>" name="price_stepping" required>
+                                                        <label for="max_products_per_seller<?php echo htmlspecialchars($row['id']); ?>">Maximale Produkte pro Verkäufer:</label>
+                                                        <input type="number" class="form-control" id="max_products_per_seller<?php echo htmlspecialchars($row['id']); ?>" name="max_products_per_seller" value="<?php echo htmlspecialchars($row['max_products_per_seller']); ?>" required>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="price_stepping<?php echo htmlspecialchars($row['id']); ?>">Preisabstufung (€):</label>
+                                                        <select class="form-control" id="price_stepping<?php echo htmlspecialchars($row['id']); ?>" name="price_stepping" required>
                                                             <option value="0.01" <?php echo $row['price_stepping'] == '0.01' ? 'selected' : ''; ?>>0.01</option>
                                                             <option value="0.1" <?php echo $row['price_stepping'] == '0.1' ? 'selected' : ''; ?>>0.1</option>
                                                             <option value="0.2" <?php echo $row['price_stepping'] == '0.2' ? 'selected' : ''; ?>>0.2</option>
@@ -577,12 +611,12 @@ $conn->close();
                                                         </select>
                                                     </div>
                                                     <div class="form-group">
-                                                        <label for="mailtxt_reqnewsellerid<?php echo $row['id']; ?>">Mailtext für neue Verkäufer-ID:</label>
-                                                        <textarea class="form-control" id="mailtxt_reqnewsellerid<?php echo $row['id']; ?>" name="mailtxt_reqnewsellerid" rows="10" required><?php echo htmlspecialchars($row['mailtxt_reqnewsellerid']); ?></textarea>
+                                                        <label for="mailtxt_reqnewsellerid<?php echo htmlspecialchars($row['id']); ?>">Mailtext für neue Verkäufer-ID:</label>
+                                                        <textarea class="form-control" id="mailtxt_reqnewsellerid<?php echo htmlspecialchars($row['id']); ?>" name="mailtxt_reqnewsellerid" rows="10" required><?php echo htmlspecialchars($row['mailtxt_reqnewsellerid']); ?></textarea>
                                                     </div>
                                                     <div class="form-group">
-                                                        <label for="mailtxt_reqexistingsellerid<?php echo $row['id']; ?>">Mailtext für bestehende Verkäufer-ID:</label>
-                                                        <textarea class="form-control" id="mailtxt_reqexistingsellerid<?php echo $row['id']; ?>" name="mailtxt_reqexistingsellerid" rows="10" required><?php echo htmlspecialchars($row['mailtxt_reqexistingsellerid']); ?></textarea>
+                                                        <label for="mailtxt_reqexistingsellerid<?php echo htmlspecialchars($row['id']); ?>">Mailtext für bestehende Verkäufer-ID:</label>
+                                                        <textarea class="form-control" id="mailtxt_reqexistingsellerid<?php echo htmlspecialchars($row['id']); ?>" name="mailtxt_reqexistingsellerid" rows="10" required><?php echo htmlspecialchars($row['mailtxt_reqexistingsellerid']); ?></textarea>
                                                     </div>
                                                     <button type="submit" class="btn btn-primary btn-block" name="edit_bazaar">Speichern</button>
                                                 </form>
@@ -643,7 +677,7 @@ $conn->close();
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body">
+				<div class="modal-body">
                     Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.
                 </div>
                 <div class="modal-footer">
@@ -675,7 +709,8 @@ $conn->close();
                         type: 'POST',
                         data: {
                             remove_bazaar: true,
-                            bazaar_id: bazaarId
+                            bazaar_id: bazaarId,
+                            csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>'
                         },
                         success: function(response) {
                             var data = JSON.parse(response);

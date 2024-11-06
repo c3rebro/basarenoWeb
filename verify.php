@@ -4,14 +4,18 @@ require_once 'utilities.php';
 $message = "";
 $showResetButton = false; // Flag to control the display of the reset button
 
+$conn = get_db_connection();
+
 // Check if the form was submitted for reverting
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
     $seller_id = $_POST['seller_id'];
     $hash = $_POST['hash'];
 
-    $conn = get_db_connection();
-    $sql = "SELECT email FROM sellers WHERE id='$seller_id' AND hash='$hash'";
-    $result = $conn->query($sql);
+    $sql = "SELECT email FROM sellers WHERE id=? AND hash=?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("is", $seller_id, $hash);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
         $seller = $result->fetch_assoc();
@@ -21,8 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
         $expected_hash = generate_hash($email, $seller_id);
         if ($hash === $expected_hash) {
             // Revert the request
-            $sql = "UPDATE sellers SET verified=0, verification_token=NULL, bazaar_id=NULL, checkout_id=NULL WHERE id='$seller_id'";
-            if ($conn->query($sql) === TRUE) {
+            $sql = "UPDATE sellers SET verified=0, verification_token='', bazaar_id=0, checkout_id=0 WHERE id=?";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("i", $seller_id);
+            if ($stmt->execute()) {
                 $message = "<div class='alert alert-success' role='alert'>
                                 Ihre Anfrage wurde erfolgreich zurückgesetzt und die Verkäufernummer frei gegeben. Wenn dies ein Versehen war, müssen Sie eine erneute Nummernanfrage stellen.
                             </div>";
@@ -42,15 +48,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
                     </div>";
     }
 
-    $conn->close();
+    $stmt->close();
 } elseif (isset($_GET['action']) && $_GET['action'] === 'revert' && isset($_GET['seller_id']) && isset($_GET['hash'])) {
     // Validate seller_id and hash
     $seller_id = $_GET['seller_id'];
     $hash = $_GET['hash'];
 
-    $conn = get_db_connection();
-    $sql = "SELECT email, verified, verification_token FROM sellers WHERE id='$seller_id' AND hash='$hash'";
-    $result = $conn->query($sql);
+    $sql = "SELECT email, verified, verification_token FROM sellers WHERE id=? AND hash=?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("is", $seller_id, $hash);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
         $seller = $result->fetch_assoc();
@@ -78,14 +86,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
                     </div>";
     }
 
-    $conn->close();
+    $stmt->close();
 } elseif (isset($_GET['token']) && isset($_GET['hash'])) {
     $token = $_GET['token'];
     $hash = $_GET['hash'];
 
-    $conn = get_db_connection();
-    $sql = "SELECT id, email FROM sellers WHERE verification_token='$token' AND hash='$hash'";
-    $result = $conn->query($sql);
+    $sql = "SELECT id, email FROM sellers WHERE verification_token=? AND hash=?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $token, $hash);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
         $seller = $result->fetch_assoc();
@@ -104,8 +114,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
                 $current_bazaar_id = $current_bazaar['id'];
                 $next_checkout_id = get_next_checkout_id($conn);
 
-                $sql = "UPDATE sellers SET verified=1, verification_token=NULL, bazaar_id='$current_bazaar_id', checkout_id='$next_checkout_id' WHERE id='$seller_id'";
-                if ($conn->query($sql) === TRUE) {
+                $sql = "UPDATE sellers SET verified=1, verification_token=NULL, bazaar_id=?, checkout_id=? WHERE id=?";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param("iii", $current_bazaar_id, $next_checkout_id, $seller_id);
+                if ($stmt->execute()) {
                     header("Location: seller_products.php?seller_id=$seller_id&hash=$hash");
                     exit();
                 } else {
@@ -129,12 +141,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
                     </div>";
     }
 
-    $conn->close();
+    $stmt->close();
 } else {
     $message = "<div class='alert alert-danger' role='alert'>
                     Keine gültigen Parameter angegeben.
                 </div>";
 }
+
+$conn->close();
 
 // Display the message and modal if needed
 ?>
@@ -148,7 +162,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
 </head>
 <body>
 <div class="container mt-5">
-	<h1 class="mb-4">Verkäufernummer-rückgabe bestätigen</h1>
     <?php echo $message; ?>
     <?php if ($showResetButton): ?>
         <!-- Description Section -->

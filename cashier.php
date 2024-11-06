@@ -20,9 +20,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $barcode = $_POST['barcode'];
         debug_log("Scanned Barcode: $barcode");
 
-        $sql = "SELECT id, name, price, sold, seller_id FROM products WHERE barcode='$barcode'";
-        $result = $conn->query($sql);
-        debug_log("SQL Query: $sql");
+        // Use prepared statement to prevent SQL Injection
+        $stmt = $conn->prepare("SELECT id, name, price, sold, seller_id FROM products WHERE barcode=?");
+        $stmt->bind_param("s", $barcode);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        debug_log("SQL Query executed with prepared statement");
 
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
@@ -31,11 +34,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 debug_log("Product already sold.");
             } else {
                 $formatted_price = number_format($row['price'], 2, ',', '.');
-                $message = "Produkt: " . $row['name'] . "<br>Preis: €" . $formatted_price . "<br>Verkäufer-ID: " . $row['seller_id'];
+                $message = "Produkt: " . htmlspecialchars($row['name']) . "<br>Preis: €" . $formatted_price . "<br>Verkäufer-ID: " . htmlspecialchars($row['seller_id']);
 
-                // Mark the product as sold
-                $sql = "UPDATE products SET sold=1 WHERE barcode='$barcode'";
-                $conn->query($sql);
+                // Use prepared statement to mark the product as sold
+                $stmt = $conn->prepare("UPDATE products SET sold=1 WHERE barcode=?");
+                $stmt->bind_param("s", $barcode);
+                $stmt->execute();
                 debug_log("Product found and marked as sold.");
 
                 // Add the product to the current group
@@ -56,9 +60,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     } elseif (isset($_POST['unsell_product'])) {
         $product_id = $_POST['product_id'];
 
-        // Mark the product as unsold
-        $sql = "UPDATE products SET sold=0 WHERE id='$product_id'";
-        $conn->query($sql);
+        // Use prepared statement to mark the product as unsold
+        $stmt = $conn->prepare("UPDATE products SET sold=0 WHERE id=?");
+        $stmt->bind_param("i", $product_id);
+        $stmt->execute();
         debug_log("Product ID $product_id marked as unsold.");
     } elseif (isset($_POST['reset_sum'])) {
         // Collapse the current group and start a new one
@@ -244,7 +249,7 @@ $conn->close();
 <body>
     <div class="container">
         <h2 class="mt-5">Kassierer</h2>
-        <?php if ($message) { echo "<div class='alert alert-info'>$message</div>"; } ?>
+        <?php if ($message) { echo "<div class='alert alert-info'>" . htmlspecialchars($message) . "</div>"; } ?>
         <?php if (DEBUG) { debug_log("Debug log enabled"); } ?>
         <div class="scanner-wrapper">
             <div id="scanner-container">
@@ -286,7 +291,7 @@ $conn->close();
                 </thead>
                 <tbody>
                     <?php foreach ($groups as $index => $group): ?>
-					<tr data-toggle="collapse" data-target="#group-<?php echo $group['number']; ?>" class="clickable">
+					<tr data-toggle="collapse" data-target="#group-<?php echo $index; ?>" class="clickable">
 						<td colspan="4">
 							Artikelanzahl: <?php echo count($group['products']); ?> - Summe: €<?php echo number_format($group['sum'], 2, ',', '.'); ?>
 						</td>
@@ -296,12 +301,12 @@ $conn->close();
                             <table class="table">
                                 <?php foreach ($group['products'] as $product): ?>
                                 <tr>
-                                    <td><?php echo $product['name']; ?></td>
+                                    <td><?php echo htmlspecialchars($product['name']); ?></td>
                                     <td><?php echo number_format($product['price'], 2, ',', '.'); ?> €</td>
-                                    <td><?php echo $product['seller_id']; ?></td>
+                                    <td><?php echo htmlspecialchars($product['seller_id']); ?></td>
                                     <td>
                                         <form action="cashier.php?nocache=<?php echo time(); ?>" method="post" style="display:inline-block">
-                                            <input type="hidden" name="product_id" value="<?php echo $product['id']; ?>">
+                                            <input type="hidden" name="product_id" value="<?php echo htmlspecialchars($product['id']); ?>">
                                             <button type="submit" name="unsell_product" class="btn btn-danger btn-sm">Entfernen</button>
                                         </form>
                                     </td>

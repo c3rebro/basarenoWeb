@@ -1,12 +1,12 @@
 <?php
 session_start();
 
-if (!file_exists('config.php')) {
+require_once 'utilities.php';
+
+if (!check_config_exists()) {
     header("location: first_time_setup.php");
     exit;
 }
-
-require_once 'utilities.php';
 
 $conn = get_db_connection();
 $first_time_setup = initialize_database($conn);
@@ -22,33 +22,33 @@ $operationMode = get_operation_mode($conn);
 if ($operationMode === 'offline') {
     // Show the special welcome screen
     echo '<!DOCTYPE html>
-		<html lang="de">
-		<head>
-			<meta charset="UTF-8">
-			<meta name="viewport" content="width=device-width, initial-scale=1.0">
-			<title>Hinweis zur Zertifikatssicherheit</title>
-			<link rel="stylesheet" href="/css/bootstrap.min.css">
-			<style>
-				body {
-					padding-top: 20px;
-					padding-bottom: 20px;
-				}
-			</style>
-		</head>
-		<body>
-			<div class="container">
-				<div class="jumbotron text-center">
-					<h1 class="display-4">Zertifikats- Warnung</h1>
-					<p class="lead">Beim klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
-					<hr class="my-4">
-					<p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)".</p>
-					<a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/cashier_login.php" role="button">Weiter als Kassier</a>
-					<a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/admin_login.php" role="button">Weiter als Admin </a>
-				</div>
-			</div>
-			<script src="/js/bootstrap.bundle.min.js"></script>
-		</body>
-		</html>';
+        <html lang="de">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Hinweis zur Zertifikatssicherheit</title>
+            <link rel="stylesheet" href="/css/bootstrap.min.css">
+            <style>
+                body {
+                    padding-top: 20px;
+                    padding-bottom: 20px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="jumbotron text-center">
+                    <h1 class="display-4">Zertifikats- Warnung</h1>
+                    <p class="lead">Beim klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
+                    <hr class="my-4">
+                    <p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)".</p>
+                    <a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/cashier_login.php" role="button">Weiter als Kassier</a>
+                    <a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/admin_login.php" role="button">Weiter als Admin </a>
+                </div>
+            </div>
+            <script src="/js/bootstrap.bundle.min.js"></script>
+        </body>
+        </html>';
     exit;
 }
 
@@ -84,74 +84,85 @@ if ($bazaar) {
     }
 
     // Check if the max sellers limit has been reached
-    $sql = "SELECT COUNT(*) as count FROM sellers WHERE bazaar_id = $bazaarId";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM sellers WHERE bazaar_id = ?");
+    $stmt->bind_param("i", $bazaarId);
+    $stmt->execute();
+    $result = $stmt->get_result();
     $sellerCount = $result->fetch_assoc()['count'];
     $maxSellersReached = $sellerCount >= $maxSellers;
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
-    $username = $_POST['username'];
-    $password = $_POST['password'];
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        die("CSRF token validation failed.");
+    }
 
-    // Fetch user from the database
-    $sql = "SELECT * FROM users WHERE username='$username'";
-    $result = $conn->query($sql);
+    if (isset($_POST['login'])) {
+        $username = sanitize_input($_POST['username']);
+        $password = sanitize_input($_POST['password']);
 
-    if ($result->num_rows > 0) {
-        $user = $result->fetch_assoc();
-        // Verify the password
-        if (password_verify($password, $user['password_hash'])) {
-            $_SESSION['loggedin'] = true;
-            $_SESSION['username'] = $username;
-            $_SESSION['role'] = $user['role'];
-            header("location: dashboard.php");
+        // Fetch user from the database
+        $stmt = $conn->prepare("SELECT * FROM users WHERE username = ?");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows > 0) {
+            $user = $result->fetch_assoc();
+            // Verify the password
+            if (password_verify($password, $user['password_hash'])) {
+                $_SESSION['loggedin'] = true;
+                $_SESSION['username'] = $username;
+                $_SESSION['role'] = $user['role'];
+                header("location: dashboard.php");
+            } else {
+                $error = "Ungültiger Benutzername oder Passwort";
+            }
         } else {
             $error = "Ungültiger Benutzername oder Passwort";
         }
-    } else {
-        $error = "Ungültiger Benutzername oder Passwort";
+    }
+
+    $seller_message = '';
+
+    // Send mail to user
+    if (isset($_POST['request_seller_id']) && $canRequestSellerId && !$maxSellersReached) {
+        $email = sanitize_input($_POST['email']);
+        $family_name = sanitize_input($_POST['family_name']);
+        $given_name = !empty($_POST['given_name']) ? sanitize_input($_POST['given_name']) : 'Nicht angegeben';
+        $phone = sanitize_input($_POST['phone']);
+        $street = !empty($_POST['street']) ? sanitize_input($_POST['street']) : 'Nicht angegeben';
+        $house_number = !empty($_POST['house_number']) ? sanitize_input($_POST['house_number']) : 'Nicht angegeben';
+        $zip = !empty($_POST['zip']) ? sanitize_input($_POST['zip']) : 'Nicht angegeben';
+        $city = !empty($_POST['city']) ? sanitize_input($_POST['city']) : 'Nicht angegeben';
+        $reserve = isset($_POST['reserve']) ? 1 : 0;
+        $use_existing_number = $_POST['use_existing_number'] === 'yes';
+        $consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
+
+        // Check if a seller ID request already exists for this email
+        $stmt = $conn->prepare("SELECT verification_token, verified FROM sellers WHERE email = ?");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $existing_seller = $result->fetch_assoc();
+
+        if ($use_existing_number) {
+            process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
+        } else {
+            if ($existing_seller) {
+                if (!empty($existing_seller['verification_token'])) {
+                    show_alert_existing_request();
+                } elseif ($existing_seller['verified']) {
+                    show_alert_active_id();
+                } else {
+                    process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+                }
+            } else {
+                process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+            }
+        }
     }
 }
-
-$seller_message = '';
-
-// Send mail to user
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) && $canRequestSellerId && !$maxSellersReached) {
-    $email = $_POST['email'];
-    $family_name = $_POST['family_name'];
-    $given_name = !empty($_POST['given_name']) ? $_POST['given_name'] : 'Nicht angegeben';
-    $phone = $_POST['phone'];
-    $street = !empty($_POST['street']) ? $_POST['street'] : 'Nicht angegeben';
-    $house_number = !empty($_POST['house_number']) ? $_POST['house_number'] : 'Nicht angegeben';
-    $zip = !empty($_POST['zip']) ? $_POST['zip'] : 'Nicht angegeben';
-    $city = !empty($_POST['city']) ? $_POST['city'] : 'Nicht angegeben';
-    $reserve = isset($_POST['reserve']) ? 1 : 0;
-    $use_existing_number = $_POST['use_existing_number'] === 'yes';
-    $consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
-
-    // Check if a seller ID request already exists for this email
-    $sql = "SELECT verification_token, verified FROM sellers WHERE email='$email'";
-    $result = $conn->query($sql);
-    $existing_seller = $result->fetch_assoc();
-
-    if ($use_existing_number) {
-        process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
-    } else {
-        if ($existing_seller) {
-            if (!empty($existing_seller['verification_token'])) {
-                show_alert_existing_request();
-           } elseif ($existing_seller['verified']) {
-               show_alert_active_id();
-           } else {
-               process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
-           }
-       } else {
-           process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
-       }
-    }
-}
-
 
 $conn->close();
 ?>
@@ -197,6 +208,7 @@ $conn->close();
             <h2 class="mt-5">Verkäufer-ID anfordern</h2>
             <?php if ($seller_message) { echo "<div class='alert alert-info'>$seller_message</div>"; } ?>
             <form action="index.php" method="post">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                 <div class="row form-row">
                     <div class="form-group col-md-6">
                         <label for="family_name" class="required">Nachname:</label>

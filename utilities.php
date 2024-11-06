@@ -6,6 +6,19 @@ function check_config_exists() {
 
 // GLOBAL
 
+// Function to generate a CSRF token
+function generate_csrf_token() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+// Function to validate a CSRF token
+function validate_csrf_token($token) {
+    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+}
+
 // Function to initialize the database connection
 function get_db_connection() {
     if (!check_config_exists()) {
@@ -38,13 +51,13 @@ function initialize_database($conn) {
         id INT AUTO_INCREMENT PRIMARY KEY,
         startDate DATE NOT NULL,
         startReqDate DATE NOT NULL,
-		max_sellers INT NOT NULL,
-		max_products_per_seller INT NOT NULL DEFAULT 0,
+        max_sellers INT NOT NULL,
+        max_products_per_seller INT NOT NULL DEFAULT 0,
         brokerage DOUBLE,
-		min_price DOUBLE,
+        min_price DOUBLE,
         price_stepping DOUBLE,
-		mailtxt_reqnewsellerid TEXT,
-		mailtxt_reqexistingsellerid TEXT
+        mailtxt_reqnewsellerid TEXT,
+        mailtxt_reqexistingsellerid TEXT
     )";
     if ($conn->query($sql) !== TRUE) {
         die("Error creating bazaar table: " . $conn->error);
@@ -54,12 +67,12 @@ function initialize_database($conn) {
     $sql = "CREATE TABLE IF NOT EXISTS sellers (
         id INT AUTO_INCREMENT PRIMARY KEY,
         hash VARCHAR(255) NOT NULL,
-		bazaar_id INT(11) DEFAULT 0,
+        bazaar_id INT(11) DEFAULT 0,
         email VARCHAR(255) NOT NULL,
         reserved BOOLEAN DEFAULT FALSE,
         verified BOOLEAN DEFAULT FALSE,
-		checkout BOOLEAN DEFAULT FALSE,
-		checkout_id INT(6) DEFAULT 0,
+        checkout BOOLEAN DEFAULT FALSE,
+        checkout_id INT(6) DEFAULT 0,
         verification_token VARCHAR(255),
         family_name VARCHAR(255) NOT NULL,
         given_name VARCHAR(255) NOT NULL,
@@ -68,7 +81,7 @@ function initialize_database($conn) {
         house_number VARCHAR(255) NOT NULL,
         zip VARCHAR(255) NOT NULL,
         city VARCHAR(255) NOT NULL,
-		consent BOOLEAN
+        consent BOOLEAN
     )";
     if ($conn->query($sql) !== TRUE) {
         die("Error creating sellers table: " . $conn->error);
@@ -77,7 +90,7 @@ function initialize_database($conn) {
     // Create the products table if it doesn't exist
     $sql = "CREATE TABLE IF NOT EXISTS products (
         id INT AUTO_INCREMENT PRIMARY KEY,
-		bazaar_id INT(10) DEFAULT 0,
+        bazaar_id INT(10) DEFAULT 0,
         name VARCHAR(255) NOT NULL,
         size VARCHAR(255) NOT NULL,
         price DOUBLE NOT NULL,
@@ -97,23 +110,21 @@ function initialize_database($conn) {
         password_hash VARCHAR(255) NOT NULL,
         role ENUM('admin', 'cashier') NOT NULL
     )";
-	
     if ($conn->query($sql) !== TRUE) {
         die("Error creating users table: " . $conn->error);
     }
 
-        // SQL to create the settings table if it doesn't exist
+    // SQL to create the settings table if it doesn't exist
     $sql = "CREATE TABLE IF NOT EXISTS settings (
         id INT AUTO_INCREMENT PRIMARY KEY,
         operationMode VARCHAR(50) NOT NULL DEFAULT 'online',
         wifi_ssid VARCHAR(255) DEFAULT '',
         wifi_password VARCHAR(255) DEFAULT ''
     )";
-	
-	if ($conn->query($sql) !== TRUE) {
-        die("Error creating users table: " . $conn->error);
+    if ($conn->query($sql) !== TRUE) {
+        die("Error creating settings table: " . $conn->error);
     }
-	
+
     // Check if the users table is empty (first time setup)
     $sql = "SELECT COUNT(*) as count FROM users";
     $result = $conn->query($sql);
@@ -150,8 +161,10 @@ function debug_log($message) {
 // Function to get the current bazaar ID
 function get_current_bazaar_id($conn) {
     $currentDateTime = date('Y-m-d H:i:s');
-    $sql = "SELECT id FROM bazaar WHERE startReqDate <= '$currentDateTime' AND startDate >= '$currentDateTime' LIMIT 1";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT id FROM bazaar WHERE startReqDate <= ? AND startDate >= ? LIMIT 1");
+    $stmt->bind_param("ss", $currentDateTime, $currentDateTime);
+    $stmt->execute();
+    $result = $stmt->get_result();
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
         return $row['id'];
@@ -160,9 +173,9 @@ function get_current_bazaar_id($conn) {
     }
 }
 
-// allow only ASCII Letters and Numbers
+// Allow letters, numbers, space, hyphen, parentheses, period, underscore, and @
 function sanitize_input($input) {
-    $input = preg_replace('/[^\x20-\x7E]/', '', $input);
+    $input = preg_replace('/[^a-zA-Z0-9 \-\(\)\._@]/', '', $input);
     $input = trim($input);
     return $input;
 }
@@ -177,15 +190,18 @@ function sanitize_id($input) {
 // Function to check for active bazaars
 function has_active_bazaar($conn) {
     $current_date = date('Y-m-d');
-    $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate <= '$current_date'";
-    $result = $conn->query($sql)->fetch_assoc();
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM bazaar WHERE startDate <= ?");
+    $stmt->bind_param("s", $current_date);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
     return $result['count'] > 0;
 }
 
 // Function 
 function get_next_checkout_id($conn) {
-    $sql = "SELECT MAX(checkout_id) AS max_checkout_id FROM sellers";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT MAX(checkout_id) AS max_checkout_id FROM sellers");
+    $stmt->execute();
+    $result = $stmt->get_result();
     return $result->fetch_assoc()['max_checkout_id'] + 1;
 }
 
@@ -195,19 +211,19 @@ function generate_hash($email, $seller_id) {
 }
 
 // Function to encrypt data
-function encrypt_data($data, $secret) {
+function encrypt_data($data) {
     $iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('aes-256-cbc'));
-    $encrypted = openssl_encrypt($data, 'aes-256-cbc', $secret, 0, $iv);
+    $encrypted = openssl_encrypt($data, 'aes-256-cbc', SECRET, 0, $iv);
     return base64_encode($iv . $encrypted);
 }
 
 // Function to decrypt data
-function decrypt_data($data, $secret) {
+function decrypt_data($data) {
     $data = base64_decode($data);
     $iv_length = openssl_cipher_iv_length('aes-256-cbc');
     $iv = substr($data, 0, $iv_length);
     $encrypted = substr($data, $iv_length);
-    return openssl_decrypt($encrypted, 'aes-256-cbc', $secret, 0, $iv);
+    return openssl_decrypt($encrypted, 'aes-256-cbc', SECRET, 0, $iv);
 }
 
 // PAGE: admin_manage_bazaar.php
@@ -215,17 +231,22 @@ function decrypt_data($data, $secret) {
 // Function to get expected columns from database
 function get_expected_columns($conn, $table_name) {
     $columns = [];
-    $result = $conn->query("SHOW COLUMNS FROM $table_name");
+    $stmt = $conn->prepare("SHOW COLUMNS FROM ?");
+    $stmt->bind_param("s", $table_name);
+    $stmt->execute();
+    $result = $stmt->get_result();
     while ($row = $result->fetch_assoc()) {
         $columns[] = $row['Field'];
     }
     return $columns;
 }
 
-
 // Function to check and add missing columns
 function check_and_add_columns($conn, $table, $header) {
-    $result = $conn->query("SHOW COLUMNS FROM $table");
+    $stmt = $conn->prepare("SHOW COLUMNS FROM ?");
+    $stmt->bind_param("s", $table);
+    $stmt->execute();
+    $result = $stmt->get_result();
     $existing_columns = [];
     while ($row = $result->fetch_assoc()) {
         $existing_columns[] = $row['Field'];
@@ -233,7 +254,9 @@ function check_and_add_columns($conn, $table, $header) {
 
     foreach ($header as $column) {
         if (!in_array($column, $existing_columns)) {
-            $conn->query("ALTER TABLE $table ADD $column VARCHAR(255)");
+            $stmt = $conn->prepare("ALTER TABLE ? ADD ? VARCHAR(255)");
+            $stmt->bind_param("ss", $table, $column);
+            $stmt->execute();
         }
     }
 }
@@ -241,8 +264,9 @@ function check_and_add_columns($conn, $table, $header) {
 // PAGE: index.php
 
 function get_operation_mode($conn) {
-    $sql = "SELECT operationMode FROM settings LIMIT 1";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT operationMode FROM settings LIMIT 1");
+    $stmt->execute();
+    $result = $stmt->get_result();
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
         return $row['operationMode'];
@@ -252,16 +276,20 @@ function get_operation_mode($conn) {
 
 function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid) {
     $seller_id = $_POST['seller_id'];
-    $sql = "SELECT id FROM sellers WHERE id='$seller_id' AND email='$email'";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT id FROM sellers WHERE id = ? AND email = ?");
+    $stmt->bind_param("is", $seller_id, $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
         $hash = generate_hash($email, $seller_id);
-		$bazaarId = get_current_bazaar_id($conn);
+        $bazaarId = get_current_bazaar_id($conn);
         $verification_token = generate_verification_token();
 
-        $sql = "UPDATE sellers SET verification_token='$verification_token', verified=0, consent='$consent', bazaar_id='$bazaarId' WHERE id='$seller_id'";
-        execute_sql_and_send_email($conn, $sql, $email, $seller_id, $hash, $verification_token, $mailtxt_reqexistingsellerid);
+        $stmt = $conn->prepare("UPDATE sellers SET verification_token = ?, verified = 0, consent = ?, bazaar_id = ? WHERE id = ?");
+        $stmt->bind_param("siii", $verification_token, $consent, $bazaarId, $seller_id);
+        $stmt->execute();
+        execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt_reqexistingsellerid);
     } else {
         global $seller_message;
         $seller_message = "Ungültige Verkäufer-ID oder E-Mail.";
@@ -271,49 +299,49 @@ function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingse
 function process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid) {
     $seller_id = generate_unique_seller_id($conn);
     $hash = generate_hash($email, $seller_id);
-	$bazaarId = get_current_bazaar_id($conn);
+    $bazaarId = get_current_bazaar_id($conn);
     $verification_token = generate_verification_token();
 
-    $sql = "INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, hash, bazaar_id, consent) VALUES ('$seller_id', '$email', '$reserve', '$verification_token', '$family_name', '$given_name', '$phone', '$street', '$house_number', '$zip', '$city', '$hash', '$bazaarId', '$consent')";
-    execute_sql_and_send_email($conn, $sql, $email, $seller_id, $hash, $verification_token, $mailtxt_reqnewsellerid);
+    $stmt = $conn->prepare("INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, hash, bazaar_id, consent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("isisssssssssis", $seller_id, $email, $reserve, $verification_token, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $hash, $bazaarId, $consent);
+    $stmt->execute();
+    execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt_reqnewsellerid);
 }
 
 function generate_verification_token() {
     return bin2hex(random_bytes(16));
 }
 
-function execute_sql_and_send_email($conn, $sql, $email, $seller_id, $hash, $verification_token, $mailtxt) {
+function execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt) {
     global $seller_message, $given_name, $family_name;
 
-    if ($conn->query($sql) === TRUE) {
-        $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
-		$create_products_link = BASE_URI . "/seller_products.php?seller_id=$seller_id&hash=$hash";
-		$revert_link = BASE_URI . "/verify.php?action=revert&seller_id=$seller_id&hash=$hash";
-		$delete_link = BASE_URI . "/flush.php?seller_id=$seller_id&hash=$hash";
+    $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
+    $create_products_link = BASE_URI . "/seller_products.php?seller_id=$seller_id&hash=$hash";
+    $revert_link = BASE_URI . "/verify.php?action=revert&seller_id=$seller_id&hash=$hash";
+    $delete_link = BASE_URI . "/flush.php?seller_id=$seller_id&hash=$hash";
 
-        $subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
-        $message = str_replace(
-            ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{create_products_link}', '{revert_link}', '{delete_link}', '{seller_id}', '{hash}'],
-            [BASE_URI, $given_name, $family_name, $verification_link, $create_products_link, $revert_link, $delete_link, $seller_id, $hash],
-            $mailtxt
-        );
-        $send_result = send_email($email, $subject, $message);
+    $subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
+    $message = str_replace(
+        ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{create_products_link}', '{revert_link}', '{delete_link}', '{seller_id}', '{hash}'],
+        [BASE_URI, $given_name, $family_name, $verification_link, $create_products_link, $revert_link, $delete_link, $seller_id, $hash],
+        $mailtxt
+    );
+    $send_result = send_email($email, $subject, $message);
 
-        if ($send_result === true) {
-            $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
-        } else {
-            $seller_message = "Fehler beim Senden der Bestätigungs-E-Mail: $send_result";
-        }
+    if ($send_result === true) {
+        $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
     } else {
-        $seller_message = "Fehler: " . $sql . "<br>" . $conn->error;
+		$seller_message = "Fehler beim Senden der Bestätigungs-E-Mail: $send_result";
     }
 }
 
 function generate_unique_seller_id($conn) {
     do {
         $seller_id = rand(1, 10000);
-        $sql = "SELECT id FROM sellers WHERE id='$seller_id'";
-        $result = $conn->query($sql);
+        $stmt = $conn->prepare("SELECT id FROM sellers WHERE id = ?");
+        $stmt->bind_param("i", $seller_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
     } while ($result->num_rows > 0);
     return $seller_id;
 }
@@ -334,15 +362,19 @@ function show_alert_active_id() {
 
 // Function to check if seller ID exists
 function seller_id_exists($conn, $seller_id) {
-    $sql = "SELECT id FROM sellers WHERE id='$seller_id'";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT id FROM sellers WHERE id = ?");
+    $stmt->bind_param("i", $seller_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
     return $result->num_rows > 0;
 }
 
 // Check if the seller has products
 function seller_has_products($conn, $seller_id) {
-    $sql = "SELECT COUNT(*) as product_count FROM products WHERE seller_id='$seller_id'";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT COUNT(*) as product_count FROM products WHERE seller_id = ?");
+    $stmt->bind_param("i", $seller_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
     $row = $result->fetch_assoc();
     return $row['product_count'] > 0;
 }
@@ -362,8 +394,10 @@ function calculateCheckDigit($barcode) {
 
 // Function to get bazaar pricing rules
 function get_bazaar_pricing_rules($conn, $bazaar_id) {
-    $sql = "SELECT min_price, price_stepping FROM bazaar WHERE id='$bazaar_id'";
-    $result = $conn->query($sql);
+    $stmt = $conn->prepare("SELECT min_price, price_stepping FROM bazaar WHERE id = ?");
+    $stmt->bind_param("i", $bazaar_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
     if ($result->num_rows > 0) {
         return $result->fetch_assoc();
     } else {
