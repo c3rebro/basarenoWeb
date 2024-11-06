@@ -4,8 +4,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
-    <title>bazaar - Nummernbasar Software kostenlos mit Strichcode und Ettikett</title>
-    <meta name="description" content="Nummernbasar Software kostenlos mit PHP für Raspberry oder Webserver">
+    <title>bazaar - Basar, Nummernbasar mit Code und Ettikett</title>
+    <meta name="description" content="Basar / Nummernbasarsystem. Barcode / QR-Code zum Einscannen per Mobiltelefon.">
     <script type="application/ld+json">
         {
             "@context": "http://schema.org",
@@ -36,11 +36,26 @@
                 <ul>
                     <li><strong><em>Wofür ist das gut?</em></strong>&nbsp;bazaar kann dazu verwendet werden, um Etiketten für die Artikel von Second-Hand Basaren zu erstellen und die Verkäufe mithilfe eines Barcodesystems einfach ab zu rechnen.</li>
                     <li><strong><em>Voraussetzungen?</em></strong> PHP 7.4 oder höher. </li>
-                    <li><strong><em>Welche Seiten gibt es?</em></strong>
+                    <li><strong><em>Welche Seiten gibt es, wie sieht die Struktur aus?</em></strong>
                         <ul>
-                            <li>index.php = Antrag für Verkäufer</li>
+                            <li>admin_login.php = Login für Basar-Administratoren</li>
+                            <li>admin_manage_bazaar.php = Verwaltung von Basaren für Administratoren</li>
+                            <li>admin_manage_sellers.php = Verkäuferverwaltung und Abrechnung</li>
+                            <li>admin_manage_users.php = Benutzerverwaltung für Bazaar</li>
+                            <li>cashier.php = Kassierersystem</li>
                             <li>cashier_login.php = Login für Kassierer</li>
-                            <li>admin_login.php = Login für den Basaradministrator</li>
+                            <li>checkout.php = Abrechnungssystem (intern)</li>
+                            <li>dashboard.php = Administratorendashboard</li>
+                            <li>first_time_setup.php = Setup</li>
+                            <li>flush.php = DSGVO - Löschen von Verkäuferdaten</li>
+                            <li>index.php = Antrag für Verkäufer</li>
+                            <li>load_seller_products.php = Produkte laden (intern)</li>
+                            <li>print_barcodes.php = Etiketten Drucken</li>
+                            <li>print_verified_sellers.php = Liste angemeldeter Verkäufer Drucken</li>
+                            <li>seller_products.php = Anlegen von Produkten</li>
+                            <li>system_settings.php = Systemeinstellungen</li>
+                            <li>utilities.php = PHP Funktionen (intern)</li>
+                            <li>verify.php = Verifizierung von Nummernanfragen</li>
                         </ul>
                     </li>
                 </ul>
