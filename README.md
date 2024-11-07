@@ -8,3 +8,4 @@ Verkäufer beantragen eine Verkäufernummer über ein Online-Portal und erstelle
 Neben der Schnittstelle für Export und Import existiert auch ein Joomla-Modul um die Registrierung auf der eigenen Basar-Homepage leicht integrieren zu können. Ein einfacher Link reicht aber in den meisten Fällen auch.
 
 Dokumentation auf Github Pages: [Github Pages](https://c3rebro.github.io/bazaar/) or directly on [Github](https://github.com/c3rebro/bazaar/) 
+Das Joomla Modul dazu: [Github](https://github.com/c3rebro/mod_bazaar) 
