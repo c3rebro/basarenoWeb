@@ -29,13 +29,19 @@
         <div class="col-1"></div>
         <div class="col-10">
             <div>
-                <p>Dies ist eine kostenlose Software für Ihren Nummernbasar,für Flohmärkte und Second-Hand Shops.<br><br>Verkäufer beantragen eine Verkäufernummer und erstellen Etiketten mit einem Barcode. Die Artikel und Verkäufer können auch exportiert und importiert werden um z.B. zwischen einer Onlineinstallation (Homepage) auf eine Offlineinstallation (Raspberry) hin und her zu Schalten. Der oder die Kassierer scannen die Barcodes mit ihren Mobiltelefonen. Am Ende des Basars erstellt der Administrator die Abrechnung für jede Verkäufernummer. Die Software erstellt eine E-Mail und/oder einen Ausdruck für jeden Verkäufer mit einer Liste der verkauften / nicht verkauften Artikel und der Gesamtsumme.</p>
+                <p>Dies ist eine kostenlose Software für Ihren Nummernbasar auch Abgabebasar genannt, für Flohmärkte oder Second-Hand Shops.<br><br>Verkäufer beantragen eine Verkäufernummer über ein Online-Portal und erstellen nach Verifizierung ihrer Mailadresse die Etiketten mit Artikelnamen, Größe, Preis und einem Strichcode. Die Artikel und Verkäufer können auch exportiert und importiert werden um z.B. zwischen einer Onlineinstallation (Homepage) auf eine Offlineinstallation (Raspberry) hin und her zu Schalten. Der oder die Kassierer scannen während des Basars die Barcodes mit ihren Mobiltelefonen. Am Ende des Basars erstellt der Administrator die Abrechnung für jede Verkäufernummer. Die Software erstellt eine E-Mail und/oder einen Ausdruck für jeden Verkäufer mit einer Liste der verkauften / nicht verkauften Artikel und der Gesamtsumme.<br><br>Neben der Schnittstelle für Export und Import existiert auch ein Joomla-Modul um die Registrierung auf der eigenen Basar-Homepage leicht integrieren zu können. Ein einfacher Link reicht aber in den meisten Fällen auch.</p>
             </div>
             <div>
                 <h1 id="webcalendar">c3rebro/bazaar</h1>
                 <ul>
-                    <li><strong><em>Wofür ist das gut?</em></strong>&nbsp;bazaar kann dazu verwendet werden, um Etiketten für die Artikel von Second-Hand Basaren zu erstellen und die Verkäufe mithilfe eines Barcodesystems einfach ab zu rechnen.</li>
-                    <li><strong><em>Voraussetzungen?</em></strong> PHP 7.4 oder höher. </li>
+                    <li><strong><em>Wofür ist das gut?</em></strong>&nbsp;bazaar kann dazu verwendet werden, um Etiketten für die Artikel eines Second-Hand Abgabebasar auch Nummernbasar genannt zu erstellen und die Verkäufe mithilfe eines Barcodesystems einfach ab zu rechnen.</li>
+                    <li><strong><em>Voraussetzungen?</em></strong>
+                        <ul>
+                            <li>Ein Webserver (z.B. nginx)</li>
+                            <li>PHP 7.4 oder höher</li>
+                            <li>MySQL 10.3 oder höher</li>
+                        </ul>
+                    </li>
                     <li><strong><em>Welche Seiten gibt es, wie sieht die Struktur aus?</em></strong>
                         <ul>
                             <li>admin_login.php = Login für Basar-Administratoren</li>
@@ -62,7 +68,7 @@
             </div>
             <div>
                 <h2 id="install">Installation</h2>
-                <p>Alle Dateien werden in das web root Verzeichnis hinein kopiert. Bei fehlender config.php wird automatisch der Setupprozess gestartet. Der Webserver sollte php7.4, mysql und eine sendmail Installation besitzen.</p>
+                <p>Alle Dateien werden in das web root Verzeichnis hinein kopiert. Bei fehlender config.php wird automatisch der Setupprozess gestartet. Der Webserver sollte php7.4, mysql und eine sendmail Installation besitzen.<br><br>bei einer Installation auf dem Raspberry für den Offlinebetrieb ist auf ausreichende Rechte zu achten. In den Systemeinstellungen gibt es aber eine Hilfe hierzu.</p>
             </div>
             <hr>
             <div>
