@@ -1,5 +1,5 @@
 # bazaar
- Kostenlose Lösung für Nummernbasare
+ Kostenlose Software für einen Nummernbasar auch Abgabebasar genannt.
 
  Dies ist eine kostenlose Software für Ihren Nummernbasar auch Abgabebasar genannt, für Flohmärkte oder Second-Hand Shops.
 
