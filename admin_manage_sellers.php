@@ -1,7 +1,7 @@
 <?php
 session_start();
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
-    header("location: index.php");
+    header("location: admin_login.php");
     exit;
 }
 
@@ -13,6 +13,9 @@ initialize_database($conn);
 $error = '';
 $success = '';
 
+// Assume $user_id is available from the session or another source
+$user_id = $_SESSION['user_id'] ?? 0;
+
 // Generate CSRF token for the form
 $csrf_token = generate_csrf_token();
 
@@ -20,6 +23,7 @@ $csrf_token = generate_csrf_token();
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         $error = "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for adding seller");
     } else {
         $family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
         $given_name = htmlspecialchars($_POST['given_name'], ENT_QUOTES, 'UTF-8');
@@ -30,12 +34,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
         $zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
         $city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
         $verified = isset($_POST['verified']) ? 1 : 0;
+		$checkout_id = htmlspecialchars($_POST['checkout_id'], ENT_QUOTES, 'UTF-8');
         $consent = 0;
         
         if (empty($family_name) || empty($email)) {
             $error = "Erforderliche Felder fehlen.";
         } else {
-            // Generate a random unique ID between 1 and 10000
             do {
                 $seller_id = rand(1, 10000);
                 $stmt = $conn->prepare("SELECT id FROM sellers WHERE id=?");
@@ -44,17 +48,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
                 $result = $stmt->get_result();
             } while ($result->num_rows > 0);
 
-            // Generate a secure hash using the seller's email and ID
             $hash = generate_hash($email, $seller_id);
 
-            $stmt = $conn->prepare("INSERT INTO sellers (id, email, reserved, family_name, given_name, phone, street, house_number, zip, city, hash, verified, consent) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("issssssssssi", $seller_id, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $hash, $verified, $consent);
+			$stmt = $conn->prepare("INSERT INTO sellers (id, email, reserved, family_name, given_name, phone, street, house_number, zip, city, checkout_id, hash, verified, consent) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+			$stmt->bind_param("issssssssssii", $seller_id, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $checkout_id, $hash, $verified, $consent);
+
             if ($stmt->execute()) {
                 $success = "Verkäufer erfolgreich hinzugefügt.";
-                debug_log("Seller added: ID=$seller_id, Name=$family_name, Email=$email, Verified=$verified");
+                log_action($conn, $user_id, "Seller added", "ID=$seller_id, Name=$family_name, Email=$email, Verified=$verified");
             } else {
                 $error = "Fehler beim Hinzufügen des Verkäufers: " . $conn->error;
-                debug_log("Error adding seller: " . $conn->error);
+                log_action($conn, $user_id, "Error adding seller", $conn->error);
             }
         }
     }
@@ -64,6 +68,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         $error = "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for editing seller");
     } else {
         $seller_id = intval($_POST['seller_id']);
         $family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
@@ -74,21 +79,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
         $house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
         $zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
         $city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
+		$checkout_id = htmlspecialchars($_POST['checkout_id'], ENT_QUOTES, 'UTF-8');
         $verified = isset($_POST['verified']) ? 1 : 0;
 
         if (empty($family_name) || empty($email)) {
-            $error = "Erforderliche Felder fehlen.";
-        } else {
-            $stmt = $conn->prepare("UPDATE sellers SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?, verified=? WHERE id=?");
-            $stmt->bind_param("ssssssssii", $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $verified, $seller_id);
-            if ($stmt->execute()) {
-                $success = "Verkäufer erfolgreich aktualisiert.";
-                debug_log("Seller updated: ID=$seller_id, Name=$family_name, Email=$email, Verified=$verified");
-            } else {
-                $error = "Fehler beim Aktualisieren des Verkäufers: " . $conn->error;
-                debug_log("Error updating seller: " . $conn->error);
-            }
-        }
+			$error = "Erforderliche Felder fehlen.";
+		} elseif (!is_checkout_id_unique($conn, $checkout_id, $seller_id)) {
+			$error = "Checkout ID bereits vorhanden.";
+		} else {
+			$stmt = $conn->prepare("UPDATE sellers SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?, verified=?, checkout_id=? WHERE id=?");
+			$stmt->bind_param("ssssssssisi", $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $verified, $checkout_id, $seller_id);
+
+			if ($stmt->execute()) {
+				$success = "Verkäufer erfolgreich aktualisiert.";
+				log_action($conn, $user_id, "Seller updated", "ID=$seller_id, Name=$family_name, Email=$email, Verified=$verified");
+			} else {
+				$error = "Fehler beim Aktualisieren des Verkäufers: " . $conn->error;
+				log_action($conn, $user_id, "Error updating seller", $conn->error);
+			}
+		}
     }
 }
 
@@ -96,20 +105,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_seller'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         $error = "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for deleting seller");
     } else {
         $seller_id = intval($_POST['seller_id']);
         $delete_products = isset($_POST['delete_products']) ? $_POST['delete_products'] : false;
 
         if (seller_has_products($conn, $seller_id)) {
             if ($delete_products) {
-                // Delete products first
                 $stmt = $conn->prepare("DELETE FROM products WHERE seller_id=?");
                 $stmt->bind_param("i", $seller_id);
                 if ($stmt->execute()) {
-                    debug_log("Products deleted for seller: ID=$seller_id");
+                    log_action($conn, $user_id, "Products deleted for seller", "Seller ID=$seller_id");
                 } else {
                     $error = "Fehler beim Löschen der Produkte: " . $conn->error;
-                    debug_log("Error deleting products: " . $conn->error);
+                    log_action($conn, $user_id, "Error deleting products", $conn->error);
                 }
             } else {
                 $error = "Dieser Verkäufer hat noch Produkte. Möchten Sie wirklich fortfahren?";
@@ -121,10 +130,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_seller'])) {
             $stmt->bind_param("i", $seller_id);
             if ($stmt->execute()) {
                 $success = "Verkäufer erfolgreich gelöscht.";
-                debug_log("Seller deleted: ID=$seller_id");
+                log_action($conn, $user_id, "Seller deleted", "ID=$seller_id");
             } else {
                 $error = "Fehler beim Löschen des Verkäufers: " . $conn->error;
-                debug_log("Error deleting seller: " . $conn->error);
+                log_action($conn, $user_id, "Error deleting seller", $conn->error);
             }
         }
     }
@@ -134,6 +143,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_seller'])) {
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         echo "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for CSV import");
     } else {
         $file = $_FILES['csv_file']['tmp_name'];
         $delimiter = $_POST['delimiter'];
@@ -142,6 +152,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
         $consent = 0;
         
         if ($handle !== FALSE) {
+            log_action($conn, $user_id, "CSV import initiated");
+
             while (($data = fgetcsv($handle, 1000, $delimiter)) !== FALSE) {
                 if ($encoding === 'ansi') {
                     $data = array_map(function($field) {
@@ -181,13 +193,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
                                         email=VALUES(email), reserved=VALUES(reserved), verification_token=VALUES(verification_token), family_name=VALUES(family_name), given_name=VALUES(given_name), phone=VALUES(phone), street=VALUES(street), house_number=VALUES(house_number), zip=VALUES(zip), city=VALUES(city), hash=VALUES(hash), verified=VALUES(verified), consent=VALUES(consent)");
                 $stmt->bind_param("issssssssssiii", $seller_id, $email, $reserved, $verification_token, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $hash, $verified, $consent);
                 if (!$stmt->execute()) {
-                    echo "Error importing seller with email $email: " . $conn->error;
+                    log_action($conn, $user_id, "Error importing seller", "Email=$email, Error=" . $conn->error);
                 }
             }
 
             fclose($handle);
+            log_action($conn, $user_id, "CSV import completed successfully");
             echo "Sellers imported successfully. Existing records have been updated.";
         } else {
+            log_action($conn, $user_id, "Error opening CSV file for import");
             echo "Error opening the CSV file.";
         }
     }
@@ -205,16 +219,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['check_seller_products'
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout_seller'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         $error = "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for checking out seller");
     } else {
         $seller_id = intval($_POST['seller_id']);
         $stmt = $conn->prepare("UPDATE sellers SET checkout=TRUE WHERE id=?");
         $stmt->bind_param("i", $seller_id);
         if ($stmt->execute()) {
             $success = "Verkäufer erfolgreich ausgecheckt.";
-            debug_log("Seller checked out: ID=$seller_id");
+            log_action($conn, $user_id, "Seller checked out", "ID=$seller_id");
         } else {
             $error = "Fehler beim Auschecken des Verkäufers: " . $conn->error;
-            debug_log("Error checking out seller: " . $conn->error);
+            log_action($conn, $user_id, "Error checking out seller", $conn->error);
         }
     }
 }
@@ -223,6 +238,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout_seller'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         $error = "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for updating product");
     } else {
         $bazaar_id = get_current_bazaar_id($conn);
         $product_id = intval($_POST['product_id']);
@@ -234,10 +250,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
         $stmt->bind_param("ssdii", $name, $size, $price, $bazaar_id, $product_id);
         if ($stmt->execute()) {
             $success = "Produkt erfolgreich aktualisiert.";
-            debug_log("Product updated: ID=$product_id, Name=$name, Size=$size, Basar-ID=$bazaar_id, Price=$price");
+            log_action($conn, $user_id, "Product updated", "ID=$product_id, Name=$name, Size=$size, Bazaar ID=$bazaar_id, Price=$price");
         } else {
             $error = "Fehler beim Aktualisieren des Produkts: " . $conn->error;
-            debug_log("Error updating product: " . $conn->error);
+            log_action($conn, $user_id, "Error updating product", $conn->error);
         }
     }
 }
@@ -246,6 +262,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         $error = "Ungültiges CSRF-Token.";
+        log_action($conn, $user_id, "CSRF token validation failed for deleting product");
     } else {
         $product_id = intval($_POST['product_id']);
         $seller_id = intval($_POST['seller_id']);
@@ -254,10 +271,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
         $stmt->bind_param("ii", $product_id, $seller_id);
         if ($stmt->execute()) {
             $success = "Produkt erfolgreich gelöscht.";
-            debug_log("Product deleted: ID=$product_id, Seller ID=$seller_id");
+            log_action($conn, $user_id, "Product deleted", "ID=$product_id, Seller ID=$seller_id");
         } else {
             $error = "Fehler beim Löschen des Produkts: " . $conn->error;
-            debug_log("Error deleting product: " . $conn->error);
+            log_action($conn, $user_id, "Error deleting product", $conn->error);
         }
     }
 }
@@ -284,7 +301,7 @@ if ($filter == 'done') {
 $sql .= " ORDER BY $sort_by $order";
 
 $sellers_result = $conn->query($sql);
-debug_log("Fetched sellers with filter '$filter' and sort '$sort_by $order': " . $sellers_result->num_rows);
+log_action($conn, $user_id, "Fetched sellers", "Filter='$filter', Sort='$sort_by $order', Count=" . $sellers_result->num_rows);
 
 $conn->close();
 ?>
@@ -295,36 +312,43 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Verkäufer Verwalten</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .form-row {
-            margin-bottom: 1rem;
-        }
-        .table-responsive {
-            margin-top: 1rem;
-        }
-        @media (max-width: 768px) {
-            .table-responsive {
-                overflow-x: auto;
-            }
-        }
-        .action-cell {
-            text-align: center;
-            padding-top: 5px;
-        }
-        .action-dropdown {
-            margin-bottom: 5px;
-        }
-        .done {
-            background-color: #d4edda;
-        }
-        @media print {
-            @page {
-                size: landscape;
-            }
-        }
-    </style>
+	<link href="css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
+	
 </head>
 <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten <span class="sr-only">(current)</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="system_log.php">Protokolle</a>
+                </li>
+            </ul>
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
     <div class="container">
 		<!-- Hidden input for CSRF token -->
 		<input type="hidden" id="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
@@ -368,7 +392,7 @@ $conn->close();
                                     <input type="text" class="form-control" id="street" name="street">
                                 </div>
                                 <div class="form-group col-md-3">
-                                    <label for="house_number">Hausnummer:</label>
+                                    <label for="house_number">Nr.:</label>
                                     <input type="text" class="form-control" id="house_number" name="house_number">
                                 </div>
                                 <div class="form-group col-md-3">
@@ -413,7 +437,7 @@ $conn->close();
                     <option value="id" <?php echo $sort_by == 'id' ? 'selected' : ''; ?>>VerkäuferNr.</option>
                     <option value="checkout_id" <?php echo $sort_by == 'checkout_id' ? 'selected' : ''; ?>>AbrNr.</option>
                     <option value="family_name" <?php echo $sort_by == 'family_name' ? 'selected' : ''; ?>>Nachname</option>
-                    <option value="checkout" <?php echo $sort_by == 'checkout' ? 'selected' : ''; ?>>Checkout</option>
+                    <option value="checkout" <?php echo $sort_by == 'checkout' ? 'selected' : ''; ?>>Abgerechnet</option>
                 </select>
             </div>
 
@@ -455,11 +479,11 @@ $conn->close();
                                     <td class='action-cell'>
                                         <select class='form-control action-dropdown' data-seller-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "' data-seller-hash='$hash'>
                                             <option value=''>Aktion wählen</option>
+											<option value='checkout'>Abrechnen</option>
                                             <option value='edit'>Bearbeiten</option>
                                             <option value='delete'>Löschen</option>
                                             <option value='show_products'>Produkte anzeigen</option>
                                             <option value='create_products'>Produkte erstellen</option>
-                                            <option value='checkout'>Checkout</option>
                                         </select>
                                         <button class='btn btn-primary btn-sm execute-action' data-seller-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
                                     </td>
@@ -491,7 +515,6 @@ $conn->close();
                 </tbody>
             </table>
         </div>
-        <a href="dashboard.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zum Dashboard</a>
     </div>
 
     <!-- Import Sellers Modal -->
@@ -601,9 +624,13 @@ $conn->close();
                     <div class="modal-body">
                         <input type="hidden" name="seller_id" id="editSellerId">
                         <div class="form-group">
-                            <label for="editSellerIdDisplay">Verkäufer-ID:</label>
+                            <label for="editSellerIdDisplay">Verk.Nr.:</label>
                             <input type="text" class="form-control" id="editSellerIdDisplay" name="seller_id_display" disabled>
                         </div>
+						<div class="form-group">
+							<label for="editSellerCheckoutId">Abr.Nr.:</label>
+							<input type="text" class="form-control" id="editSellerCheckoutId" name="checkout_id">
+						</div>
                         <div class="form-group">
                             <label for="editSellerFamilyName">Nachname:</label>
                             <input type="text" class="form-control" id="editSellerFamilyName" name="family_name" required>
@@ -625,7 +652,7 @@ $conn->close();
                             <input type="text" class="form-control" id="editSellerStreet" name="street">
                         </div>
                         <div class="form-group">
-                            <label for="editSellerHouseNumber">Hausnummer:</label>
+                            <label for="editSellerHouseNumber">Nr.:</label>
                             <input type="text" class="form-control" id="editSellerHouseNumber" name="house_number">
                         </div>
                         <div class="form-group">
@@ -691,6 +718,8 @@ $conn->close();
     <div class="modal fade" id="confirmDeleteModal" tabindex="-1" role="dialog" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
+				<!-- CSRF Token -->
+				<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                 <div class="modal-header">
                     <h5 class="modal-title" id="confirmDeleteModalLabel">Verkäufer löschen</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -709,24 +738,40 @@ $conn->close();
         </div>
     </div>
 
+	<!-- Back to Top Button -->
+	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+	
+	<?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
+	
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
     <script>
-        function editSeller(id, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
-            $('#editSellerId').val(id);
-            $('#editSellerIdDisplay').val(id);
-            $('#editSellerFamilyName').val(family_name);
-            $('#editSellerGivenName').val(given_name);
-            $('#editSellerEmail').val(email);
-            $('#editSellerPhone').val(phone);
-            $('#editSellerStreet').val(street);
-            $('#editSellerHouseNumber').val(house_number);
-            $('#editSellerZip').val(zip);
-            $('#editSellerCity').val(city);
-            $('#editSellerVerified').prop('checked', verified);
-            $('#editSellerModal').modal('show');
-        }
+        function editSeller(id, family_name, given_name, email, phone, street, house_number, zip, city, verified, checkout_id) {
+			$('#editSellerId').val(id);
+			$('#editSellerIdDisplay').val(id);
+			$('#editSellerFamilyName').val(family_name);
+			$('#editSellerGivenName').val(given_name);
+			$('#editSellerEmail').val(email);
+			$('#editSellerPhone').val(phone);
+			$('#editSellerStreet').val(street);
+			$('#editSellerHouseNumber').val(house_number);
+			$('#editSellerZip').val(zip);
+			$('#editSellerCity').val(city);
+			$('#editSellerVerified').prop('checked', verified);
+			$('#editSellerCheckoutId').val(checkout_id); // Add this line
+			$('#editSellerModal').modal('show');
+		}
 
         function toggleProducts(sellerId) {
             const row = $(`#seller-products-${sellerId}`);
@@ -791,7 +836,7 @@ $conn->close();
             } else if (action === 'create_products') {
                 window.location.href = `seller_products.php?seller_id=${sellerId}&hash=${hash}`;
             } else if (action === 'checkout') {
-                if (confirm('Möchten Sie diesen Verkäufer wirklich auschecken?')) {
+                if (confirm('Möchten Sie diesen Verkäufer wirklich abrechnen?')) {
                     window.location.href = `checkout.php?seller_id=${sellerId}&hash=${hash}`;
                 }
             }
@@ -905,6 +950,34 @@ $conn->close();
         });
 
     })();
+    </script>
+    <script>
+        $(document).ready(function() {
+            // Function to toggle the visibility of the "Back to Top" button
+			function toggleBackToTopButton() {
+				const scrollTop = $(window).scrollTop();
+
+				if (scrollTop > 100) {
+					$('#back-to-top').fadeIn();
+				} else {
+					$('#back-to-top').fadeOut();
+				}
+			}
+
+			// Initial check on page load
+			toggleBackToTopButton();
+
+			// Show or hide the "Back to Top" button on scroll
+			$(window).scroll(function() {
+				toggleBackToTopButton();
+			});
+
+			// Smooth scroll to top
+			$('#back-to-top').click(function() {
+				$('html, body').animate({ scrollTop: 0 }, 600);
+				return false;
+			});
+        });
     </script>
 </body>
 </html>

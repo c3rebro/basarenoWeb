@@ -24,6 +24,7 @@ $admin_username = isset($_POST['admin_username']) ? $_POST['admin_username'] : '
 $admin_password = isset($_POST['admin_password']) ? $_POST['admin_password'] : '';
 $secret = isset($_POST['secret']) ? $_POST['secret'] : 'Of3lG8HGdf452nF653oFG93hGF93hf';
 $base_uri = isset($_POST['base_uri']) ? $_POST['base_uri'] : 'https://www.example.de/bazaar';
+$language = isset($_POST['language']) ? $_POST['language'] : 'en';
 
 // Check if the form is submitted
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -42,11 +43,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['test_mail'])) {
         $subject = "Test-E-Mail";
         $body = "Dies ist eine Test-E-Mail.";
-        $headers = "From: " . htmlspecialchars($smtp_from_name) . " <" . htmlspecialchars($smtp_from) . ">\n";
-        $headers .= "MIME-Version: 1.0
-";
-        $headers .= "Content-Type: text/html; charset=UTF-8
-";
+        $headers = "From: " . htmlspecialchars($smtp_from_name) . " <" . htmlspecialchars($smtp_from) . ">\r\n";
+        $headers .= "MIME-Version: 1.0\r\n";
+        $headers .= "Content-Type: text/html; charset=UTF-8";
 
         if (mail($admin_email, $subject, $body, $headers)) {
             $mail_success = "Test-E-Mail erfolgreich gesendet!";
@@ -62,10 +61,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Create config.php from template
             $config_content = file_get_contents('config.php.template');
             $config_content = str_replace(
-                ['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>'],
-                [htmlspecialchars($db_host), htmlspecialchars($db_name), htmlspecialchars($db_username), htmlspecialchars($db_password), htmlspecialchars($smtp_from), htmlspecialchars($smtp_from_name), htmlspecialchars($secret), htmlspecialchars($base_uri)],
-                $config_content
-            );
+				['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>', '<?php echo $language; ?>'],
+				[htmlspecialchars($db_host), htmlspecialchars($db_name), htmlspecialchars($db_username), htmlspecialchars($db_password), htmlspecialchars($smtp_from), htmlspecialchars($smtp_from_name), htmlspecialchars($secret), htmlspecialchars($base_uri), htmlspecialchars($language)], $config_content
+			);
             file_put_contents('config.php', $config_content);
 
             // Initialize the database and insert settings
@@ -205,7 +203,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="base_uri">Basis-URI:</label>
                 <input type="text" class="form-control" id="base_uri" name="base_uri" required value="<?php echo htmlspecialchars($base_uri); ?>">
             </div>
-
+			<!-- Language settings -->
+			<h4>Spracheinstellungen</h4>
+			<div class="form-group">
+				<label for="language">Sprache:</label>
+				<select class="form-control" id="language" name="language" required>
+					<option value="en" <?php echo ($language === 'en' ? 'selected' : ''); ?>>English</option>
+					<option value="de" <?php echo ($language === 'de' ? 'selected' : ''); ?>>Deutsch</option>
+					<!-- Add more languages as needed -->
+				</select>
+			</div>
             <button type="submit" class="btn btn-primary" name="complete_setup">Ersteinrichtung abschließen</button>
         </form>
     </div>

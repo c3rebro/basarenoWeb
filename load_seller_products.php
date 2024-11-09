@@ -1,6 +1,10 @@
 <!-- load_seller_products.php -->
 <?php
 require_once 'utilities.php';
+session_start();
+
+// Assume $user_id is available from the session or another source
+$user_id = $_SESSION['user_id'] ?? 0;
 
 if (!isset($_GET['seller_id'])) {
     echo "Kein Verkäufer-ID angegeben.";
@@ -22,6 +26,7 @@ if ($result->num_rows > 0) {
                 <td>
                     <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
                     <form action='admin_manage_sellers.php' method='post' style='display:inline-block'>
+						<input type='hidden' name='csrf_token' value='" . htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') . "'>
                         <input type='hidden' name='product_id' value='{$row['id']}'>
                         <input type='hidden' name='seller_id' value='{$seller_id}'>
                         <button type='submit' name='delete_product' class='btn btn-danger btn-sm'>Löschen</button>

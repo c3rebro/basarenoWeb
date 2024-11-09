@@ -70,76 +70,8 @@ $conn->close();
     <meta charset="UTF-8">
     <title>Etiketten drucken</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .barcode-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .barcode-table td {
-            border: 1px solid black;
-            width: 6cm;
-            height: 4cm;
-            text-align: left;
-            vertical-align: top;
-            padding: 4px;
-            position: relative;
-        }
-        .barcode-digits {
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            margin-top: 5px;
-            text-align: center;
-        }
-        .seller-price-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .seller-id {
-            font-size: 22px;
-            padding-top: 5px;
-            padding-left: 5px;
-            text-align: left;
-            color: black;
-        }
-        .price {
-            font-size: 22px;
-            padding-right: 5px;
-            text-align: right;
-        }
-        .product-name {
-            font-size: 22px;
-            padding-left: 5px;
-            color: darkred;
-        }
-        .product-size {
-            color: black;
-        }
-        .checkout-id {
-            font-size: 18px;
-            color: blue;
-            font-weight: bold;
-        }
-        .barcode-container {
-            text-align: center;
-            margin-top: 10px;
-        }
-        @media print {
-            body {
-                margin: 0;
-                padding: 0;
-            }
-            .barcode-table td {
-                border: 1px solid black;
-                width: 6cm;
-                height: 4cm;
-                text-align: left;
-                vertical-align: top;
-                padding: 5px;
-                position: relative;
-            }
-        }
-    </style>
+	<link href="css/style.css" rel="stylesheet">
+	
 </head>
 <body>
     <div class="container">

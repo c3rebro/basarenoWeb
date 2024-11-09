@@ -1,7 +1,7 @@
 <?php
 // Debug configuration
 define('DEBUG', false); // Set to false to disable debug outputs
-
+define('LANGUAGE', '<?php echo $language; ?>'); 
 define('BASE_URI', '<?php echo $base_uri; ?>');
 
 define('DB_SERVER', '<?php echo $db_host; ?>');
@@ -15,4 +15,6 @@ define('SECRET', '<?php echo $secret; ?>');
 define('SMTP_FROM', '<?php echo $smtp_from; ?>');
 define('SMTP_FROM_NAME', '<?php echo $smtp_from_name; ?>');
 
+// Footer content
+define('FOOTER', 'Wir verwenden "Bazaar" die -wirklich- kostenlose Software für unseren Nummernbasar. Mehr dazu auf <a href="https://github.com/c3rebro/bazaar">GitHub</a>.');
 ?>

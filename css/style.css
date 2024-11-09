@@ -1,0 +1,381 @@
+/* General Styles */
+body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.content {
+    flex: 1;
+    margin-bottom: 60px; /* Adjust this value to match the height of the footer */
+}
+
+/* Navbar Styles */
+.navbar {
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 1000; /* Ensure it is above other elements */
+    background-color: #f8f9fa; /* Ensure a background color is set */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Optional shadow for better visibility */
+}
+
+.navbar-brand {
+    margin-right: 20px; /* Add margin to separate from nav items */
+    padding: 10px; /* Optional: Add padding */
+    border-right: 1px solid #ccc; /* Or use a background color */
+    background: #f8f9fa !important;
+}
+
+.navbar-nav {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    padding-left: 20px; /* Add padding to separate from brand */
+}
+
+/* Container Styles */
+.container {
+    margin-top: 80px; /* Adjust this value based on your navbar's height */
+	margin-bottom: 80px; /* Adjust this value based on your navbar's height */
+}
+
+/* Footer Styles */
+.fixed-footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: #f8f9fa;
+    text-align: center;
+    padding: 10px 0;
+    box-shadow: 0 -1px 5px rgba(0, 0, 0, 0.1);
+    z-index: 1000; /* Ensure the footer is above other content */
+}
+
+/* Scanner Styles */
+.scanner-wrapper {
+    width: 100%;
+    height: 200px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#scanner-container {
+    position: relative;
+    width: 90vw;
+    height: 100%;
+    overflow: hidden;
+}
+
+video {
+    width: 90vw;
+}
+
+#scanner-line {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: red;
+    z-index: 1;
+}
+
+.overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 80%;
+    height: 30%;
+    border: 2px solid red;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+}
+
+/* Table Styles */
+.table-container {
+    max-height: 400px;
+    overflow-y: scroll;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: #f9f9f9;
+}
+
+.table-striped tbody tr:nth-of-type(even) {
+    background-color: #ffffff;
+}
+
+.table-responsive {
+    margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .table-responsive {
+        overflow-x: auto;
+    }
+}
+
+/* Manual Entry Form */
+.manual-entry-form {
+    margin: 20px 0;
+}
+
+/* Button Styles */
+.button-container {
+    margin-top: 20px;
+}
+
+.btn-full-width {
+    width: 100%;
+}
+
+@media (max-width: 576px) {
+    .btn-full-width {
+        width: 100%;
+    }
+}
+
+/* Admin Login Page Styles */
+.login-container {
+    max-width: 400px;
+    margin-left: auto;
+	margin-right: auto;
+    padding-top: 50px;
+	margin-top: 80px;
+	margin-bottom: 80px;
+}
+
+/* Admin Manage Bazaar Page Styles */
+.form-row {
+    margin-bottom: 1rem;
+}
+
+.expander {
+    margin-bottom: 1rem;
+}
+
+.expander-header {
+    cursor: pointer;
+    background-color: #f8f9fa;
+    padding: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+}
+
+.expander-content {
+    display: none;
+    padding: 0.5rem;
+    border: 1px solid #ced4da;
+    border-top: none;
+    border-radius: 0 0 0.25rem 0.25rem;
+}
+
+/* Admin Manage Users Page Styles */
+.form-check-label {
+    margin-bottom: 0.5rem;
+}
+
+/* System Settings Page Styles */
+.settings-group {
+    margin-bottom: 30px;
+    padding: 20px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+.true {
+    color: green;
+}
+
+.false {
+    color: red;
+}
+
+/* New Styles from admin_manage_sellers.php */
+
+/* Action Cell */
+.action-cell {
+    text-align: center;
+    padding-top: 5px;
+}
+
+/* Action Dropdown */
+.action-dropdown {
+    margin-bottom: 5px;
+}
+
+/* Done Status */
+.done {
+    background-color: #d4edda;
+}
+
+/* Print Styles */
+@media print {
+    @page {
+        size: landscape;
+    }
+}
+
+/* Back to Top Button */
+#back-to-top {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    background-color: #007bff;
+    color: white;
+    border-radius: 50%;
+    display: none; /* Start hidden */
+    justify-content: center;
+    align-items: center;
+    font-size: 24px;
+    z-index: 2000;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    padding: 0; /* Ensure no padding interferes with centering */
+    text-align: center;
+    display: flex; /* Ensure flexbox properties are applied */
+}
+
+/* Center the icon */
+#back-to-top i {
+    margin: 0; /* Remove any default margin */
+    line-height: 1; /* Reset line-height for the icon */
+}
+
+/* New Styles from system_log.php */
+.filter-sort-group {
+    margin-bottom: 20px;
+}
+
+.group-header {
+    cursor: pointer;
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.hidden {
+    display: none;
+}
+
+table {
+    width: 100%;
+    table-layout: auto;
+}
+
+th, td {
+    white-space: nowrap;
+}
+
+td.username {
+    max-width: 150px; /* Adjust this value as needed */
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* New Style from index.php */
+.required:after {
+    content: "*";
+    color: red;
+    margin-left: 5px;
+}
+
+/* New Styles from print_barcodes.php */
+.barcode-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.barcode-table td {
+    border: 1px solid black;
+    width: 6cm;
+    height: 4cm;
+    text-align: left;
+    vertical-align: top;
+    padding: 4px;
+    position: relative;
+}
+
+.barcode-digits {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    margin-top: 5px;
+    text-align: center;
+}
+
+.seller-price-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.seller-id {
+    font-size: 22px;
+    padding-top: 5px;
+    padding-left: 5px;
+    text-align: left;
+    color: black;
+}
+
+.price {
+    font-size: 22px;
+    padding-right: 5px;
+    text-align: right;
+}
+
+.product-name {
+    font-size: 22px;
+    padding-left: 5px;
+    color: darkred;
+}
+
+.product-size {
+    color: black;
+}
+
+.checkout-id {
+    font-size: 18px;
+    color: blue;
+    font-weight: bold;
+}
+
+.barcode-container {
+    text-align: center;
+    margin-top: 10px;
+}
+
+@media print {
+    body {
+        margin: 0;
+        padding: 0;
+    }
+    .barcode-table td {
+        border: 1px solid black;
+        width: 6cm;
+        height: 4cm;
+        text-align: left;
+        vertical-align: top;
+        padding: 5px;
+        position: relative;
+    }
+}
+
+/* New Styles from seller_products.php */
+.action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.action-buttons .btn {
+    margin-bottom: 10px;
+}

@@ -58,6 +58,7 @@ $error = '';
 $sql = "SELECT id, startDate, startReqDate, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid FROM bazaar ORDER BY id DESC LIMIT 1";
 $result = $conn->query($sql);
 $bazaar = $result->fetch_assoc();
+$seller_message = '';
 
 $currentDate = new DateTime();
 $startReqDate = null;
@@ -114,16 +115,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $_SESSION['loggedin'] = true;
                 $_SESSION['username'] = $username;
                 $_SESSION['role'] = $user['role'];
+
+                // Log successful login
+                log_action($conn, $user['id'], "User logged in", "Username: $username");
+
                 header("location: dashboard.php");
             } else {
                 $error = "Ungültiger Benutzername oder Passwort";
+                
+                // Log failed login attempt
+                log_action($conn, 0, "Failed login attempt", "Username: $username");
             }
         } else {
             $error = "Ungültiger Benutzername oder Passwort";
+            
+            // Log failed login attempt
+            log_action($conn, 0, "Failed login attempt", "Username: $username");
         }
     }
-
-    $seller_message = '';
 
     // Send mail to user
     if (isset($_POST['request_seller_id']) && $canRequestSellerId && !$maxSellersReached) {
@@ -148,6 +157,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         if ($use_existing_number) {
             process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
+            // Log existing seller number request
+            log_action($conn, 0, "Existing seller number request", "Email: $email");
         } else {
             if ($existing_seller) {
                 if (!empty($existing_seller['verification_token'])) {
@@ -157,8 +168,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 } else {
                     process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
                 }
+                // Log new seller request for existing seller
+                log_action($conn, 0, "New seller request for existing seller", "Email: $email");
             } else {
                 process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+                // Log new seller request
+                log_action($conn, 0, "New seller request", "Email: $email");
             }
         }
     }
@@ -173,19 +188,8 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Bazaar Landing Page</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .form-row {
-            margin-bottom: 1rem;
-        }
-        .form-check-label {
-            margin-bottom: 0.5rem;
-        }
-        .required:after {
-            content: "*";
-            color: red;
-            margin-left: 5px;
-        }
-    </style>
+	<link href="css/style.css" rel="stylesheet">
+
     <script>
         function toggleSellerIdField() {
             const useExistingNumber = document.getElementById('use_existing_number_yes').checked;
@@ -287,6 +291,19 @@ $conn->close();
             <p class="mt-3 text-muted">* Diese Felder sind Pflichtfelder.</p>
         <?php endif; ?>
     </div>
+
+    <?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
+	
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>

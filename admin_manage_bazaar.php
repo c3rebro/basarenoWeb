@@ -2,6 +2,21 @@
 session_start();
 require_once 'utilities.php';
 
+// Ensure the user is an admin
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
+    header("location: index.php");
+    exit;
+}
+
+$conn = get_db_connection();
+initialize_database($conn);
+
+$error = '';
+$success = '';
+
+// Assume $user_id is available from the session or another source
+$user_id = $_SESSION['user_id'] ?? 0;
+
 // Set default sorting options
 $sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'startDate';
 $sortOrder = isset($_GET['sortOrder']) ? $_GET['sortOrder'] : 'DESC';
@@ -12,7 +27,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
         die("CSRF token validation failed.");
     }
 
-    $conn = get_db_connection();
     $tables = ['bazaar', 'sellers', 'products'];
     $csv_data = [];
 
@@ -23,6 +37,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
         $result = $stmt->get_result();
 
         if ($result->num_rows > 0) {
+            // Add table name as the first row
+            $csv_data[] = [$table];
+
             $fields = $result->fetch_fields();
             $header = [];
             foreach ($fields as $field) {
@@ -34,7 +51,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
             }
         }
     }
-    $conn->close();
 
     $csv_string = '';
     foreach ($csv_data as $line) {
@@ -52,12 +68,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
     header('Content-Type: application/octet-stream');
     header('Content-Disposition: attachment; filename="bazaar_export.bdb"');
     echo $encrypted_data;
+
+    // Log CSV export action
+    log_action($conn, $_SESSION['user_id'], "Export CSV", "Exported tables: " . implode(', ', $tables));
+
     exit;
 }
 
 // CSV Import functionality
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
+	$conn = get_db_connection();
+	
     if (!validate_csrf_token($_POST['csrf_token'])) {
+		log_action($conn, $user_id, "CSRF token validation failed for CSV import");
         die("CSRF token validation failed.");
     }
 
@@ -71,8 +94,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
             $csv_file = fopen('php://temp', 'r+');
             fwrite($csv_file, $csv_string);
             rewind($csv_file);
-
-            $conn = get_db_connection();
 
             // Disable foreign key checks
             $conn->query("SET FOREIGN_KEY_CHECKS=0");
@@ -141,35 +162,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
             // Re-enable foreign key checks
             $conn->query("SET FOREIGN_KEY_CHECKS=1");
 
-            $conn->close();
-
             if ($import_success) {
                 $success = "BDB erfolgreich importiert. Die Seite wird in 5 Sekunden aktualisiert.";
+				log_action($conn, $user_id, "CSV import successful");
                 echo "<script>
                         setTimeout(function() {
                             window.location.href = 'admin_manage_bazaar.php';
                         }, 5000);
                       </script>";
+                // Log CSV import action
+                log_action($conn, $_SESSION['user_id'], "Import CSV", "Imported successfully");
+				
             } else {
-                $error = $error ?? "Fehler beim Importieren der BDB.";
+                $error = $error ?? "Fehler beim Importieren der BDB.";	
             }
         }
     } else {
         $error = "Fehler beim Hochladen der BDB-Datei.";
     }
 }
-
-// The rest of your PHP code
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
-    header("location: index.php");
-    exit;
-}
-
-$conn = get_db_connection();
-initialize_database($conn);
-
-$error = '';
-$success = '';
 
 // Handle bazaar addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
@@ -216,6 +227,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
             $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller);
             if ($stmt->execute()) {
                 $success = "Bazaar erfolgreich hinzugefügt.";
+                // Log bazaar addition
+                log_action($conn, $_SESSION['user_id'], "Add Bazaar", "Bazaar added with start date: $startDate");
             } else {
                 $error = "Fehler beim Hinzufügen des Bazaars: " . $stmt->error;
             }
@@ -243,13 +256,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
+        // Convert brokerage to decimal before saving
         $brokerage = $brokerage / 100;
+
         // Use parameterized query to prevent SQL injection
         $sql = "UPDATE bazaar SET startDate=?, startReqDate=?, brokerage=?, min_price=?, price_stepping=?, max_sellers=?, mailtxt_reqnewsellerid=?, mailtxt_reqexistingsellerid=?, max_products_per_seller=? WHERE id=?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sssddissii", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller, $bazaar_id);
         if ($stmt->execute()) {
             $success = "Bazaar erfolgreich aktualisiert.";
+
+            // Log bazaar modification
+            log_action($conn, $_SESSION['user_id'], "Edit Bazaar", "Bazaar id $bazaar_id updated with start date: $startDate");
         } else {
             $error = "Fehler beim Aktualisieren des Bazaars: " . $stmt->error;
         }
@@ -270,9 +288,38 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
     $stmt->bind_param("i", $bazaar_id);
     if ($stmt->execute()) {
         echo json_encode(['status' => 'success']);
+        // Log bazaar removal
+        log_action($conn, $_SESSION['user_id'], "Remove Bazaar", "Bazaar id $bazaar_id removed");
     } else {
         echo json_encode(['status' => 'error']);
+        // Log failure to remove bazaar
+        log_action($conn, $_SESSION['user_id'], "Failed to Remove Bazaar", "Attempted to remove bazaar id $bazaar_id");
     }
+    exit;
+}
+
+// Handle bazaar fetch details
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] === 'fetch_bazaar_data') {
+    $bazaar_id = $_POST['bazaar_id'];
+    $conn = get_db_connection();
+	// Fetch products count
+    $products_count_all = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id")->fetch_assoc()['count'];
+    // Fetch sold products count
+    $products_count_sold = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['count'];
+    // Fetch total sum of sold products
+    $total_sum_sold = $conn->query("SELECT SUM(price) as total FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['total'];
+    // Fetch brokerage percentage for the bazaar
+    $brokerage_percentage = $conn->query("SELECT brokerage FROM bazaar WHERE id = $bazaar_id")->fetch_assoc()['brokerage'];
+    // Calculate total brokerage for sold products
+    $total_brokerage = $total_sum_sold * $brokerage_percentage;
+
+    echo json_encode([
+        'products_count_all' => $products_count_all,
+        'products_count_sold' => $products_count_sold,
+        'total_sum_sold' => number_format($total_sum_sold, 2, ',', '.') . ' €',
+        'total_brokerage' => number_format($total_brokerage, 2, ',', '.') . ' €'
+    ]);
+
     exit;
 }
 
@@ -280,6 +327,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
 // Use parameterized query to prevent SQL injection
 $sql = "SELECT * FROM bazaar ORDER BY $sortBy $sortOrder";
 $result = $conn->query($sql);
+
+// Log fetching bazaar details
+log_action($conn, $_SESSION['user_id'], "Fetch Bazaar Details", "Fetched bazaar details sorted by $sortBy $sortOrder");
 
 $conn->close();
 ?>
@@ -290,38 +340,46 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Bazaar Verwalten</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .form-row {
-            margin-bottom: 1rem;
-        }
-        @media (max-width: 768px) {
-            .table-responsive {
-                overflow-x: auto;
-            }
-        }
-        .expander {
-            margin-bottom: 1rem;
-        }
-        .expander-header {
-            cursor: pointer;
-            background-color: #f8f9fa;
-            padding: 0.5rem;
-            border: 1px solid #ced4da;
-            border-radius: 0.25rem;
-        }
-        .expander-content {
-            display: none;
-            padding: 0.5rem;
-            border: 1px solid #ced4da;
-            border-top: none;
-            border-radius: 0 0 0.25rem 0.25rem;
-        }
-    </style>
+	<link href="css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
+	
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
 </head>
 <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten <span class="sr-only">(current)</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="system_log.php">Protokolle</a>
+                </li>
+            </ul>
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+	
     <div class="container">
         <h2 class="mt-5">Bazaar Verwalten</h2>
         <?php 
@@ -630,7 +688,6 @@ $conn->close();
                 </tbody>
             </table>
         </div>
-        <a href="dashboard.php" class="btn btn-primary btn-block mt-3 mb-5">Zurück zum Dashboard</a>
     </div>
 
     <!-- View Bazaar Modal -->
@@ -686,6 +743,22 @@ $conn->close();
             </div>
         </div>
     </div>
+	
+	<!-- Back to Top Button -->
+	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+	
+    <?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
+	
     <script>
         document.getElementById('importCsvButton').addEventListener('click', function() {
             document.getElementById('mailtxt_reqnewsellerid').removeAttribute('required');
@@ -753,6 +826,35 @@ $conn->close();
                 var sortOrder = $('#sortOrder').val();
                 window.location.href = 'admin_manage_bazaar.php?sortBy=' + sortBy + '&sortOrder=' + sortOrder;
             });
+        });
+    </script>
+	
+	<script>
+        $(document).ready(function() {
+            // Function to toggle the visibility of the "Back to Top" button
+			function toggleBackToTopButton() {
+				const scrollTop = $(window).scrollTop();
+
+				if (scrollTop > 100) {
+					$('#back-to-top').fadeIn();
+				} else {
+					$('#back-to-top').fadeOut();
+				}
+			}
+
+			// Initial check on page load
+			toggleBackToTopButton();
+
+			// Show or hide the "Back to Top" button on scroll
+			$(window).scroll(function() {
+				toggleBackToTopButton();
+			});
+
+			// Smooth scroll to top
+			$('#back-to-top').click(function() {
+				$('html, body').animate({ scrollTop: 0 }, 600);
+				return false;
+			});
         });
     </script>
 </body>

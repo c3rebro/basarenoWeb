@@ -13,6 +13,9 @@ initialize_database($conn);
 $error = '';
 $success = '';
 
+// Assume $user_id is available from the session or another source
+$user_id = $_SESSION['user_id'] ?? 0;
+
 // Handle user addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
     $username = $_POST['username'];
@@ -58,24 +61,43 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Benutzer Verwalten</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .form-row {
-            margin-bottom: 1rem;
-        }
-        .form-check-label {
-            margin-bottom: 0.5rem;
-        }
-        .table-responsive {
-            margin-top: 1rem;
-        }
-        @media (max-width: 768px) {
-            .table-responsive {
-                overflow-x: auto;
-            }
-        }
-    </style>
+	<link href="css/all.min.css" rel="stylesheet">
+	<link href="css/style.css" rel="stylesheet">
+
 </head>
 <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item active">
+                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten <span class="sr-only">(current)</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="system_log.php">Protokolle</a>
+                </li>
+            </ul>
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+	
     <div class="container">
         <h2 class="mt-5">Benutzer Verwalten</h2>
         <?php if ($error) { echo "<div class='alert alert-danger'>" . htmlspecialchars($error, ENT_QUOTES, 'UTF-8') . "</div>"; } ?>
@@ -131,10 +153,52 @@ $conn->close();
                 </tbody>
             </table>
         </div>
-        <a href="dashboard.php" class="btn btn-primary btn-block mt-3">Zurück zum Dashboard</a>
     </div>
+	
+	<!-- Back to Top Button -->
+	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+	
+    <?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
+	<script>
+        $(document).ready(function() {
+            // Function to toggle the visibility of the "Back to Top" button
+			function toggleBackToTopButton() {
+				const scrollTop = $(window).scrollTop();
+
+				if (scrollTop > 100) {
+					$('#back-to-top').fadeIn();
+				} else {
+					$('#back-to-top').fadeOut();
+				}
+			}
+
+			// Initial check on page load
+			toggleBackToTopButton();
+
+			// Show or hide the "Back to Top" button on scroll
+			$(window).scroll(function() {
+				toggleBackToTopButton();
+			});
+
+			// Smooth scroll to top
+			$('#back-to-top').click(function() {
+				$('html, body').animate({ scrollTop: 0 }, 600);
+				return false;
+			});
+        });
+    </script>
 </body>
 </html>

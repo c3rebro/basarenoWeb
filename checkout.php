@@ -193,27 +193,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Checkout - Verkäufer: <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> (Verkäufer Nr.: <?php echo htmlspecialchars($seller['id']); ?>) {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .table-responsive {
-            margin-top: 1rem;
-        }
-        @media (max-width: 768px) {
-            .table-responsive {
-                overflow-x: auto;
-            }
-        }
-        @media print {
-            .no-print {
-                display: none;
-            }
-            .no-print-brokerage .brokerage,
-            .no-print-brokerage .auszahlung,
-            .no-print-brokerage .gesamt,
-            .no-print-brokerage .provision {
-                display: none;
-            }
-        }
-    </style>
+	<link href="css/style.css" rel="stylesheet">
+	
 </head>
 <body>
     <div class="container">

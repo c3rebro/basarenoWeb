@@ -28,13 +28,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
             $_SESSION['loggedin'] = true;
             $_SESSION['username'] = $username;
             $_SESSION['role'] = $user['role'];
-            header("location: dashboard.php");
+            $_SESSION['user_id'] = $user['id']; // Store user_id in session
+
+            // Log successful admin login
+            log_action($conn, $user['id'], "Admin logged in", "Username: $username");
+
+            header("location: admin_manage_users.php");
             exit;
         } else {
             $error = "Ungültiger Benutzername oder Passwort";
+
+            // Log failed admin login attempt
+            log_action($conn, 0, "Failed admin login attempt", "Username: $username");
         }
     } else {
         $error = "Ungültiger Benutzername oder Passwort";
+
+        // Log failed admin login attempt
+        log_action($conn, 0, "Failed admin login attempt", "Username: $username");
     }
 }
 
@@ -47,13 +58,7 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Administrator Login</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .login-container {
-            max-width: 400px;
-            margin: 0 auto;
-            padding-top: 50px;
-        }
-    </style>
+	<link href="css/style.css" rel="stylesheet">
 </head>
 <body>
     <div class="container login-container">
@@ -72,6 +77,20 @@ $conn->close();
             <button type="submit" class="btn btn-primary btn-block" name="login">Anmelden</button>
         </form>
     </div>
+	
+
+    <?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
+	
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>

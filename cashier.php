@@ -18,20 +18,20 @@ $groups = isset($_SESSION['groups']) ? $_SESSION['groups'] : [];
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['barcode'])) {
         $barcode = $_POST['barcode'];
-        debug_log("Scanned Barcode: $barcode");
+        log_action($conn, $_SESSION['user_id'], "Scanned barcode", "Barcode: $barcode");
 
         // Use prepared statement to prevent SQL Injection
         $stmt = $conn->prepare("SELECT id, name, price, sold, seller_id FROM products WHERE barcode=?");
         $stmt->bind_param("s", $barcode);
         $stmt->execute();
         $result = $stmt->get_result();
-        debug_log("SQL Query executed with prepared statement");
+        log_action($conn, $_SESSION['user_id'], "SQL Query executed with prepared statement", "Barcode: $barcode");
 
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
             if ($row['sold'] == 1) {
                 $message = "Produkt bereits gescannt";
-                debug_log("Product already sold.");
+                log_action($conn, $_SESSION['user_id'], "Product already sold", "Product ID: " . $row['id']);
             } else {
                 $formatted_price = number_format($row['price'], 2, ',', '.');
                 $message = "Produkt: " . htmlspecialchars($row['name']) . "<br>Preis: €" . $formatted_price . "<br>Verkäufer-ID: " . htmlspecialchars($row['seller_id']);
@@ -40,7 +40,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $stmt = $conn->prepare("UPDATE products SET sold=1 WHERE barcode=?");
                 $stmt->bind_param("s", $barcode);
                 $stmt->execute();
-                debug_log("Product found and marked as sold.");
+                log_action($conn, $_SESSION['user_id'], "Product marked as sold", "Product ID: " . $row['id']);
 
                 // Add the product to the current group
                 if (!isset($groups[0])) {
@@ -55,7 +55,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         } else {
             $message = "Produkt nicht gefunden";
-            debug_log("Product not found in the database.");
+            log_action($conn, $_SESSION['user_id'], "Product not found", "Barcode: $barcode");
         }
     } elseif (isset($_POST['unsell_product'])) {
         $product_id = $_POST['product_id'];
@@ -64,12 +64,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt = $conn->prepare("UPDATE products SET sold=0 WHERE id=?");
         $stmt->bind_param("i", $product_id);
         $stmt->execute();
-        debug_log("Product ID $product_id marked as unsold.");
+        log_action($conn, $_SESSION['user_id'], "Product marked as unsold", "Product ID: $product_id");
     } elseif (isset($_POST['reset_sum'])) {
         // Collapse the current group and start a new one
         array_unshift($groups, ['products' => [], 'sum' => 0]);
         $sum_of_prices = 0.0;
         $_SESSION['sum_of_prices'] = $sum_of_prices;
+        log_action($conn, $_SESSION['user_id'], "Sum of prices reset");
     }
     $_SESSION['groups'] = $groups;
 }
@@ -80,7 +81,7 @@ $scanned_products = [];
 // Fetch the last 30 scanned products
 $sql = "SELECT id, name, price, seller_id FROM products WHERE sold=1 ORDER BY id DESC LIMIT 30";
 $result = $conn->query($sql);
-debug_log("Fetching last 30 scanned products.");
+log_action($conn, $_SESSION['user_id'], "Fetched last 30 scanned products");
 while ($row = $result->fetch_assoc()) {
     $scanned_products[] = $row;
 }
@@ -94,161 +95,117 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Kassierer</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
+	<link href="css/all.min.css" rel="stylesheet">
+	<link href="css/style.css" rel="stylesheet">
     <script src="js/quagga.min.js"></script>
-    <style>
-        .scanner-wrapper {
-            width: 100%;
-            height: 200px;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+	<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			console.log("Document loaded");
 
-        #scanner-container {
-            position: relative;
-            width: 90vw;
-            height: 100%;
-            overflow: hidden;
-        }
+			let scannerActive = false;
+			let timeoutHandle;
 
-        video {
-            width: 90vw;
-        }
+			function startScanner() {
+				if (scannerActive) return;
 
-        #scanner-line {
-            position: absolute;
-            top: 50%;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background-color: red;
-            z-index: 1;
-        }
+				console.log("Starting scanner");
+				Quagga.init({
+					inputStream: {
+						name: "Live",
+						type: "LiveStream",
+						target: document.querySelector('#scanner-container'),
+						constraints: {
+							width: 640,
+							height: 480,
+							frameRate: { max: 10 } // Limit to 10 FPS
+						}
+					},
+					decoder: {
+						readers: ["ean_reader"]
+					},
+					locate: true
+				}, function (err) {
+					if (err) {
+						console.log("Error initializing Quagga: ", err);
+						return;
+					}
+					Quagga.start();
+					scannerActive = true;
+					document.getElementById('start-scanner').style.display = 'none';
+					document.getElementById('stop-scanner').style.display = 'inline-block';
+					resetScannerTimeout();
+				});
 
-        .overlay {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 80%;
-            height: 30%;
-            border: 2px solid red;
-            transform: translate(-50%, -50%);
-            z-index: 2;
-        }
-        .table-container {
-            max-height: 400px;
-            overflow-y: scroll;
-        }
-        .manual-entry-form {
-            margin: 20px 0;
-        }
-		
-		/* Custom styles for buttons */
-        .button-container {
-            margin-top: 20px;
-        }
+				Quagga.onDetected(function (data) {
+					console.log("Barcode detected: ", data.codeResult.code);
+					document.getElementById('barcode').value = data.codeResult.code;
+					document.getElementById('scan-form').submit();
+					showNotification();
+					resetScannerTimeout(); // Reset the timeout on successful scan
+				});
+			}
 
-        @media (max-width: 576px) {
-            .btn-full-width {
-                width: 100%;
-            }
-        }
-		
-		/* Alternating row colors */
-        .table-striped tbody tr:nth-of-type(odd) {
-            background-color: #f9f9f9;
-        }
-        .table-striped tbody tr:nth-of-type(even) {
-            background-color: #ffffff;
-        }
-    </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("Document loaded");
+			function stopScanner() {
+				if (!scannerActive) return;
 
-            let scannerActive = false;
+				console.log("Stopping scanner");
+				Quagga.stop();
+				scannerActive = false;
+				document.getElementById('stop-scanner').style.display = 'none';
+				document.getElementById('start-scanner').style.display = 'inline-block';
+				clearTimeout(timeoutHandle); // Clear the timeout when stopping the scanner
+			}
 
-            function startScanner() {
-                if (scannerActive) return;
+			function resetScannerTimeout() {
+				clearTimeout(timeoutHandle);
+				timeoutHandle = setTimeout(stopScanner, 90000); // 90 seconds timeout
+			}
 
-                console.log("Starting scanner");
-                Quagga.init({
-                    inputStream: {
-                        name: "Live",
-                        type: "LiveStream",
-                        target: document.querySelector('#scanner-container'),
-                        constraints: {
-                            width: 640,
-                            height: 480,
-                            frameRate: { max: 10 } // Limit to 10 FPS
-                        }
-                    },
-                    decoder: {
-                        readers: ["ean_reader"]
-                    },
-                    locate: true
-                }, function (err) {
-                    if (err) {
-                        console.log("Error initializing Quagga: ", err);
-                        return;
-                    }
-                    Quagga.start();
-                    scannerActive = true;
-                    document.getElementById('start-scanner').style.display = 'none';
-                    document.getElementById('stop-scanner').style.display = 'inline-block';
-                });
+			function showNotification() {
+				if (Notification.permission === "granted") {
+					new Notification("Produkt erfolgreich gescannt!");
+				} else if (Notification.permission !== "denied") {
+					Notification.requestPermission().then(permission => {
+						if (permission === "granted") {
+							new Notification("Produkt erfolgreich gescannt!");
+						}
+					});
+				}
+			}
 
-                Quagga.onDetected(function (data) {
-                    console.log("Barcode detected: ", data.codeResult.code);
-                    document.getElementById('barcode').value = data.codeResult.code;
-                    document.getElementById('scan-form').submit();
-                    showNotification();
-                });
-            }
+			document.getElementById('start-scanner').addEventListener('click', startScanner);
+			document.getElementById('stop-scanner').addEventListener('click', stopScanner);
 
-            function stopScanner() {
-                if (!scannerActive) return;
+			document.addEventListener('visibilitychange', function() {
+				if (document.visibilityState === 'visible') {
+					startScanner();
+				} else {
+					stopScanner();
+				}
+			});
 
-                console.log("Stopping scanner");
-                Quagga.stop();
-                scannerActive = false;
-                document.getElementById('stop-scanner').style.display = 'none';
-                document.getElementById('start-scanner').style.display = 'inline-block';
-            }
-
-            function showNotification() {
-                if (Notification.permission === "granted") {
-                    new Notification("Produkt erfolgreich gescannt!");
-                } else if (Notification.permission !== "denied") {
-                    Notification.requestPermission().then(permission => {
-                        if (permission === "granted") {
-                            new Notification("Produkt erfolgreich gescannt!");
-                        }
-                    });
-                }
-            }
-
-            document.getElementById('start-scanner').addEventListener('click', startScanner);
-            document.getElementById('stop-scanner').addEventListener('click', stopScanner);
-
-            document.addEventListener('visibilitychange', function() {
-                if (document.visibilityState === 'visible') {
-                    startScanner();
-                } else {
-                    stopScanner();
-                }
-            });
-
-            window.onload = function() {
-                startScanner();
-            };
-        });
-    </script>
+			window.onload = function() {
+				startScanner();
+			};
+		});
+	</script>
 </head>
 <body>
+	<!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <a class="navbar-brand" href="#">Bazaar Kassier</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
     <div class="container">
-        <h2 class="mt-5">Kassierer</h2>
         <?php if ($message) { echo "<div class='alert alert-info'>" . htmlspecialchars($message) . "</div>"; } ?>
         <?php if (DEBUG) { debug_log("Debug log enabled"); } ?>
         <div class="scanner-wrapper">
@@ -320,8 +277,50 @@ $conn->close();
             </table>
         </div>
     </div>
+	
+    <?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
+	
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
+	
+	<script>
+        $(document).ready(function() {
+            // Function to toggle the visibility of the "Back to Top" button
+			function toggleBackToTopButton() {
+				const scrollTop = $(window).scrollTop();
+
+				if (scrollTop > 100) {
+					$('#back-to-top').fadeIn();
+				} else {
+					$('#back-to-top').fadeOut();
+				}
+			}
+
+			// Initial check on page load
+			toggleBackToTopButton();
+
+			// Show or hide the "Back to Top" button on scroll
+			$(window).scroll(function() {
+				toggleBackToTopButton();
+			});
+
+			// Smooth scroll to top
+			$('#back-to-top').click(function() {
+				$('html, body').animate({ scrollTop: 0 }, 600);
+				return false;
+			});
+        });
+    </script>
 </body>
 </html>
