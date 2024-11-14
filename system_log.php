@@ -1,15 +1,27 @@
 <?php
-session_start();
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
 require_once 'utilities.php';
 
 // Ensure the user is an admin
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
-    header("location: admin_login.php");
+    header("location: login.php");
     exit;
 }
 
 $conn = get_db_connection();
-initialize_database($conn);
+
+$message = '';
+$message_type = 'danger'; // Default message type for errors
+
+// Assume $user_id is available from the session or another source
+$user_id = $_SESSION['user_id'] ?? 0;
+$username = $_SESSION['username'] ?? '';
 
 // Delete log entries older than 2 years
 $stmt = $conn->prepare("DELETE FROM logs WHERE timestamp < NOW() - INTERVAL 2 YEAR");
@@ -40,7 +52,7 @@ $conn->close();
 	
 </head>
 <body>
-	<!-- Navbar -->
+    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
         <a class="navbar-brand" href="#">Bazaar Administration</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -65,6 +77,11 @@ $conn->close();
                 </li>
             </ul>
             <ul class="navbar-nav ml-auto">
+                <li class="nav-itemml ml-auto">
+                    <a class="navbar-brand" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
                 </li>
@@ -74,7 +91,14 @@ $conn->close();
 	
     <div class="container">
         <h1 class="mb-4">Systemprotokoll</h1>
-        
+        <?php if ($message): ?>
+            <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
+                <?php echo $message; ?>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        <?php endif; ?>
         <div class="filter-sort-group">
             <div class="form-row">
                 <div class="col-md-4 mb-3">
@@ -114,14 +138,15 @@ $conn->close();
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($logs as $log):
+					<?php foreach ($logs as $log):
 						$username = $log['username'] ?? 'Guest'; // Use 'Guest' if username is null
+						$details = $log['details'] ?? 'No details available'; // Provide a default value for details
 					?>
 						<tr data-timestamp="<?php echo strtotime($log['timestamp']); ?>">
 							<td><?php echo htmlspecialchars($log['timestamp']); ?></td>
 							<td><?php echo htmlspecialchars($username); ?></td>
 							<td><?php echo htmlspecialchars($log['action']); ?></td>
-							<td><?php echo htmlspecialchars($log['details']); ?></td>
+							<td><?php echo htmlspecialchars($details); ?></td>
 						</tr>
 					<?php endforeach; ?>
                 </tbody>

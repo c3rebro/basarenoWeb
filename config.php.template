@@ -2,6 +2,10 @@
 // Debug configuration
 define('DEBUG', false); // Set to false to disable debug outputs
 define('LANGUAGE', '<?php echo $language; ?>'); 
+
+// Initialization flag
+define('DB_INITIALIZED', false);
+
 define('BASE_URI', '<?php echo $base_uri; ?>');
 
 define('DB_SERVER', '<?php echo $db_host; ?>');

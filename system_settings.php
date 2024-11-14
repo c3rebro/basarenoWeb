@@ -1,17 +1,23 @@
 <?php
 session_start();
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("location: index.php");
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
+    header("location: login.php");
     exit;
 }
 
 require_once 'utilities.php';
 
+// Load configuration
+load_config();
+
 $conn = get_db_connection();
-initialize_database($conn);
+
+$message = '';
+$message_type = 'danger'; // Default message type for errors
 
 // Assume $user_id is available from the session or another source
 $user_id = $_SESSION['user_id'] ?? 0;
+$username = $_SESSION['username'] ?? '';
 
 // Fetch current settings
 $currentSettings = fetch_current_settings($conn);
@@ -20,6 +26,24 @@ $currentPassword = htmlspecialchars($currentSettings['wifi_password']);
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $updates = [];
+
+    if (isset($_POST['edit_base_uri'])) {
+        $new_base_uri = sanitize_url($_POST['new_base_uri']);
+        $updates['BASE_URI'] = $new_base_uri;
+        $base_uri_message = "BASE_URI erfolgreich aktualisiert!";
+    }
+
+    if (isset($_POST['edit_debug_mode'])) {
+        $new_debug_mode = isset($_POST['new_debug_mode']) ? true : false;
+        $updates['DEBUG'] = $new_debug_mode;
+        $debug_mode_message = "DEBUG Modus erfolgreich aktualisiert!";
+    }
+
+    if (!empty($updates)) {
+        update_config($updates);
+    }
+	
     if (isset($_POST['apply'])) {
         $operationMode = sanitize_input($_POST['operationMode']);
         $wifi_ssid = $operationMode === 'offline' ? sanitize_input($_POST['wifi_ssid']) : '';
@@ -73,25 +97,42 @@ rsn_pairwise=CCMP";
             $hash_message = "Keine Einträge in der Verkäufer-Tabelle gefunden.";
         }
     }
-
+	
     if (isset($_POST['edit_secret'])) {
         $new_secret = sanitize_input($_POST['new_secret']);
-        $config_content = file_get_contents('config.php');
-        $config_content = preg_replace("/define\('SECRET', '.*?'\);/", "define('SECRET', '$new_secret');", $config_content);
-        file_put_contents('config.php', $config_content);
+        $updates['SECRET'] = $new_secret;
         $secret_message = "Geheimnis erfolgreich aktualisiert!";
-        echo "<script>document.addEventListener('DOMContentLoaded', function() { document.getElementById('current_secret').value = '$new_secret'; });</script>";
     }
 
-	if (isset($_POST['edit_footer'])) {
-		// Assuming sanitize_footer_content is handling necessary sanitization
-		$new_footer = sanitize_footer_content($_POST['new_footer']);
-		$config_content = file_get_contents('config.php');
-		$config_content = preg_replace("/define\('FOOTER', '.*?'\);/s", "define('FOOTER', '" . addcslashes($new_footer, "'") . "');", $config_content);
-		file_put_contents('config.php', $config_content);
-		$footer_message = "Footer erfolgreich aktualisiert!";
-		echo "<script>document.addEventListener('DOMContentLoaded', function() { document.getElementById('current_footer').value = '" . htmlspecialchars($new_footer, ENT_QUOTES, 'UTF-8') . "'; });</script>";
-	}
+    if (isset($_POST['edit_footer'])) {
+        $new_footer = sanitize_footer_content($_POST['new_footer']);
+        $updates['FOOTER'] = addcslashes($new_footer, "'");
+        $footer_message = "Footer erfolgreich aktualisiert!";
+    }
+
+    if (isset($_POST['update_smtp'])) {
+        $smtp_from = sanitize_input($_POST['smtp_from']);
+        $smtp_from_name = sanitize_input($_POST['smtp_from_name']);
+        $updates['SMTP_FROM'] = $smtp_from;
+        $updates['SMTP_FROM_NAME'] = $smtp_from_name;
+        $smtp_message = "SMTP-Einstellungen erfolgreich aktualisiert!";
+    }
+
+    if (isset($_POST['update_db'])) {
+        $db_server = sanitize_input($_POST['db_server']);
+        $db_username = sanitize_input($_POST['db_username']);
+        $db_password = sanitize_input($_POST['db_password']);
+        $db_name = sanitize_input($_POST['db_name']);
+        $updates['DB_SERVER'] = $db_server;
+        $updates['DB_USERNAME'] = $db_username;
+        $updates['DB_PASSWORD'] = $db_password;
+        $updates['DB_NAME'] = $db_name;
+        $db_message = "Datenbankeinstellungen erfolgreich aktualisiert!";
+    }
+
+    if (!empty($updates)) {
+        update_config($updates);
+    }
 
     if (isset($_FILES['encrypted_file'])) {
         $encrypted_data = file_get_contents($_FILES['encrypted_file']['tmp_name']);
@@ -109,12 +150,11 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Systemeinstellungen</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
-	
+    <link href="css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
 </head>
 <body>
-	<!-- Navbar -->
+    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
         <a class="navbar-brand" href="#">Bazaar Administration</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -139,16 +179,56 @@ $conn->close();
                 </li>
             </ul>
             <ul class="navbar-nav ml-auto">
+                <li class="nav-itemml ml-auto">
+                    <a class="navbar-brand" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
     </nav>
-	
+
     <div class="container">
         <h1 class="text-center mb-4">Systemeinstellungen</h1>
+                <?php if ($message): ?>
+                    <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
+                        <?php echo $message; ?>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                <?php endif; ?>
+		<div class="settings-group">
+			<form method="post">
+				<h3>Domain bearbeiten</h3>
+				<div class="form-group">
+					<label for="current_base_uri">Aktuelle Domain/Pfad</label>
+					<input type="text" class="form-control" id="current_base_uri" value="<?php echo BASE_URI; ?>" readonly>
+				</div>
+				<div class="form-group">
+					<label for="new_base_uri">Neue Domain/Pfad</label>
+					<input type="text" name="new_base_uri" class="form-control" id="new_base_uri" required>
+				</div>
+				<button type="submit" name="edit_base_uri" class="btn btn-warning">BASE_URI bearbeiten</button>
+				<?php if (isset($base_uri_message)) { echo "<p id='base_uri_message'>$base_uri_message</p>"; } ?>
+			</form>
+		</div>
 
+		<div class="settings-group">
+			<form method="post">
+				<h3>DEBUG Modus bearbeiten</h3>
+				<div class="form-group form-check">
+					<input type="checkbox" class="form-check-input" id="new_debug_mode" name="new_debug_mode" <?php if (DEBUG) echo 'checked'; ?>>
+					<label class="form-check-label" for="new_debug_mode">DEBUG Modus aktivieren</label>
+				</div>
+				<button type="submit" name="edit_debug_mode" class="btn btn-warning">DEBUG Modus bearbeiten</button>
+				<?php if (isset($debug_mode_message)) { echo "<p id='debug_mode_message'>$debug_mode_message</p>"; } ?>
+			</form>
+		</div>
+	
         <div class="settings-group">
             <form method="post">
                 <h3>Modus</h3>
@@ -221,6 +301,48 @@ $conn->close();
             </form>
         </div>
 
+        <!-- SMTP Settings -->
+        <div class="settings-group">
+            <form method="post">
+                <h3>SMTP-Einstellungen</h3>
+                <div class="form-group">
+                    <label for="smtp_from">SMTP Von E-Mail:</label>
+                    <input type="email" name="smtp_from" class="form-control" id="smtp_from" value="<?php echo SMTP_FROM; ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="smtp_from_name">SMTP Von Name:</label>
+                    <input type="text" name="smtp_from_name" class="form-control" id="smtp_from_name" value="<?php echo SMTP_FROM_NAME; ?>" required>
+                </div>
+                <button type="submit" name="update_smtp" class="btn btn-primary">SMTP-Einstellungen aktualisieren</button>
+                <?php if (isset($smtp_message)) { echo "<p>$smtp_message</p>"; } ?>
+            </form>
+        </div>
+
+        <!-- Database Settings -->
+        <div class="settings-group">
+            <form method="post">
+                <h3>Datenbankeinstellungen</h3>
+                <div class="form-group">
+                    <label for="db_server">Datenbank-Server:</label>
+                    <input type="text" name="db_server" class="form-control" id="db_server" value="<?php echo DB_SERVER; ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="db_username">Datenbank-Benutzername:</label>
+                    <input type="text" name="db_username" class="form-control" id="db_username" value="<?php echo DB_USERNAME; ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="db_password">Datenbank-Passwort:</label>
+                    <input type="password" name="db_password" class="form-control" id="db_password" value="<?php echo DB_PASSWORD; ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="db_name">Datenbank-Name:</label>
+                    <input type="text" name="db_name" class="form-control" id="db_name" value="<?php echo DB_NAME; ?>" required>
+                </div>
+                <button type="submit" name="update_db" class="btn btn-primary">Datenbankeinstellungen aktualisieren</button>
+                <?php if (isset($db_message)) { echo "<p>$db_message</p>"; } ?>
+            </form>
+        </div>
+		
         <div class="settings-group">
             <form method="post">
                 <h3>Geheimnis bearbeiten</h3>
@@ -236,27 +358,27 @@ $conn->close();
                 <?php if (isset($secret_message)) { echo "<p id='secret_message'>$secret_message</p>"; } ?>
             </form>
         </div>
-		
-		<div class="settings-group">
-			<form method="post">
-				<h3>Footer bearbeiten</h3>
-				<div class="form-group">
-					<label for="current_footer">Aktueller Footer</label>
-					<textarea class="form-control" id="current_footer" readonly><?php echo FOOTER; ?></textarea>
-				</div>
-				<div class="form-group">
-					<label for="new_footer">Neuer Footer</label>
-					<textarea name="new_footer" class="form-control" id="new_footer" required></textarea>
-				</div>
-				<button type="submit" name="edit_footer" class="btn btn-warning">Footer bearbeiten</button>
-				<?php if (isset($footer_message)) { echo "<p id='footer_message'>$footer_message</p>"; } ?>
-			</form>
-		</div>
+        
+        <div class="settings-group">
+            <form method="post">
+                <h3>Footer bearbeiten</h3>
+                <div class="form-group">
+                    <label for="current_footer">Aktueller Footer</label>
+                    <textarea class="form-control" id="current_footer" readonly><?php echo FOOTER; ?></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="new_footer">Neuer Footer</label>
+                    <textarea name="new_footer" class="form-control" id="new_footer" required></textarea>
+                </div>
+                <button type="submit" name="edit_footer" class="btn btn-warning">Footer bearbeiten</button>
+                <?php if (isset($footer_message)) { echo "<p id='footer_message'>$footer_message</p>"; } ?>
+            </form>
+        </div>
     </div>
-	
-	<!-- Back to Top Button -->
-	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
-	
+    
+    <!-- Back to Top Button -->
+    <div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+    
     <?php if (!empty(FOOTER)): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
             <div class="row justify-content-center">
@@ -268,7 +390,7 @@ $conn->close();
             </div>
         </footer>
     <?php endif; ?>
-	
+    
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>
     <script src="js/bootstrap.min.js"></script>
@@ -305,33 +427,33 @@ $conn->close();
         // Call toggleSettings on page load to set the initial state
         toggleSettings();
     </script>
-	
-	<script>
+    
+    <script>
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
-			function toggleBackToTopButton() {
-				const scrollTop = $(window).scrollTop();
+            function toggleBackToTopButton() {
+                const scrollTop = $(window).scrollTop();
 
-				if (scrollTop > 100) {
-					$('#back-to-top').fadeIn();
-				} else {
-					$('#back-to-top').fadeOut();
-				}
-			}
+                if (scrollTop > 100) {
+                    $('#back-to-top').fadeIn();
+                } else {
+                    $('#back-to-top').fadeOut();
+                }
+            }
 
-			// Initial check on page load
-			toggleBackToTopButton();
+            // Initial check on page load
+            toggleBackToTopButton();
 
-			// Show or hide the "Back to Top" button on scroll
-			$(window).scroll(function() {
-				toggleBackToTopButton();
-			});
+            // Show or hide the "Back to Top" button on scroll
+            $(window).scroll(function() {
+                toggleBackToTopButton();
+            });
 
-			// Smooth scroll to top
-			$('#back-to-top').click(function() {
-				$('html, body').animate({ scrollTop: 0 }, 600);
-				return false;
-			});
+            // Smooth scroll to top
+            $('#back-to-top').click(function() {
+                $('html, body').animate({ scrollTop: 0 }, 600);
+                return false;
+            });
         });
     </script>
 </body>

@@ -1,5 +1,13 @@
 <?php
-session_start();
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
 
 require_once 'utilities.php';
 
@@ -9,9 +17,11 @@ if (!check_config_exists()) {
 }
 
 $conn = get_db_connection();
-$first_time_setup = initialize_database($conn);
 
-if ($first_time_setup) {
+$message = '';
+$message_type = 'danger'; // Default message type for errors
+
+if (!$conn) {
     header("location: first_time_setup.php");
     exit;
 }
@@ -20,7 +30,7 @@ if ($first_time_setup) {
 $operationMode = get_operation_mode($conn);
 
 if ($operationMode === 'offline') {
-    // Show the special welcome screen
+    // Show the special welcome screen with the new button layout
     echo '<!DOCTYPE html>
         <html lang="de">
         <head>
@@ -28,31 +38,65 @@ if ($operationMode === 'offline') {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Hinweis zur Zertifikatssicherheit</title>
             <link rel="stylesheet" href="/css/bootstrap.min.css">
-            <style>
-                body {
-                    padding-top: 20px;
-                    padding-bottom: 20px;
+            <style nonce="<?php echo $nonce; ?>">
+                .dashboard-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+                .dashboard-table td {
+                    border: 1px solid #ddd;
+                    width: 120px;
+                    height: 120px;
+                    padding: 0;
+                }
+                .dashboard-table .btn {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 0;
+                    text-align: center;
                 }
             </style>
         </head>
         <body>
-            <div class="container">
+            <div class="container mt-5">
                 <div class="jumbotron text-center">
                     <h1 class="display-4">Zertifikats- Warnung</h1>
-                    <p class="lead">Beim klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
+                    <p class="lead">Beim Klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
                     <hr class="my-4">
-                    <p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)".</p>
-                    <a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/cashier_login.php" role="button">Weiter als Kassier</a>
-                    <a class="btn btn-primary btn-lg mb-3" href="https://bazaar.lan/admin_login.php" role="button">Weiter als Admin </a>
+                    <p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)" aus.</p>
+                    <table class="dashboard-table mx-auto">
+                        <tr>
+                            <td colspan="2">
+                                <a class="btn btn-secondary btn-lg" href="https://bazaar.lan/index.php" role="button">Startseite anzeigen</a>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <a class="btn btn-success btn-lg" href="https://bazaar.lan/acceptance.php" role="button">Annehmen</a>
+                            </td>
+                            <td>
+                                <a class="btn btn-warning btn-lg" href="https://bazaar.lan/cashier.php" role="button">Scannen</a>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <a class="btn btn-primary btn-lg" href="https://bazaar.lan/pickup.php" role="button">Abholen</a>
+                            </td>
+                            <td>
+                                <a class="btn btn-danger btn-lg" href="https://bazaar.lan/admin_manage_sellers.php" role="button">Administrieren</a>
+                            </td>
+                        </tr>
+                    </table>
                 </div>
             </div>
-            <script src="/js/bootstrap.bundle.min.js"></script>
+            <script src="/js/bootstrap.bundle.min.js" nonce="<?php echo $nonce; ?>"></script>
         </body>
         </html>';
     exit;
 }
-
-$error = '';
 
 // Fetch bazaar dates and max_sellers
 $sql = "SELECT id, startDate, startReqDate, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid FROM bazaar ORDER BY id DESC LIMIT 1";
@@ -93,90 +137,52 @@ if ($bazaar) {
     $maxSellersReached = $sellerCount >= $maxSellers;
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) && $canRequestSellerId && !$maxSellersReached) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
         die("CSRF token validation failed.");
     }
 
-    if (isset($_POST['login'])) {
-        $username = sanitize_input($_POST['username']);
-        $password = sanitize_input($_POST['password']);
-
-        // Fetch user from the database
-        $stmt = $conn->prepare("SELECT * FROM users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        if ($result->num_rows > 0) {
-            $user = $result->fetch_assoc();
-            // Verify the password
-            if (password_verify($password, $user['password_hash'])) {
-                $_SESSION['loggedin'] = true;
-                $_SESSION['username'] = $username;
-                $_SESSION['role'] = $user['role'];
-
-                // Log successful login
-                log_action($conn, $user['id'], "User logged in", "Username: $username");
-
-                header("location: dashboard.php");
-            } else {
-                $error = "Ungültiger Benutzername oder Passwort";
-                
-                // Log failed login attempt
-                log_action($conn, 0, "Failed login attempt", "Username: $username");
-            }
-        } else {
-            $error = "Ungültiger Benutzername oder Passwort";
-            
-            // Log failed login attempt
-            log_action($conn, 0, "Failed login attempt", "Username: $username");
-        }
-    }
-
     // Send mail to user
-    if (isset($_POST['request_seller_id']) && $canRequestSellerId && !$maxSellersReached) {
-        $email = sanitize_input($_POST['email']);
-        $family_name = sanitize_input($_POST['family_name']);
-        $given_name = !empty($_POST['given_name']) ? sanitize_input($_POST['given_name']) : 'Nicht angegeben';
-        $phone = sanitize_input($_POST['phone']);
-        $street = !empty($_POST['street']) ? sanitize_input($_POST['street']) : 'Nicht angegeben';
-        $house_number = !empty($_POST['house_number']) ? sanitize_input($_POST['house_number']) : 'Nicht angegeben';
-        $zip = !empty($_POST['zip']) ? sanitize_input($_POST['zip']) : 'Nicht angegeben';
-        $city = !empty($_POST['city']) ? sanitize_input($_POST['city']) : 'Nicht angegeben';
-        $reserve = isset($_POST['reserve']) ? 1 : 0;
-        $use_existing_number = $_POST['use_existing_number'] === 'yes';
-        $consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
+	$email = sanitize_input($_POST['email']);
+	$family_name = sanitize_input($_POST['family_name']);
+	$given_name = !empty($_POST['given_name']) ? sanitize_input($_POST['given_name']) : 'Nicht angegeben';
+	$phone = sanitize_input($_POST['phone']);
+	$street = !empty($_POST['street']) ? sanitize_input($_POST['street']) : 'Nicht angegeben';
+	$house_number = !empty($_POST['house_number']) ? sanitize_input($_POST['house_number']) : 'Nicht angegeben';
+	$zip = !empty($_POST['zip']) ? sanitize_input($_POST['zip']) : 'Nicht angegeben';
+	$city = !empty($_POST['city']) ? sanitize_input($_POST['city']) : 'Nicht angegeben';
+	$reserve = isset($_POST['reserve']) ? 1 : 0;
+	$use_existing_number = $_POST['use_existing_number'] === 'yes';
+	$consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
 
-        // Check if a seller ID request already exists for this email
-        $stmt = $conn->prepare("SELECT verification_token, verified FROM sellers WHERE email = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $existing_seller = $result->fetch_assoc();
+	// Check if a seller ID request already exists for this email
+	$stmt = $conn->prepare("SELECT verification_token, verified FROM sellers WHERE email = ?");
+	$stmt->bind_param("s", $email);
+	$stmt->execute();
+	$result = $stmt->get_result();
+	$existing_seller = $result->fetch_assoc();
 
-        if ($use_existing_number) {
-            process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
-            // Log existing seller number request
-            log_action($conn, 0, "Existing seller number request", "Email: $email");
-        } else {
-            if ($existing_seller) {
-                if (!empty($existing_seller['verification_token'])) {
-                    show_alert_existing_request();
-                } elseif ($existing_seller['verified']) {
-                    show_alert_active_id();
-                } else {
-                    process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
-                }
-                // Log new seller request for existing seller
-                log_action($conn, 0, "New seller request for existing seller", "Email: $email");
-            } else {
-                process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
-                // Log new seller request
-                log_action($conn, 0, "New seller request", "Email: $email");
-            }
-        }
-    }
+	if ($use_existing_number) {
+		process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
+		// Log existing seller number request
+		log_action($conn, 0, "Existing seller number request", "Email: $email");
+	} else {
+		if ($existing_seller) {
+			if (!empty($existing_seller['verification_token'])) {
+                            show_modal($nonce, 'Eine Verkäufernr-Anfrage wurde bereits generiert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten, oder wenn Sie Probleme haben, Ihre bereits angefragte Nummer frei zu Schalten.', 'warning');
+			} elseif ($existing_seller['verified']) {
+                            show_modal($nonce, 'Eine Verkäufer Nummer wurde bereits für Sie aktiviert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten.', 'warning');
+			} else {
+				process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+			}
+			// Log new seller request for existing seller
+			log_action($conn, 0, "New seller request for existing seller", "Email: $email");
+		} else {
+			process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+			// Log new seller request
+			log_action($conn, 0, "New seller request", "Email: $email");
+		}
+	}
 }
 
 $conn->close();
@@ -187,14 +193,18 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Bazaar Landing Page</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
-
-    <script>
-        function toggleSellerIdField() {
-            const useExistingNumber = document.getElementById('use_existing_number_yes').checked;
-            document.getElementById('seller_id_field').style.display = useExistingNumber ? 'block' : 'none';
-        }
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
     </script>
 </head>
 <body>
@@ -205,12 +215,14 @@ $conn->close();
         <?php if ($bazaarOver): ?>
             <div class="alert alert-info">Der Bazaar ist geschlossen. Bitte kommen Sie wieder, wenn der nächste Bazaar stattfindet.</div>
         <?php elseif ($maxSellersReached): ?>
-            <div class="alert alert-info">Wir entschuldigen uns, aber die maximale Anzahl an Verkäufern wurde erreicht. Die Registrierung für eine Verkäufer-ID wurde geschlossen.</div>
+            <div class="alert alert-info">Es tut uns leid, aber die maximale Anzahl an Verkäufern wurde erreicht. Die Registrierung für eine Verkäufernummer wurde geschlossen.</div>
         <?php elseif (!$canRequestSellerId): ?>
             <div class="alert alert-info">Anfragen für neue Verkäufer-IDs sind derzeit noch nicht freigeschalten. Die nächste Nummernvergabe startet am: <?php echo htmlspecialchars($formattedDate); ?></div>
         <?php else: ?>
             <h2 class="mt-5">Verkäufer-ID anfordern</h2>
-            <?php if ($seller_message) { echo "<div class='alert alert-info'>$seller_message</div>"; } ?>
+            <?php if ($seller_message): ?>
+                <div class="alert alert-info"><?php echo htmlspecialchars($seller_message); ?></div>
+            <?php endif; ?>
             <form action="index.php" method="post">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                 <div class="row form-row">
@@ -219,8 +231,8 @@ $conn->close();
                         <input type="text" class="form-control" id="family_name" name="family_name" required>
                     </div>
                     <div class="form-group col-md-6">
-                        <label for="given_name">Vorname:</label>
-                        <input type="text" class="form-control" id="given_name" name="given_name">
+                        <label for="given_name" class="required">Vorname:</label>
+                        <input type="text" class="form-control" id="given_name" name="given_name" required>
                     </div>
                 </div>
                 <div class="row form-row">
@@ -254,19 +266,19 @@ $conn->close();
                 <div class="form-group">
                     <label for="reserve">Verkäufer-ID:</label>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_yes" value="yes" onclick="toggleSellerIdField()">
+                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_yes" value="yes">
                         <label class="form-check-label" for="use_existing_number_yes">
                             Ich habe bereits eine Nummer und möchte diese erneut verwenden
                         </label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_no" value="no" onclick="toggleSellerIdField()" checked>
+                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_no" value="no" checked>
                         <label class="form-check-label" for="use_existing_number_no">
                             Ich möchte eine neue Nummer erhalten
                         </label>
                     </div>
                 </div>
-                <div class="form-group" id="seller_id_field" style="display: none;">
+                <div class="form-group hidden" id="seller_id_field">
                     <label for="seller_id">Verkäufer-ID:</label>
                     <input type="text" class="form-control" id="seller_id" name="seller_id">
                 </div>
@@ -304,8 +316,27 @@ $conn->close();
         </footer>
     <?php endif; ?>
 	
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
+    <script nonce="<?php echo $nonce; ?>">
+        document.addEventListener('DOMContentLoaded', function() {
+            const useExistingNumberYes = document.getElementById('use_existing_number_yes');
+            const useExistingNumberNo = document.getElementById('use_existing_number_no');
+            const sellerIdField = document.getElementById('seller_id_field');
+
+            function toggleSellerIdField() {
+                if (useExistingNumberYes.checked) {
+                    sellerIdField.classList.remove('hidden');
+                } else {
+                    sellerIdField.classList.add('hidden');
+                }
+            }
+
+            useExistingNumberYes.addEventListener('click', toggleSellerIdField);
+            useExistingNumberNo.addEventListener('click', toggleSellerIdField);
+        });
+    </script>
+    
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>
 </html>

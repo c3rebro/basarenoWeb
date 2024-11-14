@@ -64,10 +64,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 				['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>', '<?php echo $language; ?>'],
 				[htmlspecialchars($db_host), htmlspecialchars($db_name), htmlspecialchars($db_username), htmlspecialchars($db_password), htmlspecialchars($smtp_from), htmlspecialchars($smtp_from_name), htmlspecialchars($secret), htmlspecialchars($base_uri), htmlspecialchars($language)], $config_content
 			);
+
+			// Set the initialization flag to true
+			$config_content = str_replace("define('DB_INITIALIZED', false);", "define('DB_INITIALIZED', true);", $config_content);
+
             file_put_contents('config.php', $config_content);
 
             // Initialize the database and insert settings
             require_once 'config.php';
+			require_once 'utilities.php';
             $conn = get_db_connection();
             if ($conn) {
                 initialize_database($conn);

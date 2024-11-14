@@ -114,13 +114,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_revert'])) {
                 $current_bazaar_id = $current_bazaar['id'];
                 $next_checkout_id = get_next_checkout_id($conn);
 
-                $sql = "UPDATE sellers SET verified=1, verification_token=NULL, bazaar_id=?, checkout_id=? WHERE id=?";
+                $sql = "UPDATE sellers SET verified=1, verification_token=NULL, bazaar_id=?, checkout_id=? , checkout=0, fee_payed=0, signature='' WHERE id=?";
                 $stmt = $conn->prepare($sql);
                 $stmt->bind_param("iii", $current_bazaar_id, $next_checkout_id, $seller_id);
-                if ($stmt->execute()) {
-                    header("Location: seller_products.php?seller_id=$seller_id&hash=$hash");
-                    exit();
-                } else {
+				if ($stmt->execute()) {
+					header("Location: set_password.php?seller_id=$seller_id&hash=$hash");
+					exit();
+				} else {
                     $message = "<div class='alert alert-danger' role='alert'>
                                     Fehler beim Verifizieren des Kontos: " . $conn->error . "
                                 </div>";

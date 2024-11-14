@@ -13,15 +13,8 @@ if (isset($_SESSION['role'])) {
 $_SESSION = array();
 session_destroy();
 
-// Redirect based on the user's role
-if ($role === 'admin') {
-    header("Location: admin_login.php");
-} elseif ($role === 'cashier') {
-    header("Location: cashier_login.php");
-} else {
-    // Default redirect if no specific role is found
-    header("Location: index.php");
-}
+// Default redirect
+header("Location: dashboard.php");
 
 exit;
 ?>

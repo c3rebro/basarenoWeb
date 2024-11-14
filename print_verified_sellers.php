@@ -2,7 +2,6 @@
 require_once 'utilities.php';
 
 $conn = get_db_connection();
-initialize_database($conn);
 
 $sql = "SELECT id, family_name, given_name, checkout_id, phone, email FROM sellers WHERE verified = 1";
 $result = $conn->query($sql);

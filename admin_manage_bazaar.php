@@ -1,21 +1,38 @@
 <?php
-session_start();
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 require_once 'utilities.php';
 
 // Ensure the user is an admin
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
-    header("location: index.php");
+    header("location: login.php");
     exit;
 }
 
 $conn = get_db_connection();
-initialize_database($conn);
 
-$error = '';
-$success = '';
+$message = '';
+$message_type = 'danger'; // Default message type for errors
 
 // Assume $user_id is available from the session or another source
 $user_id = $_SESSION['user_id'] ?? 0;
+$username = $_SESSION['username'] ?? '';
+
+// Fetch the latest bazaar data
+$sql = "SELECT mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid FROM bazaar ORDER BY startDate DESC LIMIT 1";
+$result = $conn->query($sql);
+$latestBazaar = $result->fetch_assoc();
+
+$mailtxt_reqnewsellerid = $latestBazaar['mailtxt_reqnewsellerid'] ?? '';
+$mailtxt_reqexistingsellerid = $latestBazaar['mailtxt_reqexistingsellerid'] ?? '';
 
 // Set default sorting options
 $sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'startDate';
@@ -80,7 +97,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
 	$conn = get_db_connection();
 	
     if (!validate_csrf_token($_POST['csrf_token'])) {
-		log_action($conn, $user_id, "CSRF token validation failed for CSV import");
         die("CSRF token validation failed.");
     }
 
@@ -89,7 +105,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
         $csv_string = decrypt_data($encrypted_data);
 
         if ($csv_string === false) {
-            $error = "Fehler beim Entschlüsseln der Datei.";
+			$message_type = 'danger';
+            $message = "Fehler beim Entschlüsseln der Datei.";
         } else {
             $csv_file = fopen('php://temp', 'r+');
             fwrite($csv_file, $csv_string);
@@ -132,7 +149,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
 
                     if (count($filtered_header) !== count($filtered_row)) {
                         $import_success = false;
-                        $error = "Column count mismatch between CSV and database for table $current_table.";
+						$message_type = 'danger';
+                        $message = "Column count mismatch between CSV and database for table $current_table.";
                         break;
                     }
 
@@ -163,22 +181,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
             $conn->query("SET FOREIGN_KEY_CHECKS=1");
 
             if ($import_success) {
-                $success = "BDB erfolgreich importiert. Die Seite wird in 5 Sekunden aktualisiert.";
+				$message_type = 'success';
+                $message = "BDB erfolgreich importiert. Die Seite wird in 5 Sekunden aktualisiert.";
 				log_action($conn, $user_id, "CSV import successful");
-                echo "<script>
-                        setTimeout(function() {
-                            window.location.href = 'admin_manage_bazaar.php';
-                        }, 5000);
-                      </script>";
+                                
+                // Script to auto-show the modal
+                echo '<script nonce="' . $nonce . '">';
+                echo 'setTimeout(function() {';
+                echo '  window.location.href = "admin_manage_bazaar.php";';
+                echo '}, 5000);';
+                echo '</script>';
+
                 // Log CSV import action
                 log_action($conn, $_SESSION['user_id'], "Import CSV", "Imported successfully");
 				
             } else {
-                $error = $error ?? "Fehler beim Importieren der BDB.";	
+		$message_type = 'danger';
+                $message = "Fehler beim Importieren der BDB.";	
             }
         }
     } else {
-        $error = "Fehler beim Hochladen der BDB-Datei.";
+	$message_type = 'danger';
+        $message = "Fehler beim Hochladen der BDB-Datei.";
     }
 }
 
@@ -200,7 +224,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
     $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
     if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
-        $error = "Alle Felder sind erforderlich.";
+		$message_type = 'danger';
+        $message = "Alle Felder sind erforderlich.";
     } else {
         // Use parameterized query to prevent SQL injection
         $sql = "SELECT COUNT(*) as count FROM bazaar WHERE startDate > ?";
@@ -209,7 +234,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
         if ($result['count'] > 0) {
-            $error = "Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.";
+			$message_type = 'danger';
+            $message = "Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.";
         } else {
             $delete_sellers_sql = "SELECT id FROM sellers WHERE consent = 0";
             $delete_sellers_result = $conn->query($delete_sellers_sql);
@@ -219,18 +245,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
                 $conn->query("DELETE FROM sellers WHERE id = $seller_id");
             }
 
-            $conn->query("UPDATE sellers SET checkout_id = 0");
+            $conn->query("UPDATE sellers SET checkout_id = 0, fee_payed = FALSE");
 
+            // Delete products that are sold for sellers with consent = 1
+            $delete_sold_products_sql = "DELETE FROM products WHERE sold = TRUE AND seller_id IN (SELECT id FROM sellers WHERE consent = 1)";
+            $conn->query($delete_sold_products_sql);
+			
             $brokerage = $brokerage / 100;
             $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid, max_products_per_seller) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
             $stmt->bind_param("sssddissi", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller);
             if ($stmt->execute()) {
-                $success = "Bazaar erfolgreich hinzugefügt.";
+				$message_type = 'success';
+                $message = "Bazaar erfolgreich hinzugefügt.";
                 // Log bazaar addition
                 log_action($conn, $_SESSION['user_id'], "Add Bazaar", "Bazaar added with start date: $startDate");
             } else {
-                $error = "Fehler beim Hinzufügen des Bazaars: " . $stmt->error;
+				$message_type = 'danger';
+                $message = "Fehler beim Hinzufügen des Bazaars: " . $stmt->error;
             }
         }
     }
@@ -254,7 +286,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
 
     if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
-        $error = "Alle Felder sind erforderlich.";
+		$message_type = 'danger';
+        $message = "Alle Felder sind erforderlich.";
     } else {
         // Convert brokerage to decimal before saving
         $brokerage = $brokerage / 100;
@@ -264,12 +297,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sssddissii", $startDate, $startReqDate, $brokerage, $min_price, $price_stepping, $max_sellers, $mailtxt_reqnewsellerid, $mailtxt_reqexistingsellerid, $max_products_per_seller, $bazaar_id);
         if ($stmt->execute()) {
-            $success = "Bazaar erfolgreich aktualisiert.";
+			$message_type = 'success';
+            $message = "Bazaar erfolgreich aktualisiert.";
 
             // Log bazaar modification
             log_action($conn, $_SESSION['user_id'], "Edit Bazaar", "Bazaar id $bazaar_id updated with start date: $startDate");
         } else {
-            $error = "Fehler beim Aktualisieren des Bazaars: " . $stmt->error;
+			$message_type = 'danger';
+            $message = "Fehler beim Aktualisieren des Bazaars: " . $stmt->error;
         }
     }
 }
@@ -287,13 +322,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $bazaar_id);
     if ($stmt->execute()) {
-        echo json_encode(['status' => 'success']);
+		
         // Log bazaar removal
         log_action($conn, $_SESSION['user_id'], "Remove Bazaar", "Bazaar id $bazaar_id removed");
+		
+        echo json_encode(['status' => 'success']);
+		exit;
     } else {
+
         echo json_encode(['status' => 'error']);
-        // Log failure to remove bazaar
-        log_action($conn, $_SESSION['user_id'], "Failed to Remove Bazaar", "Attempted to remove bazaar id $bazaar_id");
+		exit;
     }
     exit;
 }
@@ -302,14 +340,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] === 'fetch_bazaar_data') {
     $bazaar_id = $_POST['bazaar_id'];
     $conn = get_db_connection();
-	// Fetch products count
-    $products_count_all = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id")->fetch_assoc()['count'];
+    // Fetch products count
+    $products_count_all = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id")->fetch_assoc()['count'] ?? 0;
     // Fetch sold products count
-    $products_count_sold = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['count'];
+    $products_count_sold = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['count'] ?? 0;
     // Fetch total sum of sold products
-    $total_sum_sold = $conn->query("SELECT SUM(price) as total FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['total'];
+    $total_sum_sold = $conn->query("SELECT SUM(price) as total FROM products WHERE bazaar_id = $bazaar_id AND sold = 1")->fetch_assoc()['total'] ?? 0;
     // Fetch brokerage percentage for the bazaar
-    $brokerage_percentage = $conn->query("SELECT brokerage FROM bazaar WHERE id = $bazaar_id")->fetch_assoc()['brokerage'];
+    $brokerage_percentage = $conn->query("SELECT brokerage FROM bazaar WHERE id = $bazaar_id")->fetch_assoc()['brokerage'] ?? 0;
     // Calculate total brokerage for sold products
     $total_brokerage = $total_sum_sold * $brokerage_percentage;
 
@@ -340,17 +378,17 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Bazaar Verwalten</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
+    <link href="css/all.min.css" rel="stylesheet">
     <link href="css/style.css" rel="stylesheet">
 	
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </head>
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <a class="navbar-brand" href="dashboard.php">Bazaar Administration</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -373,6 +411,11 @@ $conn->close();
                 </li>
             </ul>
             <ul class="navbar-nav ml-auto">
+                <li class="nav-itemml ml-auto">
+                    <a class="navbar-brand" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
                 </li>
@@ -381,169 +424,177 @@ $conn->close();
     </nav>
 	
     <div class="container">
-        <h2 class="mt-5">Bazaar Verwalten</h2>
-        <?php 
-        if (!empty($error)) {
-            echo "<div class='alert alert-danger'>" . htmlspecialchars($error) . "</div>";
-        }
-        if (!empty($success)) {
-            echo "<div class='alert alert-success'>" . htmlspecialchars($success) . "</div>";
-        }
-        ?>
+    <!-- Hidden input for CSRF token -->
+    <input type="hidden" id="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+
+    <?php if ($message): ?>
+        <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
+            <?php echo $message; ?>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        <?php endif; ?>
 
         <h3 class="mt-5">Neuen Bazaar hinzufügen</h3>
-        <form action="admin_manage_bazaar.php" method="post">
-            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
-            <div class="form-row">
-                <div class="form-group col-md-4">
-                    <label for="startDate">Startdatum:</label>
-                    <input type="date" class="form-control" id="startDate" name="startDate" required>
-                </div>
-                <div class="form-group col-md-4">
-                    <label for="startReqDate">Anforderungsdatum:</label>
-                    <input type="date" class="form-control" id="startReqDate" name="startReqDate" required>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group col-md-2">
-                    <label for="brokerage">Provision (%):</label>
-                    <input type="number" step="0.01" class="form-control" id="brokerage" name="brokerage" required>
-                </div>
-                <div class="form-group col-md-2">
-                    <label for="min_price">Mindestpreis (€):</label>
-                    <input type="number" step="0.01" class="form-control" id="min_price" name="min_price" required>
-                </div>
-                <div class="form-group col-md-2">
-                    <label for="max_sellers">Maximale Verkäufer:</label>
-                    <input type="number" class="form-control" id="max_sellers" name="max_sellers" required>
-                </div>
-                <div class="form-group col-md-2">
-                    <label for="max_products_per_seller">Max. Anz. Prod. / Verk.:</label>
-                    <input type="number" class="form-control" id="max_products_per_seller" name="max_products_per_seller" required>
-                </div>
-                <div class="form-group col-md-3">
-                    <label for="price_stepping">Preisabstufung (€):</label>
-                    <select class="form-control" id="price_stepping" name="price_stepping" required>
-                        <option value="0.01">0.01</option>
-                        <option value="0.1">0.1</option>
-                        <option value="0.2">0.2</option>
-                        <option value="0.25">0.25</option>
-                        <option value="0.5">0.5</option>
-                        <option value="1.0">1.0</option>
-                    </select>
-                </div>
-            </div>
-            <div class="expander">
-                <div class="expander-header">
-                    Mailtext für neue Verkäufer-ID
-                </div>
-                <div class="expander-content">
-                    <div class="form-group">
-                        <label for="mailtxt_reqnewsellerid">HTML Text mit Platzhaltern:</label>
-                        <textarea class="form-control" id="mailtxt_reqnewsellerid" name="mailtxt_reqnewsellerid" rows="10" required></textarea>
-                    </div>
-                    <div class="expander">
-                        <div class="expander-header">
-                            Beschreibung und Beispiel
-                        </div>
-                        <div class="expander-content" style="display: none;">
-                            <p>Verfügbare Platzhalter:</p>
-                            <ul>
-                                <li><code>{BASE_URI}</code>: Basis-URL der Anwendung</li>
-                                <li><code>{given_name}</code>: Vorname des Benutzers</li>
-                                <li><code>{family_name}</code>: Nachname des Benutzers</li>
-                                <li><code>{verification_link}</code>: Verifizierungslink</li>
-                                <li><code>{create_products_link}</code>: Produkte erstellen Link</li>
-                                <li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
-                                <li><code>{delete_link}</code>: DSGVO-Löschlink</li>
-                                <li><code>{seller_id}</code>: Verkäufer-ID</li>
-                                <li><code>{hash}</code>: Sicherer Hash</li>
-                            </ul>
-                            <p>Beispiel:</p>
-                            <pre><code>&lt;html&gt;&lt;body&gt;
-&lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:&lt;/p&gt;
-&lt;p&gt;&lt;a href='{create_products_link}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
-&lt;hr&gt;
-&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos". Wir bitten darum, bei nicht benötigten Verkäufernummern, über unseren Rückgabelink &lt;a href='{revert_link}'&gt;Nummer zurückgeben&lt;/a&gt; ab zu sagen.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Nach DSGVO haben Sie ein Recht auf &quot;vergessenwerden&quot;. Sie haben die Möglichkeit mit einem Klick auf diesen &lt;a href='{delete_link}'&gt;Löschlink&lt;/a&gt; all Ihre persönlichen Daten sowie alle von Ihnen angelegten Produkte aus unserem System zu entfernen. Bitte beachten Sie dass dieser Prozess von uns nicht Rückgängig gemacht werden kann.&lt;/p&gt;
-&lt;hr&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt; 
-&lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
-&lt;p&gt;das Basarteam&lt;/p&gt;
-&lt;/body&gt;&lt;/html&gt;
-                            </code></pre>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="expander">
-                <div class="expander-header">
-                    Mailtext für bestehende Verkäufer-ID
-                </div>
-                <div class="expander-content">
-                    <div class="form-group">
-                        <label for="mailtxt_reqexistingsellerid">HTML Text mit Platzhaltern:</label>
-                        <textarea class="form-control" id="mailtxt_reqexistingsellerid" name="mailtxt_reqexistingsellerid" rows="10" required></textarea>
-                    </div>
-                    <div class="expander">
-                        <div class="expander-header">
-                            Beschreibung und Beispiel
-                        </div>
-                        <div class="expander-content" style="display: block;">
-                            <p>Verfügbare Platzhalter:</p>
-                            <ul>
-                                <li><code>{BASE_URI}</code>: Basis-URL der Anwendung</li>
-                                <li><code>{given_name}</code>: Vorname des Benutzers</li>
-                                <li><code>{family_name}</code>: Nachname des Benutzers</li>
-                                <li><code>{verification_link}</code>: Verifizierungslink</li>
-                                <li><code>{create_products_link}</code>: Produkte erstellen Link</li>
-                                <li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
-                                <li><code>{delete_link}</code>: DSGVO-Löschlink</li>
-                                <li><code>{seller_id}</code>: Verkäufer-ID</li>
-                                <li><code>{hash}</code>: Sicherer Hash</li>
-                            </ul>
-                            <p>Beispiel:</p>
-                            <pre><code>&lt;html&gt;&lt;body&gt;
-&lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{create_products_link}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
-&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
-&lt;hr&gt;
-&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos". Wir bitten darum, bei nicht benötigten Verkäufernummern, über unseren Rückgabelink &lt;a href='{revert_link}'&gt;Nummer zurückgeben&lt;/a&gt; ab zu sagen.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Nach DSGVO haben Sie ein Recht auf &quot;vergessenwerden&quot;. Sie haben die Möglichkeit mit einem Klick auf diesen &lt;a href='{delete_link}'&gt;Löschlink&lt;/a&gt; all Ihre persönlichen Daten sowie alle von Ihnen angelegten Produkte aus unserem System zu entfernen. Bitte beachten Sie dass dieser Prozess von uns nicht Rückgängig gemacht werden kann.&lt;/p&gt;
-&lt;hr&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt; 
-&lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
-&lt;p&gt;das Basarteam&lt;/p&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-                            </code></pre>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block mb-3" name="add_bazaar">Bazaar hinzufügen</button>
-        </form>
-
+		<button class="btn btn-primary mb-3 btn-block" type="button" data-toggle="collapse" data-target="#addBazaarForm" aria-expanded="false" aria-controls="addBazaarForm">
+			Formular: Neuer Bazaar
+		</button>
+		<div class="collapse" id="addBazaarForm">
+			<div class="card card-body">
+				<form action="admin_manage_bazaar.php" method="post">
+					<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+					<div class="form-row">
+						<div class="form-group col-md-4">
+							<label for="startDate">Startdatum:</label>
+							<input type="date" class="form-control" id="startDate" name="startDate" required>
+						</div>
+						<div class="form-group col-md-4">
+							<label for="startReqDate">Anforderungsdatum:</label>
+							<input type="date" class="form-control" id="startReqDate" name="startReqDate" required>
+						</div>
+					</div>
+					<div class="form-row">
+						<div class="form-group col-md-2">
+							<label for="brokerage">Provision (%):</label>
+							<input type="number" step="0.01" class="form-control" id="brokerage" name="brokerage" required>
+						</div>
+						<div class="form-group col-md-2">
+							<label for="min_price">Mindestpreis (€):</label>
+							<input type="number" step="0.01" class="form-control" id="min_price" name="min_price" required>
+						</div>
+						<div class="form-group col-md-2">
+							<label for="max_sellers">Maximale Verkäufer:</label>
+							<input type="number" class="form-control" id="max_sellers" name="max_sellers" required>
+						</div>
+						<div class="form-group col-md-2">
+							<label for="max_products_per_seller">Max. Anz. Prod. / Verk.:</label>
+							<input type="number" class="form-control" id="max_products_per_seller" name="max_products_per_seller" required>
+						</div>
+						<div class="form-group col-md-3">
+							<label for="price_stepping">Preisabstufung (€):</label>
+							<select class="form-control" id="price_stepping" name="price_stepping" required>
+								<option value="0.01">0.01</option>
+								<option value="0.1">0.1</option>
+								<option value="0.2">0.2</option>
+								<option value="0.25">0.25</option>
+								<option value="0.5">0.5</option>
+								<option value="1.0">1.0</option>
+							</select>
+						</div>
+					</div>
+					<div class="expander">
+						<div class="expander-header">
+							Mailtext für neue Verkäufer-ID
+						</div>
+						<div class="expander-content">
+							<div class="form-group">
+								<label for="mailtxt_reqnewsellerid">HTML Text mit Platzhaltern:</label>
+								<textarea class="form-control" id="mailtxt_reqnewsellerid" name="mailtxt_reqnewsellerid" rows="10" required><?php echo htmlspecialchars($mailtxt_reqnewsellerid); ?></textarea>
+							</div>
+							<div class="expander">
+								<div class="expander-header">
+									Beschreibung und Beispiel
+								</div>
+								<div class="expander-content hidden">
+									<p>Verfügbare Platzhalter:</p>
+									<ul>
+										<li><code>{BASE_URI}</code>: Basis-URL der Anwendung</li>
+										<li><code>{given_name}</code>: Vorname des Benutzers</li>
+										<li><code>{family_name}</code>: Nachname des Benutzers</li>
+										<li><code>{verification_link}</code>: Verifizierungslink</li>
+										<li><code>{create_products_link}</code>: Produkte erstellen Link</li>
+										<li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
+										<li><code>{delete_link}</code>: DSGVO-Löschlink</li>
+										<li><code>{seller_id}</code>: Verkäufer-ID</li>
+										<li><code>{hash}</code>: Sicherer Hash</li>
+									</ul>
+									<p>Beispiel:</p>
+									<pre><code>&lt;html&gt;&lt;body&gt;
+		&lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
+		&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel erstellen und Etiketten drucken:&lt;/p&gt;
+		&lt;p&gt;&lt;a href='{create_products_link}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;
+		&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
+		&lt;hr&gt;
+		&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos". Wir bitten darum, bei nicht benötigten Verkäufernummern, über unseren Rückgabelink &lt;a href='{revert_link}'&gt;Nummer zurückgeben&lt;/a&gt; ab zu sagen.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Nach DSGVO haben Sie ein Recht auf &quot;vergessenwerden&quot;. Sie haben die Möglichkeit mit einem Klick auf diesen &lt;a href='{delete_link}'&gt;Löschlink&lt;/a&gt; all Ihre persönlichen Daten sowie alle von Ihnen angelegten Produkte aus unserem System zu entfernen. Bitte beachten Sie dass dieser Prozess von uns nicht Rückgängig gemacht werden kann.&lt;/p&gt;
+		&lt;hr&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt; 
+		&lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
+		&lt;p&gt;das Basarteam&lt;/p&gt;
+		&lt;/body&gt;&lt;/html&gt;
+									</code></pre>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="expander">
+						<div class="expander-header">
+							Mailtext für bestehende Verkäufer-ID
+						</div>
+						<div class="expander-content">
+							<div class="form-group">
+								<label for="mailtxt_reqexistingsellerid">HTML Text mit Platzhaltern:</label>
+								<textarea class="form-control" id="mailtxt_reqexistingsellerid" name="mailtxt_reqexistingsellerid" rows="10" required><?php echo htmlspecialchars($mailtxt_reqexistingsellerid); ?></textarea>
+							</div>
+							<div class="expander">
+								<div class="expander-header">
+									Beschreibung und Beispiel
+								</div>
+								<div class="expander-content">
+									<p>Verfügbare Platzhalter:</p>
+									<ul>
+										<li><code>{BASE_URI}</code>: Basis-URL der Anwendung</li>
+										<li><code>{given_name}</code>: Vorname des Benutzers</li>
+										<li><code>{family_name}</code>: Nachname des Benutzers</li>
+										<li><code>{verification_link}</code>: Verifizierungslink</li>
+										<li><code>{create_products_link}</code>: Produkte erstellen Link</li>
+										<li><code>{revert_link}</code>: Nummer-Rückgabelink</li>
+										<li><code>{delete_link}</code>: DSGVO-Löschlink</li>
+										<li><code>{seller_id}</code>: Verkäufer-ID</li>
+										<li><code>{hash}</code>: Sicherer Hash</li>
+									</ul>
+									<p>Beispiel:</p>
+									<pre><code>&lt;html&gt;&lt;body&gt;
+		&lt;p&gt;Hallo {given_name} {family_name}.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Wir freuen uns, dass Sie wieder bei unserem Basar mitmachen möchten. Bitte klicken Sie auf den folgenden Link, um Ihre Verkäufer-ID zu verifizieren: &lt;a href='{verification_link}'&gt;{verification_link}&lt;/a&gt;&lt;/p&gt;
+		&lt;p&gt;Nach der Verifizierung können Sie Ihre Artikel aus dem letzten Basar überprüfen oder ggf. neue erstellen und auch Etiketten drucken falls nötig: &lt;a href='{create_products_link}'&gt;Artikel erstellen&lt;/a&gt;&lt;/p&gt;&lt;br&gt;
+		&lt;p&gt;Bitte beachten Sie auch unsere Informationen für Verkäufer: &lt;a href='https://www.example.de/index.php/informationen/verkaeuferinfos'&gt;Verkäuferinfos&lt;/a&gt; Bei Rückfragen stehen wir gerne unter der E-Mailadresse &lt;a href='mailto:basarteam@example.de'&gt;basarteam@example.de&lt;/a&gt; zur Verfügung.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Zur Durchführung eines erfolgreichen Kleiderbasars benötigen wir viele helfende Hände. Helfer für den Abbau am Samstagnachmittag dürfen sich gerne telefonisch oder per WhatsApp unter 0123 456 7890 melden.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Für alle Helfer besteht die Möglichkeit bereits ab 13 Uhr einzukaufen. Außerdem bieten wir ein reichhaltiges Kuchenbuffet zum Verkauf an.&lt;/p&gt;
+		&lt;hr&gt;
+		&lt;p&gt;&lt;strong&gt;WICHTIG:&lt;/strong&gt; Diese Mail und die enthaltenen Links sind nur für Sie bestimmt. Geben Sie diese nicht weiter. Beachten Sie auch die Hinweise auf unserer Homepage unter "Verkäufer Infos". Wir bitten darum, bei nicht benötigten Verkäufernummern, über unseren Rückgabelink &lt;a href='{revert_link}'&gt;Nummer zurückgeben&lt;/a&gt; ab zu sagen.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Nach DSGVO haben Sie ein Recht auf &quot;vergessenwerden&quot;. Sie haben die Möglichkeit mit einem Klick auf diesen &lt;a href='{delete_link}'&gt;Löschlink&lt;/a&gt; all Ihre persönlichen Daten sowie alle von Ihnen angelegten Produkte aus unserem System zu entfernen. Bitte beachten Sie dass dieser Prozess von uns nicht Rückgängig gemacht werden kann.&lt;/p&gt;
+		&lt;hr&gt;
+		&lt;p&gt;&lt;/p&gt;
+		&lt;p&gt;Wir wünschen Ihnen viel Erfolg beim Basar.&lt;/p&gt;
+		&lt;p&gt;&lt;/p&gt; 
+		&lt;p&gt;Mit freundlichen Grüßen&lt;/p&gt;
+		&lt;p&gt;das Basarteam&lt;/p&gt;
+		&lt;/body&gt;
+		&lt;/html&gt;
+									</code></pre>
+								</div>
+							</div>
+						</div>
+					</div>
+					<button type="submit" class="btn btn-primary btn-block mb-3" name="add_bazaar">Bazaar hinzufügen</button>
+				</form>
+			</div>
+		</div>
         <form action="admin_manage_bazaar.php" method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
             <div class="form-row align-items-end">
@@ -557,7 +608,7 @@ $conn->close();
                         <option value="update_existing_only">Nur vorh. aktualisieren</option>
                         <option value="add_new_only">Nur neue hinzufügen</option>
                         <option value="update_existing_and_add_new" selected>Aktualisieren und Hinzufügen</option>
-                        <option value="delete_before_importing" style="color: red;">Vor dem Import löschen</option>
+                        <option value="delete_before_importing" class="bg-danger text-white">Vor dem Import löschen</option>
                     </select>
                 </div>
                 <div class="form-group col-md-3">
@@ -744,8 +795,8 @@ $conn->close();
         </div>
     </div>
 	
-	<!-- Back to Top Button -->
-	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+    <!-- Back to Top Button -->
+    <div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
 	
     <?php if (!empty(FOOTER)): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
@@ -759,13 +810,13 @@ $conn->close();
         </footer>
     <?php endif; ?>
 	
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
         document.getElementById('importCsvButton').addEventListener('click', function() {
             document.getElementById('mailtxt_reqnewsellerid').removeAttribute('required');
             document.getElementById('mailtxt_reqexistingsellerid').removeAttribute('required');
         });
     </script>
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Handle expander
             $('.expander-header').on('click', function(event) {
@@ -829,7 +880,7 @@ $conn->close();
         });
     </script>
 	
-	<script>
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
 			function toggleBackToTopButton() {

@@ -1,17 +1,27 @@
-<!-- load_seller_products.php -->
 <?php
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
 require_once 'utilities.php';
-session_start();
+
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
+    header("location: login.php");
+    exit;
+}
 
 // Assume $user_id is available from the session or another source
 $user_id = $_SESSION['user_id'] ?? 0;
+$seller_id = $_SESSION['seller_id'] ?? $_GET['seller_id'];
 
-if (!isset($_GET['seller_id'])) {
+if (!isset($seller_id)) {
     echo "Kein Verkäufer-ID angegeben.";
     exit();
 }
 
-$seller_id = $_GET['seller_id'];
 $conn = get_db_connection();
 $sql = "SELECT * FROM products WHERE seller_id='$seller_id'";
 $result = $conn->query($sql);
@@ -19,10 +29,15 @@ $result = $conn->query($sql);
 if ($result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
         $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
+		$sold_checked = $row['sold'] ? 'checked' : ''; // Assuming 'sold' is a boolean column
+		
         echo "<tr>
                 <td>{$row['name']}</td>
 				<td>{$row['size']}</td>
                 <td>{$formatted_price}</td>
+				<td>
+                    <input type='checkbox' class='sold-checkbox' data-product-id='{$row['id']}' $sold_checked>
+                </td>
                 <td>
                     <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
                     <form action='admin_manage_sellers.php' method='post' style='display:inline-block'>

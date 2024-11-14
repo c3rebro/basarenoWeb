@@ -1,20 +1,29 @@
 <?php
-session_start();
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
-    header("location: index.php");
+    header("location: login.php");
     exit;
 }
 
 require_once 'utilities.php';
 
 $conn = get_db_connection();
-initialize_database($conn);
 
-$error = '';
-$success = '';
+$message = '';
+$message_type = 'danger'; // Default message type for errors
 
 // Assume $user_id is available from the session or another source
 $user_id = $_SESSION['user_id'] ?? 0;
+$username = $_SESSION['username'] ?? '';
 
 // Handle user addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
@@ -25,13 +34,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
     if (empty($username) || empty($password) || empty($role)) {
         $error = "Alle Felder sind erforderlich.";
     } else {
-        $password_hash = password_hash($password, PASSWORD_DEFAULT);
+        $password_hash = password_hash($password, PASSWORD_BCRYPT);
         $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
         $stmt->bind_param("sss", $username, $password_hash, $role);
         if ($stmt->execute()) {
-            $success = "Benutzer erfolgreich hinzugefügt.";
+            $message_type = 'success';
+            $message = "Benutzer erfolgreich hinzugefügt.";
         } else {
-            $error = "Fehler beim Hinzufügen des Benutzers: " . $conn->error;
+            $message_type = 'danger';
+            $message = "Fehler beim Hinzufügen des Benutzers: " . $conn->error;
         }
     }
 }
@@ -42,15 +53,46 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_user'])) {
     $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
     $stmt->bind_param("i", $user_id);
     if ($stmt->execute()) {
-        $success = "Benutzer erfolgreich gelöscht.";
+        $message_type = 'success';
+        $message = "Benutzer erfolgreich gelöscht.";
     } else {
-        $error = "Fehler beim Löschen des Benutzers: " . $conn->error;
+        $message_type = 'danger';
+        $message = "Fehler beim Löschen des Benutzers: " . $conn->error;
     }
 }
 
-// Fetch users
-$sql = "SELECT * FROM users";
+// Handle password update
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_password'])) {
+    $user_id = intval($_POST['user_id']);
+    $new_password = $_POST['new_password'];
+    $password_hash = password_hash($new_password, PASSWORD_BCRYPT);
+
+    $stmt = $conn->prepare("UPDATE users SET password_hash=? WHERE id=?");
+    $stmt->bind_param("si", $password_hash, $user_id);
+    if ($stmt->execute()) {
+        // Return a JSON response indicating success
+        echo json_encode(['success' => true, 'message' => 'Passwort erfolgreich aktualisiert.']);
+    } else {
+        // Return a JSON response indicating failure
+        echo json_encode(['success' => false, 'message' => 'Fehler beim Aktualisieren des Passworts: ' . $conn->error]);
+    }
+    exit; // Ensure the script stops executing after the response
+}
+
+// Fetch users grouped by role
+$sql = "SELECT * FROM users ORDER BY role, id";
 $result = $conn->query($sql);
+
+$users_by_role = [
+    'admin' => [],
+    'cashier' => [],
+    'assistant' => [],
+    'seller' => []
+];
+
+while ($row = $result->fetch_assoc()) {
+    $users_by_role[$row['role']][] = $row;
+}
 
 $conn->close();
 ?>
@@ -61,14 +103,13 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Benutzer Verwalten</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
-
+    <link href="css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
 </head>
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <a class="navbar-brand" href="dashboard.php">Bazaar Administration</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -91,18 +132,29 @@ $conn->close();
                 </li>
             </ul>
             <ul class="navbar-nav ml-auto">
+                <li class="nav-itemml ml-auto">
+                    <a class="navbar-brand" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
     </nav>
-	
+    
     <div class="container">
-        <h2 class="mt-5">Benutzer Verwalten</h2>
-        <?php if ($error) { echo "<div class='alert alert-danger'>" . htmlspecialchars($error, ENT_QUOTES, 'UTF-8') . "</div>"; } ?>
-        <?php if ($success) { echo "<div class='alert alert-success'>" . htmlspecialchars($success, ENT_QUOTES, 'UTF-8') . "</div>"; } ?>
-
+        <div id="messageContainer">
+            <?php if ($message): ?>
+                <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
+                    <?php echo $message; ?>
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            <?php endif; ?>
+        </div>
         <h3 class="mt-5">Benutzer hinzufügen</h3>
         <form action="admin_manage_users.php" method="post">
             <div class="form-row">
@@ -119,6 +171,8 @@ $conn->close();
                     <select class="form-control" id="role" name="role" required>
                         <option value="admin">Admin</option>
                         <option value="cashier">Kassierer</option>
+                        <option value="assistant">Assistent</option>
+                        <option value="seller">Verkäufer</option>
                     </select>
                 </div>
             </div>
@@ -126,38 +180,97 @@ $conn->close();
         </form>
 
         <h3 class="mt-5">Benutzerliste</h3>
-        <div class="table-responsive">
-            <table class="table table-bordered mt-3">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Benutzername</th>
-                        <th>Rolle</th>
-                        <th>Aktionen</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php while ($row = $result->fetch_assoc()) { ?>
-                    <tr>
-                        <td><?php echo htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td><?php echo htmlspecialchars($row['username'], ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td><?php echo htmlspecialchars($row['role'], ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td>
-                            <form action="admin_manage_users.php" method="post" style="display:inline-block">
-                                <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8'); ?>">
-                                <button type="submit" name="delete_user" class="btn btn-danger btn-sm">Löschen</button>
-                            </form>
-                        </td>
-                    </tr>
-                    <?php } ?>
-                </tbody>
-            </table>
+
+        <?php
+        $roles = [
+            'admin' => 'Administratoren',
+            'cashier' => 'Kassierer',
+            'assistant' => 'Assistenten',
+            'seller' => 'Verkäufer'
+        ];
+
+        foreach ($roles as $role_key => $role_name) {
+            echo '<div class="card mt-3">';
+            echo '<div class="card-header">';
+            echo '<h5 class="mb-0">';
+            echo '<button class="btn btn-link" data-toggle="collapse" data-target="#collapse' . ucfirst($role_key) . '" aria-expanded="true" aria-controls="collapse' . ucfirst($role_key) . '">';
+            echo $role_name;
+            echo '</button>';
+            echo '</h5>';
+            echo '</div>';
+            echo '<div id="collapse' . ucfirst($role_key) . '" class="collapse">';
+            echo '<div class="card-body">';
+            echo '<div class="table-responsive">';
+            echo '<table class="table table-bordered">';
+            echo '<thead>';
+            echo '<tr>';
+            echo '<th>ID</th>';
+            echo '<th>Benutzername</th>';
+            echo '<th>Rolle</th>';
+            echo '<th>Aktionen</th>';
+            echo '</tr>';
+            echo '</thead>';
+            echo '<tbody>';
+
+            foreach ($users_by_role[$role_key] as $user) {
+                echo '<tr>';
+                echo '<td>' . htmlspecialchars($user['id'], ENT_QUOTES, 'UTF-8') . '</td>';
+                echo '<td>' . htmlspecialchars($user['username'], ENT_QUOTES, 'UTF-8') . '</td>';
+                echo '<td>' . htmlspecialchars($user['role'], ENT_QUOTES, 'UTF-8') . '</td>';
+                echo '<td class="text-center">';
+                echo '<select class="action-dropdown form-control mb-2" data-user-id="' . htmlspecialchars($user['id'], ENT_QUOTES, 'UTF-8') . '">';
+                echo '<option value="">Aktion wählen</option>';
+                echo '<option value="delete">Löschen</option>';
+                echo '<option value="set_password">Passwort setzen</option>';
+                echo '</select>';
+                echo '<button class="btn btn-primary btn-sm execute-action" data-user-id="' . htmlspecialchars($user['id'], ENT_QUOTES, 'UTF-8') . '">Ausführen</button>';
+                echo '</td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody>';
+            echo '</table>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
+        }
+        ?>
+    </div>
+    
+    <!-- Back to Top Button -->
+    <div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+    
+    <!-- Set Password Modal -->
+    <div class="modal fade" id="setPasswordModal" tabindex="-1" role="dialog" aria-labelledby="setPasswordModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="setPasswordModalLabel">Passwort setzen</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="passwordMessage" class="alert alert-danger hidden"></div>
+                    <form id="setPasswordForm" method="post">
+                        <input type="hidden" id="setPasswordUserId" name="user_id">
+                        <div class="form-group">
+                            <label for="newPassword">Neues Passwort:</label>
+                            <input type="password" class="form-control" id="newPassword" name="password" required>
+                            <small class="form-text text-muted">Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Großbuchstaben, einen Kleinbuchstaben und eine Zahl enthalten.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="confirmNewPassword">Passwort bestätigen:</label>
+                            <input type="password" class="form-control" id="confirmNewPassword" name="confirm_password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Passwort setzen</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
-	
-	<!-- Back to Top Button -->
-	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
-	
+    
     <?php if (!empty(FOOTER)): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
             <div class="row justify-content-center">
@@ -169,35 +282,86 @@ $conn->close();
             </div>
         </footer>
     <?php endif; ?>
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-	<script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
-			function toggleBackToTopButton() {
-				const scrollTop = $(window).scrollTop();
+            function toggleBackToTopButton() {
+                const scrollTop = $(window).scrollTop();
 
-				if (scrollTop > 100) {
-					$('#back-to-top').fadeIn();
-				} else {
-					$('#back-to-top').fadeOut();
-				}
-			}
+                if (scrollTop > 100) {
+                    $('#back-to-top').fadeIn();
+                } else {
+                    $('#back-to-top').fadeOut();
+                }
+            }
 
-			// Initial check on page load
-			toggleBackToTopButton();
+            // Initial check on page load
+            toggleBackToTopButton();
 
-			// Show or hide the "Back to Top" button on scroll
-			$(window).scroll(function() {
-				toggleBackToTopButton();
-			});
+            // Show or hide the "Back to Top" button on scroll
+            $(window).scroll(function() {
+                toggleBackToTopButton();
+            });
 
-			// Smooth scroll to top
-			$('#back-to-top').click(function() {
-				$('html, body').animate({ scrollTop: 0 }, 600);
-				return false;
-			});
+            // Smooth scroll to top
+            $('#back-to-top').click(function() {
+                $('html, body').animate({ scrollTop: 0 }, 600);
+                return false;
+            });
+
+            // Handle action execution
+            $('.execute-action').on('click', function() {
+                const userId = $(this).data('user-id');
+                const action = $(`.action-dropdown[data-user-id="${userId}"]`).val();
+
+                if (action === 'set_password') {
+                    $('#setPasswordUserId').val(userId);
+                    $('#setPasswordModal').modal('show');
+                } else if (action === 'delete') {
+                    if (confirm('Möchten Sie diesen Benutzer wirklich löschen?')) {
+                        $.post('admin_manage_users.php', { delete_user: true, user_id: userId }, function(response) {
+                            location.reload();
+                        });
+                    }
+                } else {
+                    alert('Bitte wählen Sie eine Aktion aus.');
+                }
+            });
+            
+            // Handle set password form submission
+            $('#setPasswordForm').on('submit', function(e) {
+                e.preventDefault();
+                const userId = $('#setPasswordUserId').val();
+                const newPassword = $('#newPassword').val();
+                const confirmNewPassword = $('#confirmNewPassword').val();
+
+                if (newPassword !== confirmNewPassword) {
+                    $('#passwordMessage').text('Die Passwörter stimmen nicht überein.').show();
+                    return;
+                }
+
+                $.post('admin_manage_users.php', { set_password: true, user_id: userId, new_password: newPassword }, function(response) {
+                    if (response.success) {
+                        $('#setPasswordModal').modal('hide');
+                        // Display success message
+                        $('#messageContainer').html(
+                            '<div class="alert alert-success alert-dismissible fade show" role="alert">' +
+                            response.message +
+                            '<button type="button" class="close" data-dismiss="alert" aria-label="Close">' +
+                            '<span aria-hidden="true">&times;</span>' +
+                            '</button>' +
+                            '</div>'
+                        );
+                        // Scroll to the top of the page
+                        $('html, body').animate({ scrollTop: 0 }, 'slow');
+                    } else {
+                        $('#passwordMessage').text(response.message).show();
+                    }
+                }, 'json');
+            });
         });
     </script>
 </body>

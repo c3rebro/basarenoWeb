@@ -9,6 +9,10 @@ $message_type = 'danger'; // Default message type for errors
 $seller_id = isset($_GET['seller_id']) ? $_GET['seller_id'] : null;
 $hash = isset($_GET['hash']) ? $_GET['hash'] : null;
 
+if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+	die("CSRF token validation failed.");
+}
+	
 if ($seller_id && $hash) {
     // Verify the seller_id and hash using prepared statements
     $sql = "SELECT id, email FROM sellers WHERE id=? AND hash=?";

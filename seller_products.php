@@ -1,14 +1,28 @@
 <?php
-session_start();
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
 require_once 'utilities.php';
 
-if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {
-    echo "Kein Verkäufer-ID oder Hash angegeben.";
-    exit();
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'seller')) {
+    header("location: login.php");
+    exit;
 }
 
-$seller_id = $_GET['seller_id'];
-$hash = $_GET['hash'];
+$message = '';
+$message_type = 'danger'; // Default message type for errors
+
+$seller_id = $_SESSION['seller_id'];
+$hash = $_SESSION['seller_hash'];
+
+if (!isset($seller_id) || !isset($hash)) {
+    echo "Loginfehler.";
+    exit();
+}
 
 $conn = get_db_connection();
 $sql = "SELECT * FROM sellers WHERE id=? AND hash=? AND verified=1";
@@ -45,6 +59,8 @@ if ($result->num_rows == 0) {
     exit();
 }
 
+$email = $result->fetch_assoc()['email'];
+
 // Fetch the current bazaar ID
 $bazaar_id = get_current_bazaar_id($conn);
 
@@ -54,6 +70,35 @@ $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $bazaar_id);
 $stmt->execute();
 $result = $stmt->get_result();
+
+if ($result->num_rows == 0) {
+    echo "
+        <!DOCTYPE html>
+        <html lang='de'>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
+            <title>Bazaar nicht gefunden</title>
+            <link href='css/bootstrap.min.css' rel='stylesheet'>
+        </head>
+        <body>
+            <div class='row'>
+                <div class='col-4 mx-auto text-center alert alert-warning mt-5'>
+                    <h4 class='alert-heading'>Bitte noch etwas Geduld.</h4>
+                    <p>Sie können aktuell noch nicht auf Ihre Produkte zugreifen, weil der alte Bazaar beendet ist und noch kein Datum für den nächsten Bazaar eingetragen wurde.</p>
+                    <hr>
+                    <p class='mb-0 text-center'>Sie glauben dass das ein Fehler ist? Melden Sie dies bitte beim Basarteam.</p>
+                </div>
+            </div>
+            <script src='js/jquery-3.7.1.min.js'></script>
+            <script src='js/popper.min.js'></script>
+            <script src='js/bootstrap.min.js'></script>
+        </body>
+        </html>
+        ";
+    exit();
+}
+
 $bazaar_settings = $result->fetch_assoc();
 $max_products_per_seller = $bazaar_settings['max_products_per_seller'];
 
@@ -206,10 +251,38 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Artikel erstellen - Verkäufernummer: <?php echo $seller_id; ?></title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
-
+    <link href="css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
 </head>
 <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <a class="navbar-brand" href="dashboard.php">Bazaar</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item active">
+                    <a class="nav-link" href="seller_products.php">Artikel verwalten <span class="sr-only">(current)</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="seller_edit.php">Konto verwalten</a>
+                </li>
+            </ul>
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-itemml ml-auto">
+                    <a class="nav-link" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($email); ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+	
     <div class="container">
         <h1 class="mt-5">Artikel erstellen - Verkäufernummer: <?php echo $seller_id; ?></h1>
         <div class="action-buttons">
@@ -232,7 +305,7 @@ $conn->close();
                 <button type="submit" class="btn btn-primary w-100" name="create_product">Artikel erstellen</button>
             </form>
         </div>
-        <a href="print_barcodes.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" class="btn btn-secondary mt-3 w-100">Etiketten drucken</a>
+        <a href="print_barcodes.php" class="btn btn-secondary mt-3 w-100">Etiketten drucken</a>
 
         <h2 class="mt-5">Erstellte Artikel</h2>
         <div class="table-responsive">

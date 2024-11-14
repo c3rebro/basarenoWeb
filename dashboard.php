@@ -1,26 +1,16 @@
 <?php
-session_start();
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("location: index.php");
-    exit;
-}
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
 
 require_once 'utilities.php';
 
-$username = $_SESSION['username'];
-$role = $_SESSION['role'];
-
-$conn = get_db_connection();
-initialize_database($conn);
-
-// Use prepared statement to prevent SQL Injection
-$stmt = $conn->prepare("SELECT * FROM users WHERE username=?");
-$stmt->bind_param("s", $username);
-$stmt->execute();
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
-
-$conn->close();
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -29,62 +19,73 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Dashboard</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .dashboard-container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding-top: 50px;
+    <link href="css/style.css" rel="stylesheet">
+    <style nonce="<?php echo $nonce; ?>">
+        .dashboard-table {
+            width: 100%;
+            border-collapse: collapse;
         }
-        .dashboard-links ul {
-            padding-left: 0;
-            list-style: none;
+        .dashboard-table td {
+            border: 1px solid #ddd;
+            width: 120px;
+            height: 120px;
+            padding: 0;
         }
-        .dashboard-links li {
-            margin-bottom: 10px;
-        }
-        .dashboard-links a {
-            display: block;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            text-decoration: none;
-        }
-        .dashboard-links a:hover {
-            background-color: #e2e6ea;
+        .dashboard-table .btn {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            text-align: center;
         }
     </style>
 </head>
 <body>
-    <div class="container dashboard-container">
-        <h1 class="mt-5 text-center">Willkommen, <?php echo htmlspecialchars($username); ?>!</h1>
-        <p class="lead text-center">Sie sind als <?php echo htmlspecialchars($role); ?> angemeldet.</p>
-
-        <?php if ($role == 'admin') { ?>
-            <h2 class="mt-5 text-center">Administrator-Bereich</h2>
-            <div class="dashboard-links">
-                <ul>
-                    <li><a href="admin_manage_users.php">Benutzer verwalten</a></li>
-                    <li><a href="admin_manage_bazaar.php">Bazaar verwalten</a></li>
-                    <li><a href="admin_manage_sellers.php">Verkäufer verwalten</a></li>
-                    <li><a href="system_settings.php">Systemeinstellungen</a></li>
-                    <!-- Add more admin-specific links here -->
-                </ul>
-            </div>
-        <?php } elseif ($role == 'cashier') { ?>
-            <h2 class="mt-5 text-center">Kassierer-Bereich</h2>
-            <div class="dashboard-links">
-                <ul>
-                    <li><a href="cashier.php">Artikel scannen</a></li>
-                    <!-- Add more cashier-specific links here -->
-                </ul>
-            </div>
-        <?php } ?>
-
-        <a href="logout.php" class="btn btn-danger btn-block mt-3">Abmelden</a>
+    <div class="container mt-5">
+        <div class="jumbotron text-center">
+            <h1 class="display-4">Willkommen zur Bazaar-Übersicht</h1>
+            <p class="lead">Nutzen Sie die untenstehenden Optionen, um fortzufahren.</p>
+            <hr class="my-4">
+            <table class="dashboard-table mx-auto">
+                <tr>
+                    <td colspan="2">
+                        <a class="btn btn-secondary btn-lg" href="index.php" role="button">Startseite anzeigen</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <a class="btn btn-success btn-lg" href="acceptance.php" role="button">Annehmen</a>
+                    </td>
+                    <td>
+                        <a class="btn btn-warning btn-lg" href="cashier.php" role="button">Scannen</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <a class="btn btn-primary btn-lg" href="pickup.php" role="button">Abholen</a>
+                    </td>
+                    <td>
+                        <a class="btn btn-danger btn-lg" href="admin_manage_sellers.php" role="button">Administrieren</a>
+                    </td>
+                </tr>
+            </table>
+        </div>
     </div>
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
+
+            <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+
+                    </p>
+                </div>
+            </div>
+        </footer>
+	
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>
 </html>

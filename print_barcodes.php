@@ -1,16 +1,31 @@
 <?php
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
 require_once 'utilities.php';
-require_once 'barcode.php'; // Ensure the path to barcode.php is correct
-
-if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {
-    echo "Kein Verkäufer-ID oder Hash angegeben.";
-    exit();
-}
-
-$seller_id = $_GET['seller_id'];
-$hash = $_GET['hash'];
+require_once 'barcode.php';
 
 $conn = get_db_connection();
+
+$message = '';
+$message_type = 'danger'; // Default message type for errors
+		
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'seller')) {
+    header("location: login.php");
+    exit;
+}
+
+$seller_id = $_SESSION['seller_id'];
+$hash = $_SESSION['seller_hash'];
+
+if (!isset($seller_id) || !isset($hash)) {
+        echo "Login fehlgeschlagen.";
+        exit();
+}
 
 // Use prepared statement to prevent SQL Injection
 $stmt = $conn->prepare("SELECT * FROM sellers WHERE id=? AND hash=? AND verified=1");
@@ -70,7 +85,8 @@ $conn->close();
     <meta charset="UTF-8">
     <title>Etiketten drucken</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
+    <link href="css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
 	
 </head>
 <body>
@@ -128,7 +144,7 @@ $conn->close();
                 ?>
             </tbody>
         </table>
-        <button onclick="window.print()" class="btn btn-primary mt-3">Drucken</button>
+        <button onclick="window.print()" class="btn btn-primary mt-3 no-print">Drucken</button>
     </div>
     <script src="js/jquery-3.7.1.min.js"></script>
     <script src="js/popper.min.js"></script>

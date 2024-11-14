@@ -14,9 +14,53 @@ function check_config_exists() {
     return file_exists('config.php');
 }
 
+/**
+ * Load the configuration file.
+ */
+function load_config() {
+    if (check_config_exists()) {
+        require_once 'config.php';
+    }
+}
+
+/**
+ * Update the configuration file with new content.
+ *
+ * @param array $replacements
+ */
+function update_config($replacements) {
+    if (!check_config_exists()) {
+        return false;
+    }
+    
+    $config_content = file_get_contents('config.php');
+    foreach ($replacements as $search => $replace) {
+        // Use regex to ensure accurate replacement of define statements
+        $pattern = "/define\('$search', '.*?'\);/";
+        $replacement = "define('$search', '$replace');";
+        $config_content = preg_replace($pattern, $replacement, $config_content);
+    }
+    file_put_contents('config.php', $config_content);
+    return true;
+}
+
 // =========================
 // Database Connection and Initialization
 // =========================
+
+/**
+ * Initialize the database and tables if necessary.
+ *
+ * @param mysqli $conn
+ */
+function initialize_database_if_needed($conn) {
+    if (!defined('DB_INITIALIZED') || DB_INITIALIZED === 'false') {
+        initialize_database($conn);
+
+        // Update the config file to set DB_INITIALIZED to true
+        update_config(['DB_INITIALIZED' => 'true']);
+    }
+}
 
 /**
  * Initialize the database connection.
@@ -24,16 +68,19 @@ function check_config_exists() {
  * @return mysqli|null
  */
 function get_db_connection() {
-    if (!check_config_exists()) {
+    load_config();
+    
+    if (!defined('DB_SERVER')) {
         return null;
     }
 
-    require_once 'config.php';
     $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
 
     if ($conn->connect_error) {
         die("Connection failed: " . $conn->connect_error);
     }
+
+	initialize_database_if_needed($conn);
 
     return $conn;
 }
@@ -54,74 +101,103 @@ function initialize_database($conn) {
     // Select the database
     $conn->select_db(DB_NAME);
 
-    // Create tables if they don't exist
+    // Define the desired table structures
     $tables = [
-        "CREATE TABLE IF NOT EXISTS bazaar (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            startDate DATE NOT NULL,
-            startReqDate DATE NOT NULL,
-            max_sellers INT NOT NULL,
-            max_products_per_seller INT NOT NULL DEFAULT 0,
-            brokerage DOUBLE,
-            min_price DOUBLE,
-            price_stepping DOUBLE,
-            mailtxt_reqnewsellerid TEXT,
-            mailtxt_reqexistingsellerid TEXT
-        )",
-        "CREATE TABLE IF NOT EXISTS sellers (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            hash VARCHAR(255) NOT NULL,
-            bazaar_id INT(11) DEFAULT 0,
-            email VARCHAR(255) NOT NULL,
-            reserved BOOLEAN DEFAULT FALSE,
-            verified BOOLEAN DEFAULT FALSE,
-            checkout BOOLEAN DEFAULT FALSE,
-            checkout_id INT(6) DEFAULT 0,
-            verification_token VARCHAR(255),
-            family_name VARCHAR(255) NOT NULL,
-            given_name VARCHAR(255) NOT NULL,
-            phone VARCHAR(255) NOT NULL,
-            street VARCHAR(255) NOT NULL,
-            house_number VARCHAR(255) NOT NULL,
-            zip VARCHAR(255) NOT NULL,
-            city VARCHAR(255) NOT NULL,
-            consent BOOLEAN
-        )",
-        "CREATE TABLE IF NOT EXISTS products (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            bazaar_id INT(10) DEFAULT 0,
-            name VARCHAR(255) NOT NULL,
-            size VARCHAR(255) NOT NULL,
-            price DOUBLE NOT NULL,
-            barcode VARCHAR(255) NOT NULL,
-            seller_id INT,
-            sold BOOLEAN DEFAULT FALSE,
-            FOREIGN KEY (seller_id) REFERENCES sellers(id)
-        )",
-        "CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(255) NOT NULL UNIQUE,
-            password_hash VARCHAR(255) NOT NULL,
-            role ENUM('admin', 'cashier') NOT NULL
-        )",
-        "CREATE TABLE IF NOT EXISTS settings (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            operationMode VARCHAR(50) NOT NULL DEFAULT 'online',
-            wifi_ssid VARCHAR(255) DEFAULT '',
-            wifi_password VARCHAR(255) DEFAULT ''
-        )",
-        "CREATE TABLE IF NOT EXISTS logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            action VARCHAR(255) NOT NULL,
-            details TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )"
+        "bazaar" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "startDate DATE NOT NULL",
+            "startReqDate DATE NOT NULL",
+            "max_sellers INT NOT NULL",
+            "max_products_per_seller INT NOT NULL DEFAULT 0",
+            "brokerage DOUBLE",
+            "min_price DOUBLE",
+            "price_stepping DOUBLE",
+            "mailtxt_reqnewsellerid TEXT",
+            "mailtxt_reqexistingsellerid TEXT"
+        ],
+        "sellers" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "hash VARCHAR(255) NOT NULL",
+            "bazaar_id INT(11) DEFAULT 0",
+            "email VARCHAR(255) NOT NULL",
+            "reserved BOOLEAN DEFAULT FALSE",
+            "verified BOOLEAN DEFAULT FALSE",
+            "checkout BOOLEAN DEFAULT FALSE",
+            "checkout_id INT(6) DEFAULT 0",
+            "verification_token VARCHAR(255)",
+            "family_name VARCHAR(255) NOT NULL",
+            "given_name VARCHAR(255) NOT NULL",
+            "phone VARCHAR(255) NOT NULL",
+            "street VARCHAR(255) NOT NULL",
+            "house_number VARCHAR(255) NOT NULL",
+            "zip VARCHAR(255) NOT NULL",
+            "city VARCHAR(255) NOT NULL",
+            "consent BOOLEAN",
+            "fee_payed BOOLEAN DEFAULT FALSE NOT NULL",
+            "signature MEDIUMTEXT"
+        ],
+        "products" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "bazaar_id INT(10) DEFAULT 0",
+            "name VARCHAR(255) NOT NULL",
+            "size VARCHAR(255) NOT NULL",
+            "price DOUBLE NOT NULL",
+            "barcode VARCHAR(255) NOT NULL",
+            "seller_id INT",
+            "sold BOOLEAN DEFAULT FALSE",
+            "FOREIGN KEY (seller_id) REFERENCES sellers(id)"
+        ],
+        "users" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "username VARCHAR(255) NOT NULL UNIQUE",
+            "password_hash VARCHAR(255) NOT NULL",
+            "reset_token VARCHAR(64) NULL",
+            "reset_expiry DATETIME NULL",
+            "role ENUM('admin', 'cashier', 'assistant', 'seller') NOT NULL"
+        ],
+        "settings" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "operationMode VARCHAR(50) NOT NULL DEFAULT 'online'",
+            "wifi_ssid VARCHAR(255) DEFAULT ''",
+            "wifi_password VARCHAR(255) DEFAULT ''"
+        ],
+        "logs" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "user_id INT NOT NULL",
+            "action VARCHAR(255) NOT NULL",
+            "details TEXT",
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+        ]
     ];
 
-    foreach ($tables as $sql) {
-        if ($conn->query($sql) !== TRUE) {
-            die("Error creating table: " . $conn->error);
+    foreach ($tables as $tableName => $columns) {
+        // Check if the table exists
+        $result = $conn->query("SHOW TABLES LIKE '$tableName'");
+        if ($result->num_rows == 0) {
+            // Table doesn't exist, create it
+            $sql = "CREATE TABLE $tableName (" . implode(", ", $columns) . ")";
+            if ($conn->query($sql) !== TRUE) {
+                die("Error creating table $tableName: " . $conn->error);
+            }
+        } else {
+            // Table exists, check for missing columns
+            $existingColumns = [];
+            $result = $conn->query("SHOW COLUMNS FROM $tableName");
+            while ($row = $result->fetch_assoc()) {
+                $existingColumns[] = $row['Field'];
+            }
+
+            foreach ($columns as $columnDefinition) {
+                preg_match('/^(\w+)/', $columnDefinition, $matches);
+                $columnName = $matches[1];
+                if (!in_array($columnName, $existingColumns)) {
+                    // Column is missing, add it
+                    $sql = "ALTER TABLE $tableName ADD $columnDefinition";
+                    if ($conn->query($sql) !== TRUE) {
+                        die("Error adding column $columnName to table $tableName: " . $conn->error);
+                    }
+                }
+            }
         }
     }
 
@@ -281,13 +357,54 @@ function send_email($to, $subject, $body) {
 // =========================
 
 /**
+ * Sanitize input by allowing characters commonly found in URLs.
+ *
+ * @param string $input
+ * @return string
+ */
+function sanitize_url($input) {
+    // Allow basic URL characters
+    $input = preg_replace('/[^a-zA-Z0-9 \-\._~:\/?#\[\]@!$&\'()*+,;=%]/', '', $input);
+    $input = trim($input);
+    return $input;
+}
+
+/**
+ * Function to sanitize names
+ *
+ * @param string $input
+ * @return string
+ */
+function sanitize_name($name) {
+    // Trim whitespace at the beginning and end
+    $name = trim($name);
+    // Allow only letters, hyphens, and spaces
+    return preg_replace('/[^a-zA-ZäöüÄÖÜß -]/u', '', $name);
+}
+
+/**
+ * Function to sanitize email
+ *
+ * @param string $input
+ * @return string
+ */
+function sanitize_email($email) {
+    // Trim whitespace, remove display name if present, and convert to lowercase
+    $email = trim($email);
+    if (preg_match("/<(.*)>/", $email, $matches)) {
+        $email = $matches[1];
+    }
+    return strtolower($email);
+}
+
+/**
  * Sanitize input by allowing only specific characters.
  *
  * @param string $input
  * @return string
  */
 function sanitize_input($input) {
-    $input = preg_replace('/[^a-zA-Z0-9 \-\(\)\._@]/', '', $input);
+    $input = preg_replace('/[^a-zA-Z0-9 \-\(\)\._@<>]/', '', $input);
     $input = trim($input);
     return $input;
 }
@@ -481,6 +598,64 @@ function generate_verification_token() {
 }
 
 /**
+ * Craft a reset Password email.
+ *
+ * @param mysqli $conn
+ * @param string $email
+ * @param int $user_id
+ * @param string $hash
+ * @param string $token
+ * @param string $subject
+ */
+function send_reset_password_email($email, $hash, $verification_token) {
+    $reset_link = BASE_URI . "/reset_password.php?token=$verification_token&hash=$hash";
+
+    $subject = "Zurücksetzen Ihres Passwortes";
+    
+    // Prepare the HTML email body
+    $body = "
+    <html>
+    <head>
+        <title>Passwort zurücksetzen</title>
+        <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px; }
+            .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }
+            .email-header { text-align: center; margin-bottom: 20px; }
+            .email-content { line-height: 1.6; color: #333333; }
+            .email-footer { margin-top: 20px; font-size: 12px; color: #777777; text-align: center; }
+            .reset-button { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px; }
+        </style>
+    </head>
+    <body>
+        <div class='email-container'>
+            <div class='email-header'>
+                <h2>Passwort zurücksetzen</h2>
+            </div>
+            <div class='email-content'>
+                <p>Hallo,</p>
+                <p>Sie haben angefordert, Ihr Passwort zurückzusetzen. Bitte klicken Sie auf den untenstehenden Button, um Ihr Passwort zu ändern:</p>
+                <a href='$reset_link' class='reset-button'>Passwort zurücksetzen</a>
+                <p>Wenn Sie kein Passwort-Reset angefordert haben, ignorieren Sie bitte diese E-Mail.</p>
+            </div>
+            <div class='email-footer'>
+                <p>&copy; Wir verwenden BAZAAR. Die kostenlose Basarlösung.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    ";
+
+    // Use the existing send_email function
+    $send_result = send_email($email, $subject, $body);
+    
+    if ($send_result === true) {
+        $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
+    } else {
+        $seller_message = "Fehler beim Senden der Rücksetz-E-Mail: $send_result";
+    }
+}
+
+/**
  * Execute SQL and send email.
  *
  * @param mysqli $conn
@@ -531,21 +706,36 @@ function generate_unique_seller_id($conn) {
 }
 
 /**
- * Show an alert for an existing request.
+ * Show a modal.
  */
-function show_alert_existing_request() {
-    echo "<script>
-        alert('Eine Verkäufernr-Anfrage wurde bereits generiert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten, oder wenn Sie Probleme haben, Ihre bereits angefragte Nummer frei zu Schalten.');
-    </script>";
-}
+function show_modal($nonce, $message, $message_type, $modalId = 'customModal') {
+    // Modal ID should be unique if you have multiple modals
 
-/**
- * Show an alert for an active ID.
- */
-function show_alert_active_id() {
-    echo "<script>
-        alert('Eine Verkäufer Nummer wurde bereits für Sie aktiviert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten.');
-    </script>";
+    echo '<div class="modal fade" id="' . $modalId . '" tabindex="-1" role="dialog" aria-labelledby="' . $modalId . 'Label" aria-hidden="true">';
+    echo '  <div class="modal-dialog" role="document">';
+    echo '    <div class="modal-content">';
+    echo '      <div class="modal-header">';
+    echo '        <h5 class="modal-title" id="' . $modalId . 'Label">' . ucfirst($message_type) . '</h5>';
+    echo '        <button type="button" class="close" data-dismiss="modal" aria-label="Close">';
+    echo '          <span aria-hidden="true">&times;</span>';
+    echo '        </button>';
+    echo '      </div>';
+    echo '      <div class="modal-body">';
+    echo htmlspecialchars($message);
+    echo '      </div>';
+    echo '      <div class="modal-footer">';
+    echo '        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>';
+    echo '      </div>';
+    echo '    </div>';
+    echo '  </div>';
+    echo '</div>';
+
+    // Script to auto-show the modal
+    echo '<script nonce="' . $nonce . '">';
+    echo 'document.addEventListener("DOMContentLoaded", function() {';
+    echo '  $("#' . $modalId . '").modal("show");';
+    echo '});';
+    echo '</script>';
 }
 
 // =========================
