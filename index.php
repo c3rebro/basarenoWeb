@@ -32,69 +32,95 @@ $operationMode = get_operation_mode($conn);
 if ($operationMode === 'offline') {
     // Show the special welcome screen with the new button layout
     echo '<!DOCTYPE html>
-        <html lang="de">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Hinweis zur Zertifikatssicherheit</title>
-            <link rel="stylesheet" href="/css/bootstrap.min.css">
-            <style nonce="<?php echo $nonce; ?>">
-                .dashboard-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                }
-                .dashboard-table td {
-                    border: 1px solid #ddd;
-                    width: 120px;
-                    height: 120px;
-                    padding: 0;
-                }
-                .dashboard-table .btn {
-                    width: 100%;
-                    height: 100%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 0;
-                    text-align: center;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container mt-5">
-                <div class="jumbotron text-center">
-                    <h1 class="display-4">Zertifikats- Warnung</h1>
-                    <p class="lead">Beim Klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
-                    <hr class="my-4">
-                    <p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)" aus.</p>
-                    <table class="dashboard-table mx-auto">
-                        <tr>
-                            <td colspan="2">
-                                <a class="btn btn-secondary btn-lg" href="https://bazaar.lan/index.php" role="button">Startseite anzeigen</a>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>
-                                <a class="btn btn-success btn-lg" href="https://bazaar.lan/acceptance.php" role="button">Annehmen</a>
-                            </td>
-                            <td>
-                                <a class="btn btn-warning btn-lg" href="https://bazaar.lan/cashier.php" role="button">Scannen</a>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>
-                                <a class="btn btn-primary btn-lg" href="https://bazaar.lan/pickup.php" role="button">Abholen</a>
-                            </td>
-                            <td>
-                                <a class="btn btn-danger btn-lg" href="https://bazaar.lan/admin_manage_sellers.php" role="button">Administrieren</a>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-            <script src="/js/bootstrap.bundle.min.js" nonce="<?php echo $nonce; ?>"></script>
-        </body>
-        </html>';
+			<html lang="de">
+			<head>
+				<meta charset="UTF-8">
+				<meta name="viewport" content="width=device-width, initial-scale=1.0">
+				<title>Hinweis zur Zertifikatssicherheit</title>
+				<!-- Preload and link CSS files -->
+				<link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+				<link rel="preload" href="css/all.min.css" as="style" id="all-css">
+				<link rel="preload" href="css/style.css" as="style" id="style-css">
+				<noscript>
+					<link href="css/bootstrap.min.css" rel="stylesheet">
+					<link href="css/all.min.css" rel="stylesheet">
+					<link href="css/style.css" rel="stylesheet">
+				</noscript>
+				<script nonce="' . htmlspecialchars($nonce) . '">
+					document.getElementById("bootstrap-css").rel = "stylesheet";
+					document.getElementById("all-css").rel = "stylesheet";
+					document.getElementById("style-css").rel = "stylesheet";
+				</script>
+				<style nonce="' . htmlspecialchars($nonce) . '">
+					.dashboard-table {
+						width: 100%;
+						border-collapse: collapse;
+					}
+					.dashboard-table td {
+						border: 1px solid #ddd;
+						width: 120px;
+						height: 120px;
+						padding: 0;
+					}
+					.dashboard-table .btn {
+						width: 100%;
+						height: 100%;
+						display: flex;
+						align-items: center;
+						justify-content: center;
+						padding: 0;
+						text-align: center;
+					}
+				</style>
+			</head>
+			<body>
+				<div class="container mt-5">
+					<div class="jumbotron text-center">
+						<h1 class="display-4">Zertifikats- Warnung</h1>
+						<p class="lead">Beim Klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
+						<hr class="my-4">
+						<p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)" aus.</p>
+						<table class="dashboard-table mx-auto">
+							<tr>
+								<td colspan="2">
+									<a class="btn btn-secondary btn-lg" href="index.php" role="button">Startseite anzeigen</a>
+								</td>
+							</tr>
+							<tr>
+								<td>
+									<a class="btn btn-success btn-lg" href="acceptance.php" role="button">Annehmen</a>
+								</td>
+								<td>
+									<a class="btn btn-warning btn-lg" href="cashier.php" role="button">Scannen</a>
+								</td>
+							</tr>
+							<tr>
+								<td>
+									<a class="btn btn-primary btn-lg" href="pickup.php" role="button">Abholen</a>
+								</td>
+								<td>
+									<a class="btn btn-danger btn-lg" href="admin_manage_sellers.php" role="button">Administrieren</a>
+								</td>
+							</tr>
+						</table>
+					</div>
+				</div>
+
+						<footer class="p-2 bg-light text-center fixed-bottom">
+						<div class="row justify-content-center">
+							<div class="col-lg-6 col-md-12">
+								<p class="m-0">
+
+								</p>
+							</div>
+						</div>
+					</footer>
+				
+				<script src="js/jquery-3.7.1.min.js" nonce="' . htmlspecialchars($nonce) . '"></script>
+				<script src="js/popper.min.js" nonce="' . htmlspecialchars($nonce) . '"></script>
+				<script src="js/bootstrap.min.js" nonce="' . htmlspecialchars($nonce) . '"></script>
+			</body>
+			</html>';
     exit;
 }
 

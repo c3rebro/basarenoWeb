@@ -154,7 +154,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_password'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Passwort setzen</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
     <style>
         .form-container {
             max-width: 500px;

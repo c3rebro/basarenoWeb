@@ -217,12 +217,12 @@ function initialize_database($conn) {
 function check_preconditions() {
     $preconditions = [
         'WiFi-Schnittstelle verfügbar' => shell_exec("iw dev wlan0 info") !== null,
-        'Hostapd-Dienst läuft' => (strpos(@shell_exec("systemctl is-active hostapd"), 'active') !== false),
-        'Dnsmasq-Dienst läuft' => (strpos(@shell_exec("systemctl is-active dnsmasq"), 'active') !== false),
-        'Hostapd-Konfiguration vorhanden' => @file_exists('/etc/hostapd/hostapd.conf'),
-        'Webserver läuft' => (strpos(@shell_exec("systemctl is-active lighttpd"), 'active') !== false || 
-                               strpos(@shell_exec("systemctl is-active nginx"), 'active') !== false || 
-                               strpos(@shell_exec("systemctl is-active apache2"), 'active') !== false),
+        'Hostapd-Dienst läuft' => (strpos(@shell_exec("systemctl is-active hostapd") ?? '', 'active') !== false),
+        'Dnsmasq-Dienst läuft' => (strpos(@shell_exec("systemctl is-active dnsmasq") ?? '', 'active') !== false),
+        'Hostapd-Konfiguration vorhanden' => @file_exists('/etc/hostapd/hostapd.conf') ?? '',
+        'Webserver läuft' => (strpos(@shell_exec("systemctl is-active lighttpd") ?? '', 'active') !== false || 
+                               strpos(@shell_exec("systemctl is-active nginx") ?? '', 'active') !== false || 
+                               strpos(@shell_exec("systemctl is-active apache2") ?? '', 'active') !== false),
         'Berechtigungen für Shell-Befehle' => is_executable('/bin/sh'),
         'Berechtigungen für Hostapd-Konfiguration' => is_readable('/etc/hostapd/hostapd.conf') && is_writable('/etc/hostapd/hostapd.conf'),
     ];

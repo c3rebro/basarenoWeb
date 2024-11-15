@@ -7,7 +7,7 @@ session_start([
 ]);
 
 $nonce = base64_encode(random_bytes(16));
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
 
 require_once 'utilities.php';
 
@@ -377,9 +377,20 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Bazaar Verwalten</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 	
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
@@ -410,14 +421,15 @@ $conn->close();
                     <a class="nav-link" href="system_log.php">Protokolle</a>
                 </li>
             </ul>
-            <ul class="navbar-nav ml-auto">
-                <li class="nav-itemml ml-auto">
-                    <a class="navbar-brand" href="#">
+            <hr class="d-lg-none d-block">
+            <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
                         <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
@@ -426,7 +438,7 @@ $conn->close();
     <div class="container">
     <!-- Hidden input for CSRF token -->
     <input type="hidden" id="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-
+    <h1 class="text-center mb-4 headline-responsive">Basarverwaltung</h1>
     <?php if ($message): ?>
         <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
             <?php echo $message; ?>

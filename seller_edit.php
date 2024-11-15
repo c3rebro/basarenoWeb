@@ -116,9 +116,20 @@ $conn->close();
 <head>
     <meta charset="UTF-8">
     <title>Verkäufer bearbeiten</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 </head>
 <body>
     <!-- Navbar -->
@@ -128,17 +139,15 @@ $conn->close();
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
+            <hr class="d-lg-none d-block">
             <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                    </a>
+                </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="seller_products.php">Artikel verwalten <span class="sr-only">(current)</span></a>
-                </li>
-                <li class="nav-item active">
-                    <a class="nav-link" href="seller_edit.php">Konto verwalten</a>
-                </li>
-            </ul>
-            <ul class="navbar-nav">
-                <li class="nav-item ml-auto">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>

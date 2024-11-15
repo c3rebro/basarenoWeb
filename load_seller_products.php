@@ -33,15 +33,19 @@ if ($result->num_rows > 0) {
 		
         echo "<tr>
                 <td>{$row['name']}</td>
-				<td>{$row['size']}</td>
+                <td>{$row['size']}</td>
                 <td>{$formatted_price}</td>
-				<td>
-                    <input type='checkbox' class='sold-checkbox' data-product-id='{$row['id']}' $sold_checked>
-                </td>
                 <td>
-                    <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
-                    <form action='admin_manage_sellers.php' method='post' style='display:inline-block'>
-						<input type='hidden' name='csrf_token' value='" . htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') . "'>
+                    <input type='checkbox' class='sold-checkbox' disabled data-product-id='{$row['id']}' $sold_checked>
+                </td>
+                <td class='text-center'>
+                    <button class='btn btn-warning btn-sm edit-product-btn' 
+                        data-id='{$row['id']}' 
+                        data-name='{$row['name']}' 
+                        data-size='{$row['size']}' 
+                        data-price='{$row['price']}'>Bearbeiten</button>
+                    <form class='inline-block action-cell' action='admin_manage_sellers.php' method='post'>
+			<input type='hidden' name='csrf_token' value='" . htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') . "'>
                         <input type='hidden' name='product_id' value='{$row['id']}'>
                         <input type='hidden' name='seller_id' value='{$seller_id}'>
                         <button type='submit' name='delete_product' class='btn btn-danger btn-sm'>Löschen</button>

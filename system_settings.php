@@ -1,9 +1,18 @@
 <?php
-session_start();
+// Start session with secure settings
+session_start([
+    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
+    'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
+]);
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
     header("location: login.php");
     exit;
 }
+
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
 
 require_once 'utilities.php';
 
@@ -149,14 +158,25 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Systemeinstellungen</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 </head>
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <a class="navbar-brand" href="dashboard.php">Bazaar Administration</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -178,21 +198,22 @@ $conn->close();
                     <a class="nav-link" href="system_log.php">Protokolle</a>
                 </li>
             </ul>
-            <ul class="navbar-nav ml-auto">
-                <li class="nav-itemml ml-auto">
-                    <a class="navbar-brand" href="#">
+            <hr class="d-lg-none d-block">
+            <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
                         <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
     </nav>
 
     <div class="container">
-        <h1 class="text-center mb-4">Systemeinstellungen</h1>
+        <h1 class="text-center mb-4 headline-responsive">Systemeinstellungen</h1>
                 <?php if ($message): ?>
                     <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
                         <?php echo $message; ?>
@@ -234,30 +255,30 @@ $conn->close();
                 <h3>Modus</h3>
                 <div class="form-group">
                     <label for="operationMode">Modus</label>
-                    <select name="operationMode" id="operationMode" class="form-control" onchange="toggleSettings()">
+                    <select name="operationMode" id="operationMode" class="form-control" id="toggleSettings">
                         <option value="online" <?php if ($currentSettings['operationMode'] == 'online') echo 'selected'; ?>>Online</option>
                         <option value="offline" <?php if ($currentSettings['operationMode'] == 'offline') echo 'selected'; ?>>Offline</option>
                     </select>
                 </div>
 
-                <div id="offlineSettings" style="display: none;">
+                <div class="hidden" id="offlineSettings">
                     <h4>Raspberry Pi Steuerung</h4>
                     <button type="submit" name="action" value="shutdown" class="btn btn-danger">Herunterfahren</button>
                     <button type="submit" name="action" value="restart" class="btn btn-warning">Neustarten</button>
                 </div>
 
                 <h4>WLAN Hotspot Einstellungen</h4>
-                <div class="form-group" id="ssidField" style="display: none;">
+                <div class="form-group hidden" id="ssidField">
                     <label for="wifi_ssid">Hotspot SSID</label>
                     <input type="text" name="wifi_ssid" class="form-control" id="wifi_ssid" value="<?php echo $currentSSID; ?>">
                 </div>
-                <div class="form-group" id="passwordField" style="display: none;">
+                <div class="form-group hidden" id="passwordField">
                     <label for="wifi_password">Hotspot Passwort</label>
                     <input type="password" name="wifi_password" class="form-control" id="wifi_password" value="<?php echo $currentPassword; ?>">
-                    <input type="checkbox" onclick="togglePasswordVisibility()"> Passwort anzeigen
+                    <input type="checkbox" id="togglePasswordCheckbox"> Passwort anzeigen
                 </div>
 
-                <div id="debugExpander" style="display: none;">
+                <div class="hidden" id="debugExpander">
                     <h5>Debugging Informationen</h5>
                     <table class="table table-borderless">
                         <?php foreach (check_preconditions() as $desc => $status): ?>
@@ -391,44 +412,54 @@ $conn->close();
         </footer>
     <?php endif; ?>
     
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-    <script>
-        function toggleSettings() {
-            var operationMode = document.getElementById('operationMode').value;
-            var ssidField = document.getElementById('ssidField');
-            var passwordField = document.getElementById('passwordField');
-            var offlineSettings = document.getElementById('offlineSettings');
-            var debugExpander = document.getElementById('debugExpander');
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script nonce="<?php echo $nonce; ?>">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Function to toggle settings based on operation mode
+            function toggleSettings() {
+                var operationMode = document.getElementById('operationMode').value;
+                var ssidField = document.getElementById('ssidField');
+                var passwordField = document.getElementById('passwordField');
+                var offlineSettings = document.getElementById('offlineSettings');
+                var debugExpander = document.getElementById('debugExpander');
 
-            if (operationMode === 'offline') {
-                ssidField.style.display = 'block';
-                passwordField.style.display = 'block';
-                document.getElementById('wifi_ssid').required = true;
-                document.getElementById('wifi_password').required = true;
-                offlineSettings.style.display = 'block';
-                debugExpander.style.display = 'block';
-            } else {
-                ssidField.style.display = 'none';
-                passwordField.style.display = 'none';
-                document.getElementById('wifi_ssid').required = false;
-                document.getElementById('wifi_password').required = false;
-                offlineSettings.style.display = 'none';
-                debugExpander.style.display = 'none';
+                if (operationMode === 'offline') {
+                    ssidField.style.display = 'block';
+                    passwordField.style.display = 'block';
+                    document.getElementById('wifi_ssid').required = true;
+                    document.getElementById('wifi_password').required = true;
+                    offlineSettings.style.display = 'block';
+                    debugExpander.style.display = 'block';
+                } else {
+                    ssidField.style.display = 'none';
+                    passwordField.style.display = 'none';
+                    document.getElementById('wifi_ssid').required = false;
+                    document.getElementById('wifi_password').required = false;
+                    offlineSettings.style.display = 'none';
+                    debugExpander.style.display = 'none';
+                }
             }
-        }
 
-        function togglePasswordVisibility() {
-            var passwordField = document.getElementById('wifi_password');
-            passwordField.type = passwordField.type === 'password' ? 'text' : 'password';
-        }
+            // Function to toggle password visibility
+            function togglePasswordVisibility() {
+                var passwordField = document.getElementById('wifi_password');
+                passwordField.type = passwordField.type === 'password' ? 'text' : 'password';
+            }
 
-        // Call toggleSettings on page load to set the initial state
-        toggleSettings();
+            // Add event listener for operationMode change
+            document.getElementById('operationMode').addEventListener('change', toggleSettings);
+
+            // Add event listener for password visibility checkbox
+            document.getElementById('togglePasswordCheckbox').addEventListener('change', togglePasswordVisibility);
+
+            // Call toggleSettings on page load to set the initial state
+            toggleSettings();
+        });
     </script>
     
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
             function toggleBackToTopButton() {

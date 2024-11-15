@@ -12,6 +12,40 @@ body {
     margin-bottom: 60px; /* Adjust this value to match the height of the footer */
 }
 
+/* Headline Styles */
+.headline-responsive {
+  font-size: 2rem; /* Default size for small devices */
+  font-weight: 400;
+}
+
+@media (min-width: 576px) {
+  .headline-responsive {
+    font-size: 3rem; /* Medium devices */
+    font-weight: 400;
+  }
+}
+
+@media (min-width: 768px) {
+  .headline-responsive {
+    font-size: 4rem; /* Large devices */
+    font-weight: 400;
+  }
+}
+
+@media (min-width: 992px) {
+  .headline-responsive {
+    font-size: 4.5rem; /* Extra large devices */
+    font-weight: 200;
+  }
+}
+
+@media (min-width: 1200px) {
+  .headline-responsive {
+    font-size: 5rem; /* Extra extra large devices */
+    font-weight: 200;
+  }
+}
+
 /* Navbar Styles */
 .navbar {
     position: fixed;
@@ -29,6 +63,22 @@ body {
     background: #f8f9fa !important;
 }
 
+.navbar-user {
+    display: inline-block;
+    padding-top: .3125rem;
+    padding-bottom: .3125rem;
+    margin-right: 1rem;
+    font-size: 1.25rem;
+    line-height: inherit;
+    white-space: nowrap;
+    font-size: 1.2rem;
+    margin-right: 20px;
+    color: rgba(0,0,0,.9);
+    margin-right: 20px; /* Add margin to separate from nav items */
+    padding: 10px; /* Optional: Add padding */
+    background: #f8f9fa !important;
+}
+
 .navbar-nav {
     flex-grow: 1;
     display: flex;
@@ -36,10 +86,43 @@ body {
     padding-left: 20px; /* Add padding to separate from brand */
 }
 
-/* Container Styles */
+.modal-xxl {
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+/* Container Responsive */
 .container {
     margin-top: 80px; /* Adjust this value based on your navbar's height */
-	margin-bottom: 80px; /* Adjust this value based on your navbar's height */
+    margin-bottom: 120px; /* Adjust this value based on your navbar's height */
+}
+
+@media (min-width: 576px) {
+  .container {
+    margin-top: 80px; /* Adjust this value based on your navbar's height */
+    margin-bottom: 120px; /* Adjust this value based on your navbar's height */
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    margin-top: 80px; /* Adjust this value based on your navbar's height */
+    margin-bottom: 80px; /* Adjust this value based on your navbar's height */
+  }
+}
+
+@media (min-width: 992px) {
+  .container {
+    margin-top: 80px; /* Adjust this value based on your navbar's height */
+    margin-bottom: 80px; /* Adjust this value based on your navbar's height */
+  }
+}
+
+@media (min-width: 1200px) {
+  .container {
+    margin-top: 80px; /* Adjust this value based on your navbar's height */
+    margin-bottom: 80px; /* Adjust this value based on your navbar's height */
+  }
 }
 
 /* Footer Styles */
@@ -115,6 +198,21 @@ video {
     margin-top: 1rem;
 }
 
+/* Responsive Table Styles */
+@media (max-width: 576px) {
+    .table-responsive {
+        overflow-x: auto;
+    }
+
+    /* Adjust font size for better visibility on small screens */
+    .table th, .table td {
+        font-size: 0.8rem; /* Slightly smaller text */
+        white-space: normal !important; /* Allow text to wrap */
+        word-wrap: break-word; /* Break long words */
+        max-width: 300px;
+    }
+}
+
 @media (max-width: 768px) {
     .table-responsive {
         overflow-x: auto;
@@ -145,10 +243,10 @@ video {
 .login-container {
     max-width: 400px;
     margin-left: auto;
-	margin-right: auto;
+    margin-right: auto;
     padding-top: 50px;
-	margin-top: 80px;
-	margin-bottom: 80px;
+    margin-top: 80px;
+    margin-bottom: 80px;
 }
 
 /* Admin Manage Bazaar Page Styles */
@@ -200,6 +298,11 @@ video {
 
 /* New Styles from admin_manage_sellers.php */
 
+/* Fee Paid Row */
+.fee-paid {
+    background-color: #d4edda; /* Light green background for paid fees */
+}
+
 /* Action Cell */
 .action-cell {
     text-align: center;
@@ -216,10 +319,54 @@ video {
     background-color: #d4edda;
 }
 
+/* Responsive Design Adjustments */
+@media (max-width: 576px) {
+    .navbar-nav {
+        text-align: center;
+    }
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+    .table th, .table td {
+        font-size: 0.9rem;
+    }
+    .form-inline input, .form-inline button {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
+
 /* Print Styles */
 @media print {
-    @page {
-        size: landscape;
+    body {
+        margin: 0;
+        margin-top: -80px !important;
+        padding: 0;
+    }
+
+    .table td {
+        padding: 0.4rem;
+    }
+    .barcode-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .barcode-table td {
+        border: 1px solid black;
+        white-space: normal !important;
+        width: 6cm;
+        height: 4cm;
+        text-align: left;
+        vertical-align: top;
+        padding: 5px;
+        position: relative;
+    }
+
+    .no-print {
+        display: none !important; /* Buttons are always hidden during print */
+    }
+    .no-print-brokerage .provision {
+        display: none !important; /* "Provision" elements are hidden during print when no-print-brokerage is applied */
     }
 }
 
@@ -295,6 +442,7 @@ td.username {
 }
 
 .barcode-table td {
+    white-space: normal !important;
     border: 1px solid black;
     width: 6cm;
     height: 4cm;
@@ -352,22 +500,6 @@ td.username {
     margin-top: 10px;
 }
 
-@media print {
-    body {
-        margin: 0;
-        padding: 0;
-    }
-    .barcode-table td {
-        border: 1px solid black;
-        width: 6cm;
-        height: 4cm;
-        text-align: left;
-        vertical-align: top;
-        padding: 5px;
-        position: relative;
-    }
-}
-
 /* New Styles from seller_products.php */
 .action-buttons {
     display: flex;
@@ -378,4 +510,11 @@ td.username {
 
 .action-buttons .btn {
     margin-bottom: 10px;
+}
+
+/* New Styles from pickup.php */
+.signature-pad {
+    border: 1px solid #000;
+    width: 100%;
+    height: 200px;
 }

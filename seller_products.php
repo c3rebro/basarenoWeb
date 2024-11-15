@@ -6,6 +6,9 @@ session_start([
     'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
 ]);
 
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 require_once 'utilities.php';
 
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'seller')) {
@@ -32,30 +35,43 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 if ($result->num_rows == 0) {
-    echo "
+    echo '
         <!DOCTYPE html>
-        <html lang='de'>
+        <html lang="de">
         <head>
-            <meta charset='UTF-8'>
-            <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
-            <title>Verkäufer-ID Verifizierung</title>
-            <link href='css/bootstrap.min.css' rel='stylesheet'>
-        </head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Hinweis zur Zertifikatssicherheit</title>
+                <!-- Preload and link CSS files -->
+                <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+                <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+                <link rel="preload" href="css/style.css" as="style" id="style-css">
+                <noscript>
+                        <link href="css/bootstrap.min.css" rel="stylesheet">
+                        <link href="css/all.min.css" rel="stylesheet">
+                        <link href="css/style.css" rel="stylesheet">
+                </noscript>
+                <script nonce="' . htmlspecialchars($nonce) . '">
+                        document.getElementById("bootstrap-css").rel = "stylesheet";
+                        document.getElementById("all-css").rel = "stylesheet";
+                        document.getElementById("style-css").rel = "stylesheet";
+                </script>
+            </head>
         <body>
-            <div class='container'>
-                <div class='alert alert-warning mt-5'>
-                    <h4 class='alert-heading'>Ungültige oder nicht verifizierte Verkäufer-ID oder Hash.</h4>
+            <div class="container">
+                <div class="alert alert-warning mt-5">
+                    <h4 class="alert-heading">Ungültige oder nicht verifizierte Verkäufer-ID oder Hash.</h4>
                     <p>Bitte überprüfen Sie Ihre Verkäufer-ID und versuchen Sie es erneut.</p>
                     <hr>
-                    <p class='mb-0'>Haben Sie auf den Verifizierungslink in der E-Mail geklickt?</p>
+                    <p class="mb-0">Haben Sie auf den Verifizierungslink in der E-Mail geklickt?</p>
                 </div>
             </div>
-            <script src='js/jquery-3.7.1.min.js'></script>
-            <script src='js/popper.min.js'></script>
-            <script src='js/bootstrap.min.js'></script>
+            <script src="js/jquery-3.7.1.min.js" nonce="' . htmlspecialchars($nonce) . '"></script>
+            <script src="js/popper.min.js" nonce="' . htmlspecialchars($nonce) . '"></script>
+            <script src="js/bootstrap.min.js" nonce="' . htmlspecialchars($nonce) . '"></script>
         </body>
         </html>
-        ";
+        ';
     exit();
 }
 
@@ -250,9 +266,20 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Artikel erstellen - Verkäufernummer: <?php echo $seller_id; ?></title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 </head>
 <body>
     <!-- Navbar -->
@@ -270,14 +297,15 @@ $conn->close();
                     <a class="nav-link" href="seller_edit.php">Konto verwalten</a>
                 </li>
             </ul>
-            <ul class="navbar-nav ml-auto">
-                <li class="nav-itemml ml-auto">
-                    <a class="nav-link" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($email); ?>
+            <hr class="d-lg-none d-block">
+            <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
@@ -286,7 +314,7 @@ $conn->close();
     <div class="container">
         <h1 class="mt-5">Artikel erstellen - Verkäufernummer: <?php echo $seller_id; ?></h1>
         <div class="action-buttons">
-            <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post" class="w-100">
+            <form action="seller_products.php" method="post" class="w-100">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                 <div class="form-row">
                     <div class="form-group col-md-4">
@@ -327,9 +355,13 @@ $conn->close();
                                     <td>{$row['name']}</td>
                                     <td>{$row['size']}</td>
                                     <td>{$formatted_price}</td>
-                                    <td>
-                                        <button class='btn btn-warning btn-sm' onclick='editProduct({$row['id']}, \"{$row['name']}\", \"{$row['size']}\", {$row['price']})'>Bearbeiten</button>
-                                        <form action='seller_products.php?seller_id=$seller_id&hash=$hash' method='post' style='display:inline-block'>
+                                    <td class='text-center p-2'>
+                                        <button class='btn btn-warning btn-sm edit-product-btn' 
+                                            data-id='{$row['id']}' 
+                                            data-name='{$row['name']}' 
+                                            data-size='{$row['size']}' 
+                                            data-price='{$row['price']}'>Bearbeiten</button>
+                                        <form class='inline-block' action='seller_products.php' method='post'>
                                             <input type='hidden' name='csrf_token' value='" . htmlspecialchars(generate_csrf_token()) . "'>
                                             <input type='hidden' name='product_id' value='{$row['id']}'>
                                             <button type='submit' name='delete_product' class='btn btn-danger btn-sm'>Löschen</button>
@@ -343,7 +375,7 @@ $conn->close();
                     ?>
                 </tbody>
             </table>
-            <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
+            <form action="seller_products.php" method="post">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                 <button type="submit" class="btn btn-danger mb-3" name="delete_all_products">Alle Artikel löschen</button>
             </form>
@@ -353,7 +385,7 @@ $conn->close();
         <div class="modal fade" id="editProductModal" tabindex="-1" role="dialog" aria-labelledby="editProductModalLabel" aria-hidden="true">
             <div class="modal-dialog" role="document">
                 <div class="modal-content">
-                    <form action="seller_products.php?seller_id=<?php echo $seller_id; ?>&hash=<?php echo $hash; ?>" method="post">
+                    <form action="seller_products.php" method="post">
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                         <div class="modal-header">
                             <h5 class="modal-title" id="editProductModalLabel">Artikel bearbeiten</h5>
@@ -419,20 +451,33 @@ $conn->close();
         </footer>
     <?php endif; ?>
 	
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-    <script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script nonce="<?php echo $nonce; ?>">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Attach event listeners to the edit buttons
+            document.querySelectorAll('.edit-product-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const productId = this.getAttribute('data-id');
+                    const productName = this.getAttribute('data-name');
+                    const productSize = this.getAttribute('data-size');
+                    const productPrice = this.getAttribute('data-price');
+                    editProduct(productId, productName, productSize, parseFloat(productPrice));
+                });
+            });
+        });
+        
         function editProduct(id, name, size, price) {
-            $('#editProductId').val(id);
-            $('#editProductName').val(name);
-            $('#editProductSize').val(size);
-            $('#editProductPrice').val(price.toFixed(2));
+            document.getElementById('editProductId').value = id;
+            document.getElementById('editProductName').value = name;
+            document.getElementById('editProductSize').value = size;
+            document.getElementById('editProductPrice').value = price.toFixed(2);
             $('#editProductModal').modal('show');
         }
     </script>
     <?php if (isset($validation_message)) { ?>
-        <script>
+        <script nonce="<?php echo $nonce; ?>">
             $(document).ready(function() {
                 $('#priceValidationModal .modal-body').text('<?php echo $validation_message; ?>');
                 $('#priceValidationModal').modal('show');
@@ -440,7 +485,7 @@ $conn->close();
         </script>
     <?php } ?>
     <?php if (isset($update_validation_message)) { ?>
-        <script>
+        <script nonce="<?php echo $nonce; ?>">
             $(document).ready(function() {
                 $('#editProductAlert').text('<?php echo $update_validation_message; ?>').removeClass('d-none');
                 $('#editProductModal').modal('show');

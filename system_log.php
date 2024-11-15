@@ -6,6 +6,9 @@ session_start([
     'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
 ]);
 
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 require_once 'utilities.php';
 
 // Ensure the user is an admin
@@ -46,15 +49,26 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Systemprotokoll</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 	
 </head>
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Bazaar Administration</a>
+        <a class="navbar-brand" href="dashboard.php">Bazaar Administration</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -76,21 +90,22 @@ $conn->close();
                     <a class="nav-link" href="system_log.php">Protokolle</a>
                 </li>
             </ul>
-            <ul class="navbar-nav ml-auto">
-                <li class="nav-itemml ml-auto">
-                    <a class="navbar-brand" href="#">
+            <hr class="d-lg-none d-block">
+            <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
                         <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
     </nav>
 	
     <div class="container">
-        <h1 class="mb-4">Systemprotokoll</h1>
+        <h1 class="text-center mb-4 headline-responsive">Protokolle</h1>
         <?php if ($message): ?>
             <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
                 <?php echo $message; ?>
@@ -124,7 +139,7 @@ $conn->close();
                     </select>
                 </div>
             </div>
-            <button class="btn btn-primary" onclick="applyFilters()">Anwenden</button>
+            <button class="btn btn-primary" id="applyFiltersButton">Anwenden</button>
         </div>
 
         <div class="table-responsive">
@@ -138,17 +153,17 @@ $conn->close();
                     </tr>
                 </thead>
                 <tbody>
-					<?php foreach ($logs as $log):
-						$username = $log['username'] ?? 'Guest'; // Use 'Guest' if username is null
-						$details = $log['details'] ?? 'No details available'; // Provide a default value for details
-					?>
-						<tr data-timestamp="<?php echo strtotime($log['timestamp']); ?>">
-							<td><?php echo htmlspecialchars($log['timestamp']); ?></td>
-							<td><?php echo htmlspecialchars($username); ?></td>
-							<td><?php echo htmlspecialchars($log['action']); ?></td>
-							<td><?php echo htmlspecialchars($details); ?></td>
-						</tr>
-					<?php endforeach; ?>
+                    <?php foreach ($logs as $log):
+                            $username = $log['username'] ?? 'Guest'; // Use 'Guest' if username is null
+                            $details = $log['details'] ?? 'No details available'; // Provide a default value for details
+                    ?>
+                            <tr data-timestamp="<?php echo strtotime($log['timestamp']); ?>">
+                                    <td><?php echo htmlspecialchars($log['timestamp']); ?></td>
+                                    <td><?php echo htmlspecialchars($username); ?></td>
+                                    <td><?php echo htmlspecialchars($log['action']); ?></td>
+                                    <td><?php echo htmlspecialchars($details); ?></td>
+                            </tr>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
@@ -169,117 +184,121 @@ $conn->close();
         </footer>
     <?php endif; ?>
 	
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-	<script>
-		function applyFilters() {
-			var filterAction = $('#filterAction').val().toLowerCase();
-			var sortOption = $('#sortOptions').val();
-			var groupOption = $('#groupOptions').val();
-			var rows = $('#logsTable tbody tr').get();
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script nonce="<?php echo $nonce; ?>">
+            document.addEventListener('DOMContentLoaded', function() {
+                function applyFilters() {
+                    var filterAction = $('#filterAction').val().toLowerCase();
+                    var sortOption = $('#sortOptions').val();
+                    var groupOption = $('#groupOptions').val();
+                    var rows = $('#logsTable tbody tr').get();
 
-			// Filter rows
-			rows.forEach(function(row) {
-				var action = $(row).find('td:eq(2)').text().toLowerCase();
-				$(row).toggle(action.includes(filterAction));
-			});
+                    // Filter rows
+                    rows.forEach(function(row) {
+                        var action = $(row).find('td:eq(2)').text().toLowerCase();
+                        $(row).toggle(action.includes(filterAction));
+                    });
 
-			// Sort rows
-			rows.sort(function(a, b) {
-				var valA, valB;
-				switch (sortOption) {
-					case 'timestamp_asc':
-						valA = new Date($(a).find('td:eq(0)').text());
-						valB = new Date($(b).find('td:eq(0)').text());
-						return valA - valB;
-					case 'timestamp_desc':
-						valA = new Date($(a).find('td:eq(0)').text());
-						valB = new Date($(b).find('td:eq(0)').text());
-						return valB - valA;
-					case 'username_asc':
-						valA = $(a).find('td:eq(1)').text().toLowerCase();
-						valB = $(b).find('td:eq(1)').text().toLowerCase();
-						return valA.localeCompare(valB);
-					case 'username_desc':
-						valA = $(a).find('td:eq(1)').text().toLowerCase();
-						valB = $(b).find('td:eq(1)').text().toLowerCase();
-						return valB.localeCompare(valA);
-				}
-			});
+                    // Sort rows
+                    rows.sort(function(a, b) {
+                        var valA, valB;
+                        switch (sortOption) {
+                            case 'timestamp_asc':
+                                valA = new Date($(a).find('td:eq(0)').text());
+                                valB = new Date($(b).find('td:eq(0)').text());
+                                return valA - valB;
+                            case 'timestamp_desc':
+                                valA = new Date($(a).find('td:eq(0)').text());
+                                valB = new Date($(b).find('td:eq(0)').text());
+                                return valB - valA;
+                            case 'username_asc':
+                                valA = $(a).find('td:eq(1)').text().toLowerCase();
+                                valB = $(b).find('td:eq(1)').text().toLowerCase();
+                                return valA.localeCompare(valB);
+                            case 'username_desc':
+                                valA = $(a).find('td:eq(1)').text().toLowerCase();
+                                valB = $(b).find('td:eq(1)').text().toLowerCase();
+                                return valB.localeCompare(valA);
+                        }
+                    });
 
-			$.each(rows, function(index, row) {
-				$('#logsTable tbody').append(row);
-			});
+                    $.each(rows, function(index, row) {
+                        $('#logsTable tbody').append(row);
+                    });
 
-			// Group rows
-			$('#logsTable tbody').empty(); // Clear previous group headers
-			if (groupOption !== 'none') {
-				var groupedRows = {};
-				rows.forEach(function(row) {
-					var timestamp = $(row).data('timestamp');
-					// Convert Unix timestamp (seconds) to milliseconds
-					var date = new Date(timestamp * 1000);
-					if (isNaN(date)) {
-						console.error("Invalid Date:", timestamp);
-						return;
-					}
+                    // Group rows
+                    $('#logsTable tbody').empty(); // Clear previous group headers
+                    if (groupOption !== 'none') {
+                        var groupedRows = {};
+                        rows.forEach(function(row) {
+                            var timestamp = $(row).data('timestamp');
+                            // Convert Unix timestamp (seconds) to milliseconds
+                            var date = new Date(timestamp * 1000);
+                            if (isNaN(date)) {
+                                console.error("Invalid Date:", timestamp);
+                                return;
+                            }
 
-					var key;
-					switch (groupOption) {
-						case 'week':
-							key = getISOWeek(date);
-							break;
-						case 'month':
-							key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
-							break;
-						case 'year':
-							key = date.getFullYear();
-							break;
-					}
-					if (!groupedRows[key]) {
-						groupedRows[key] = [];
-					}
-					groupedRows[key].push(row);
-				});
+                            var key;
+                            switch (groupOption) {
+                                case 'week':
+                                    key = getISOWeek(date);
+                                    break;
+                                case 'month':
+                                    key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+                                    break;
+                                case 'year':
+                                    key = date.getFullYear();
+                                    break;
+                            }
+                            if (!groupedRows[key]) {
+                                groupedRows[key] = [];
+                            }
+                            groupedRows[key].push(row);
+                        });
 
-				$.each(groupedRows, function(key, group) {
-					var groupHeader = $('<tr class="group-header"><td colspan="4">' + key + '</td></tr>');
-					groupHeader.click(function() {
-						$(this).nextUntil('.group-header').toggle();
-					});
-					$('#logsTable tbody').append(groupHeader);
-					group.forEach(function(row) {
-						$(row).addClass('hidden');
-						$('#logsTable tbody').append(row);
-					});
-				});
-			} else {
-				rows.forEach(function(row) {
-					$('#logsTable tbody').append(row);
-				});
-			}
-		}
+                        $.each(groupedRows, function(key, group) {
+                            var groupHeader = $('<tr class="group-header"><td colspan="4">' + key + '</td></tr>');
+                            groupHeader.click(function() {
+                                $(this).nextUntil('.group-header').toggle();
+                            });
+                            $('#logsTable tbody').append(groupHeader);
+                            group.forEach(function(row) {
+                                $(row).addClass('hidden');
+                                $('#logsTable tbody').append(row);
+                            });
+                        });
+                    } else {
+                        rows.forEach(function(row) {
+                            $('#logsTable tbody').append(row);
+                        });
+                    }
+                }
 
-		function getISOWeek(date) {
-			var target = new Date(date.valueOf());
-			var dayNr = (date.getDay() + 6) % 7;
-			target.setDate(target.getDate() - dayNr + 3);
-			var firstThursday = target.valueOf();
-			target.setMonth(0, 1);
-			if (target.getDay() !== 4) {
-				target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
-			}
-			var weekNumber = 1 + Math.ceil((firstThursday - target) / 604800000);
-			return date.getFullYear() + '-W' + String(weekNumber).padStart(2, '0');
-		}
+                function getISOWeek(date) {
+                    var target = new Date(date.valueOf());
+                    var dayNr = (date.getDay() + 6) % 7;
+                    target.setDate(target.getDate() - dayNr + 3);
+                    var firstThursday = target.valueOf();
+                    target.setMonth(0, 1);
+                    if (target.getDay() !== 4) {
+                        target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+                    }
+                    var weekNumber = 1 + Math.ceil((firstThursday - target) / 604800000);
+                    return date.getFullYear() + '-W' + String(weekNumber).padStart(2, '0');
+                }
 
-		$(document).ready(function() {
-			applyFilters(); // Apply default filters on page load
-		});
-	</script>
+                // Add event listener for "Anwenden" button
+                document.getElementById('applyFiltersButton').addEventListener('click', applyFilters);
+
+                // Apply default filters on page load
+                applyFilters();
+            });
+        </script>
 	
-	<script>
+	<script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
 			function toggleBackToTopButton() {

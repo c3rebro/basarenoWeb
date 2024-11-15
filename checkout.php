@@ -6,6 +6,9 @@ session_start([
     'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
 ]);
 
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 require_once 'utilities.php';
 
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
@@ -67,27 +70,27 @@ if ($result->num_rows > 0) {
 
 if ($seller['verified'] != 1) {
     echo "
-<!DOCTYPE html>
-<html lang='de'>
-<head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
-    <title>Unverifizierter Verkäufer</title>
-    <link href='css/bootstrap.min.css' rel='stylesheet'>
-</head>
-<body>
-    <div class='container'>
-        <div class='alert alert-danger mt-5'>
-            <h4 class='alert-heading'>Unverifizierte Verkäufer können nicht abgerechnet werden.</h4>
-            <p>Bitte verifizieren Sie Ihren Account, um fortzufahren.</p>
-        </div>
-    </div>
-    <script src='js/jquery-3.7.1.min.js'></script>
-    <script src='js/popper.min.js'></script>
-    <script src='js/bootstrap.min.js'></script>
-</body>
-</html>
-";
+        <!DOCTYPE html>
+        <html lang='de'>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
+            <title>Unverifizierter Verkäufer</title>
+            <link href='css/bootstrap.min.css' rel='stylesheet'>
+        </head>
+        <body>
+            <div class='container'>
+                <div class='alert alert-danger mt-5'>
+                    <h4 class='alert-heading'>Unverifizierte Verkäufer können nicht abgerechnet werden.</h4>
+                    <p>Bitte verifizieren Sie Ihren Account, um fortzufahren.</p>
+                </div>
+            </div>
+            <script src='js/jquery-3.7.1.min.js'></script>
+            <script src='js/popper.min.js'></script>
+            <script src='js/bootstrap.min.js'></script>
+        </body>
+        </html>
+        ";
     exit();
 }
 
@@ -215,29 +218,42 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Checkout - Verkäufer: <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> (Verkäufer Nr.: <?php echo htmlspecialchars($seller['id']); ?>) {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 	
 </head>
 <body>
 	<!-- Navbar -->
 	<nav class="navbar navbar-expand-lg navbar-light">
-		<a class="navbar-brand" href="admin_manage_sellers.php">Verkäufer verwalten</a>
-		<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-			<span class="navbar-toggler-icon"></span>
-		</button>
-		<div class="collapse navbar-collapse" id="navbarNav">
-			<ul class="navbar-nav">
-				<li class="nav-item active">
-					<a class="nav-link" href="#">Verkäufer abrechnen <span class="sr-only">(current)</span></a>
-				</li>
-			</ul>
-			<ul class="navbar-nav ml-auto">
-				<li class="nav-item">
-					<a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
-				</li>
-			</ul>
-		</div>
+            <a class="navbar-brand" href="admin_manage_sellers.php">Verkäufer verwalten</a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <hr class="d-lg-none d-block">
+                <ul class="navbar-nav">
+                    <li class="nav-item ml-lg-auto">
+                        <a class="navbar-user" href="#">
+                            <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
+                    </li>
+                </ul>
+            </div>
 	</nav>
     <div class="container">	
         <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</h3>
@@ -300,10 +316,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
         <button id="printWithoutBrokerage" class="btn btn-secondary btn-block mt-3 no-print">Drucken (ohne Provision)</button>
         <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3 mb-5 no-print">Zurück zu Verkäufer verwalten</a>
     </div>
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-	<script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script nonce="<?php echo $nonce; ?>">
 		document.getElementById('printWithBrokerage').addEventListener('click', function() {
 			window.print();
 		});

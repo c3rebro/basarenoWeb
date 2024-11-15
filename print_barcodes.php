@@ -84,9 +84,20 @@ $conn->close();
 <head>
     <meta charset="UTF-8">
     <title>Etiketten drucken</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 	
 </head>
 <body>
@@ -146,8 +157,8 @@ $conn->close();
         </table>
         <button onclick="window.print()" class="btn btn-primary mt-3 no-print">Drucken</button>
     </div>
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>
 </html>

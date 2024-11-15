@@ -6,6 +6,9 @@ session_start([
     'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
 ]);
 
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce' blob:; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 require_once 'utilities.php';
 
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier')) {
@@ -105,11 +108,22 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Kassierer</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
-    <script src="js/quagga.min.js"></script>
-    <script>
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
+    <script src="js/quagga.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script nonce="<?php echo $nonce; ?>">
         document.addEventListener('DOMContentLoaded', function() {
             console.log("Document loaded");
 
@@ -212,14 +226,15 @@ $conn->close();
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav ml-auto">
-                <li class="nav-itemml ml-auto">
-                    <a class="navbar-brand" href="#">
+            <hr class="d-lg-none d-block">
+            <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
                         <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
@@ -241,7 +256,7 @@ $conn->close();
         </div>
         <div class="button-container text-center">
             <button id="start-scanner" class="btn btn-primary btn-full-width">Start Scanner</button>
-            <button id="stop-scanner" class="btn btn-secondary btn-full-width" style="display:none;">Stop Scanner</button>
+            <button id="stop-scanner" class="btn btn-secondary btn-full-width hidden">Stop Scanner</button>
         </div>
         <form id="scan-form" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
             <input type="hidden" id="barcode" name="barcode">
@@ -287,7 +302,7 @@ $conn->close();
                                     <td><?php echo number_format($product['price'], 2, ',', '.'); ?> €</td>
                                     <td><?php echo htmlspecialchars($product['seller_id']); ?></td>
                                     <td>
-                                        <form action="cashier.php?nocache=<?php echo time(); ?>" method="post" style="display:inline-block">
+                                        <form class="d-block" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
                                             <input type="hidden" name="product_id" value="<?php echo htmlspecialchars($product['id']); ?>">
                                             <button type="submit" name="unsell_product" class="btn btn-danger btn-sm">Entfernen</button>
                                         </form>
@@ -315,11 +330,11 @@ $conn->close();
         </footer>
     <?php endif; ?>
 
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             function toggleBackToTopButton() {
                 const scrollTop = $(window).scrollTop();

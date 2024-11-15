@@ -6,6 +6,9 @@ session_start([
     'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
 ]);
 
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
     header("location: login.php");
     exit;
@@ -24,6 +27,20 @@ $username = $_SESSION['username'] ?? '';
 
 // Generate CSRF token for the form
 $csrf_token = generate_csrf_token();
+
+// Handle setting session variables for product creation
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_session'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
+        echo json_encode(['success' => false, 'error' => 'CSRF token validation failed.']);
+        exit;
+    }
+
+    $_SESSION['seller_id'] = intval($_POST['seller_id']);
+    $_SESSION['seller_hash'] = $_POST['hash'];
+
+    echo json_encode(['success' => true]);
+    exit;
+}
 
 // Handle seller addition
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
@@ -95,60 +112,77 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
 	$verified = isset($_POST['verified']) ? 1 : 0;
 
 	if (empty($family_name) || empty($email)) {
-		$error = "Erforderliche Felder fehlen.";
+            $message_type = 'danger';
+            $message = "Erforderliche Felder fehlen.";
 	} elseif (!is_checkout_id_unique($conn, $checkout_id, $seller_id)) {
-		$error = "Checkout ID bereits vorhanden.";
+            $message_type = 'danger';
+            $message = "Checkout ID bereits vorhanden.";
 	} else {
 		$stmt = $conn->prepare("UPDATE sellers SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?, verified=?, checkout_id=? WHERE id=?");
 		$stmt->bind_param("ssssssssisi", $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $verified, $checkout_id, $seller_id);
 
 		if ($stmt->execute()) {
-			$success = "Verkäufer erfolgreich aktualisiert.";
+                    $message_type = 'success';
+                    $message = "Verkäufer erfolgreich aktualisiert.";
 			log_action($conn, $user_id, "Seller updated", "ID=$seller_id, Name=$family_name, Email=$email, Verified=$verified");
 		} else {
-			$error = "Fehler beim Aktualisieren des Verkäufers: " . $conn->error;
-			log_action($conn, $user_id, "Error updating seller", $conn->error);
+                    $message_type = 'danger';
+                    $message = "Fehler beim Aktualisieren des Verkäufers: " . $conn->error;
+                    log_action($conn, $user_id, "Error updating seller", $conn->error);
 		}
 	}
 }
 
 // Handle seller deletion
+// Handle seller deletion
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_seller'])) {
     if (!validate_csrf_token($_POST['csrf_token'])) {
-        log_action($conn, $user_id, "CSRF token validation failed for editing seller");
-		
+        log_action($conn, $user_id, "CSRF token validation failed for deleting seller");
         die("CSRF token validation failed.");
     }
-	
-	$seller_id = intval($_POST['seller_id']);
-	$delete_products = isset($_POST['delete_products']) ? $_POST['delete_products'] : false;
 
-	if (seller_has_products($conn, $seller_id)) {
-		if ($delete_products) {
-			$stmt = $conn->prepare("DELETE FROM products WHERE seller_id=?");
-			$stmt->bind_param("i", $seller_id);
-			if ($stmt->execute()) {
-				log_action($conn, $user_id, "Products deleted for seller", "Seller ID=$seller_id");
-			} else {
-				$error = "Fehler beim Löschen der Produkte: " . $conn->error;
-				log_action($conn, $user_id, "Error deleting products", $conn->error);
-			}
-		} else {
-			$error = "Dieser Verkäufer hat noch Produkte. Möchten Sie wirklich fortfahren?";
-		}
-	}
+    $seller_id = intval($_POST['seller_id']);
+    $delete_products = isset($_POST['delete_products']) ? $_POST['delete_products'] : false;
 
-	if (empty($error)) {
-		$stmt = $conn->prepare("DELETE FROM sellers WHERE id=?");
-		$stmt->bind_param("i", $seller_id);
-		if ($stmt->execute()) {
-			$success = "Verkäufer erfolgreich gelöscht.";
-			log_action($conn, $user_id, "Seller deleted", "ID=$seller_id");
-		} else {
-			$error = "Fehler beim Löschen des Verkäufers: " . $conn->error;
-			log_action($conn, $user_id, "Error deleting seller", $conn->error);
-		}
-	}
+    if (seller_has_products($conn, $seller_id)) {
+        if ($delete_products) {
+            // Attempt to delete products
+            $stmt = $conn->prepare("DELETE FROM products WHERE seller_id=?");
+            $stmt->bind_param("i", $seller_id);
+            $deletion_successful = $stmt->execute();
+
+            if ($deletion_successful) {
+                log_action($conn, $user_id, "Products deleted for seller", "Seller ID=$seller_id");
+            } else {
+                $message_type = 'danger';
+                $message = "Fehler beim Löschen der Produkte: " . $conn->error;
+                log_action($conn, $user_id, "Error deleting products", $conn->error);
+            }
+        } else {
+            // Inform the user that products must be deleted first
+            $message_type = 'danger';
+            $message = "Dieser Verkäufer hat noch Produkte. Möchten Sie wirklich fortfahren?";
+            return; // Exit the function early to prevent seller deletion
+        }
+    } else {
+        // If no products exist, set deletion_successful to true
+        $deletion_successful = true;
+    }
+
+    // Proceed to delete the seller if products were deleted successfully or there were no products
+    if ($deletion_successful) {
+        $stmt = $conn->prepare("DELETE FROM sellers WHERE id=?");
+        $stmt->bind_param("i", $seller_id);
+        if ($stmt->execute()) {
+            $message_type = 'success';
+            $message = "Verkäufer erfolgreich gelöscht.";
+            log_action($conn, $user_id, "Seller deleted", "ID=$seller_id");
+        } else {
+            $message_type = 'danger';
+            $message = "Fehler beim Löschen des Verkäufers: " . $conn->error;
+            log_action($conn, $user_id, "Error deleting seller", $conn->error);
+        }
+    }
 }
 
 // Handle CSV import
@@ -342,9 +376,20 @@ $conn->close();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Verkäufer Verwalten</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
 	
 </head>
 <body>
@@ -372,14 +417,15 @@ $conn->close();
                     <a class="nav-link" href="system_log.php">Protokolle</a>
                 </li>
             </ul>
-            <ul class="navbar-nav ml-auto">
-                <li class="nav-itemml ml-auto">
-                    <a class="navbar-brand" href="#">
+            <hr class="d-lg-none d-block">
+            <ul class="navbar-nav">
+                <li class="nav-item ml-lg-auto">
+                    <a class="navbar-user" href="#">
                         <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
             </ul>
         </div>
@@ -388,7 +434,7 @@ $conn->close();
     <div class="container">
 		<!-- Hidden input for CSRF token -->
 		<input type="hidden" id="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-
+                <h1 class="text-center mb-4 headline-responsive">Verkäuferverwaltung</h1>
 		<?php if ($message): ?>
             <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
                 <?php echo $message; ?>
@@ -494,77 +540,77 @@ $conn->close();
         <div class="table-responsive">
             <table class="table table-bordered mt-3">
                 <thead>
-					<tr>
-						<th>Verk.Nr.</th>
-						<th>Abr.Nr.</th>
-						<th>Nachname</th>
-						<th>Vorname</th>
-						<th>E-Mail</th>
-						<th>Verifiziert</th>
-						<th style="display: none;">Telefon</th> <!-- Hidden Column -->
-						<th style="display: none;">Straße</th> <!-- Hidden Column -->
-						<th style="display: none;">Nr.</th> <!-- Hidden Column -->
-						<th style="display: none;">PLZ</th> <!-- Hidden Column -->
-						<th style="display: none;">Stadt</th> <!-- Hidden Column -->
-						<th>Aktionen</th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php
-					if ($sellers_result->num_rows > 0) {
-						while ($row = $sellers_result->fetch_assoc()) {
-							$hash = htmlspecialchars($row['hash'], ENT_QUOTES, 'UTF-8');
-							$checkout_class = $row['checkout'] ? 'done' : '';
-							echo "<tr class='$checkout_class'>
-									<td>" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td>" . htmlspecialchars($row['checkout_id'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td>" . htmlspecialchars($row['family_name'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td>" . htmlspecialchars($row['given_name'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td>" . htmlspecialchars($row['email'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td>" . ($row['verified'] ? 'Ja' : 'Nein') . "</td>
-									<td style='display: none;'>" . htmlspecialchars($row['phone'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td style='display: none;'>" . htmlspecialchars($row['street'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td style='display: none;'>" . htmlspecialchars($row['house_number'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td style='display: none;'>" . htmlspecialchars($row['zip'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td style='display: none;'>" . htmlspecialchars($row['city'], ENT_QUOTES, 'UTF-8') . "</td>
-									<td class='action-cell'>
-										<select class='form-control action-dropdown' data-seller-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "' data-seller-hash='$hash'>
-											<option value=''>Aktion wählen</option>
-											<option value='checkout'>Abrechnen</option>
-											<option value='edit'>Bearbeiten</option>
-											<option value='delete'>Löschen</option>
-											<option value='show_products'>Produkte anzeigen</option>
-											<option value='create_products'>Produkte erstellen</option>
-										</select>
-										<button class='btn btn-primary btn-sm execute-action' data-seller-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
-									</td>
-								  </tr>";
-							echo "<tr id='seller-products-{$row['id']}' style='display:none;'>
-                                    <td colspan='11'>
-                                        <div class='table-responsive'>
-                                            <table class='table table-bordered'>
-                                                <thead>
-                                                    <tr>
-                                                        <th>Produktname</th>
-                                                        <th>Größe</th>
-                                                        <th>Preis</th>
-														<th>Verkauft</th>
-                                                        <th>Aktionen</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id='products-{$row['id']}'>
-                                                    <!-- Products will be loaded here via AJAX -->
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </td>
-                                  </tr>";
-						}
-					} else {
-						echo "<tr><td colspan='12'>Keine Verkäufer gefunden.</td></tr>";
-					}
-					?>
-				</tbody>
+                    <tr>
+                        <th>Verk.Nr.</th>
+                        <th>Abr.Nr.</th>
+                        <th>Nachname</th>
+                        <th>Vorname</th>
+                        <th>E-Mail</th>
+                        <th>Verifiziert</th>
+                        <th class="hidden">Telefon</th> <!-- Hidden Column -->
+                        <th class="hidden">Straße</th> <!-- Hidden Column -->
+                        <th class="hidden">Nr.</th> <!-- Hidden Column -->
+                        <th class="hidden">PLZ</th> <!-- Hidden Column -->
+                        <th class="hidden">Stadt</th> <!-- Hidden Column -->
+                        <th>Aktionen</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                            <?php
+                            if ($sellers_result->num_rows > 0) {
+                                    while ($row = $sellers_result->fetch_assoc()) {
+                                            $hash = htmlspecialchars($row['hash'], ENT_QUOTES, 'UTF-8');
+                                            $checkout_class = $row['checkout'] ? 'done' : '';
+                                            echo "<tr class='$checkout_class'>
+                                                            <td>" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td>" . htmlspecialchars($row['checkout_id'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td>" . htmlspecialchars($row['family_name'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td>" . htmlspecialchars($row['given_name'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td>" . htmlspecialchars($row['email'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td>" . ($row['verified'] ? 'Ja' : 'Nein') . "</td>
+                                                            <td class='hidden'>" . htmlspecialchars($row['phone'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td class='hidden'>" . htmlspecialchars($row['street'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td class='hidden'>" . htmlspecialchars($row['house_number'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td class='hidden'>" . htmlspecialchars($row['zip'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td class='hidden'>" . htmlspecialchars($row['city'], ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td class='action-cell'>
+                                                                    <select class='form-control action-dropdown' data-seller-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "' data-seller-hash='$hash'>
+                                                                            <option value=''>Aktion wählen</option>
+                                                                            <option value='checkout'>Abrechnen</option>
+                                                                            <option value='edit'>Bearbeiten</option>
+                                                                            <option value='delete'>Löschen</option>
+                                                                            <option value='show_products'>Produkte anzeigen</option>
+                                                                            <option value='create_products'>Produkte erstellen</option>
+                                                                    </select>
+                                                                    <button class='btn btn-primary btn-sm execute-action' data-seller-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
+                                                            </td>
+                                                      </tr>";
+                                            echo "<tr class='hidden' id='seller-products-{$row['id']}'>
+                                                    <td colspan='11'>
+                                                        <div class='table-responsive'>
+                                                            <table class='table table-bordered'>
+                                                                <thead>
+                                                                    <tr>
+                                                                        <th>Produktname</th>
+                                                                        <th>Größe</th>
+                                                                        <th>Preis</th>
+                                                                        <th>Verkauft</th>
+                                                                        <th>Aktionen</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody id='products-{$row['id']}'>
+                                                                    <!-- Products will be loaded here via AJAX -->
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </td>
+                                                  </tr>";
+                                    }
+                            } else {
+                                    echo "<tr><td colspan='12'>Keine Verkäufer gefunden.</td></tr>";
+                            }
+                            ?>
+                    </tbody>
             </table>
         </div>
     </div>
@@ -572,7 +618,7 @@ $conn->close();
     <!-- Import Sellers Modal -->
     <div class="modal fade" id="importSellersModal" tabindex="-1" role="dialog" aria-labelledby="importSellersModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg" role="document">
-            <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
+            <div class="modal-content modal-xxl">
                 <div class="modal-header">
                     <h5 class="modal-title" id="importSellersModalLabel">Verkäufer importieren</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -610,7 +656,7 @@ $conn->close();
                             </div>
                         </div>
                         <div id="preview" class="mt-3"></div>
-                        <button type="submit" class="btn btn-primary mt-3" name="confirm_import" id="confirm_import" style="display:none;">Bestätigen und Importieren</button>
+                        <button type="submit" class="btn btn-primary mt-3 hidden" name="confirm_import" id="confirm_import">Bestätigen und Importieren</button>
                     </form>
 
                     <h2 class="mt-4">Erwartete CSV-Dateistruktur</h2>
@@ -822,10 +868,10 @@ $conn->close();
         </footer>
     <?php endif; ?>
 	
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-    <script>
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script nonce="<?php echo $nonce; ?>">
         function editSeller(id, checkout_id, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
 			$('#editSellerId').val(id);
 			$('#editSellerIdDisplay').val(id);
@@ -844,11 +890,11 @@ $conn->close();
 
         function toggleProducts(sellerId) {
             const row = $(`#seller-products-${sellerId}`);
-            if (row.is(':visible')) {
-                row.hide();
-            } else {
+            if (row.hasClass('hidden')) {
                 loadProducts(sellerId);
-                row.show();
+                row.removeClass('hidden');
+            } else {
+                row.addClass('hidden');
             }
         }
 
@@ -858,7 +904,19 @@ $conn->close();
                 method: 'GET',
                 data: { seller_id: sellerId },
                 success: function(response) {
-                    $(`#products-${sellerId}`).html(response);
+                    const productsContainer = $(`#products-${sellerId}`);
+                    productsContainer.html(response);
+
+                    // Attach event listeners to the edit buttons
+                    productsContainer.find('.edit-product-btn').on('click', function() {
+                        const productId = $(this).data('id');
+                        const productName = $(this).data('name');
+                        const productSize = $(this).data('size');
+                        const productPrice = $(this).data('price');
+                        editProduct(productId, productName, productSize, productPrice);
+                    });
+
+                    // Optionally, attach event listeners to other elements like checkboxes here
                 },
                 error: function() {
                     alert('Fehler beim Laden der Produkte.');
@@ -911,7 +969,14 @@ $conn->close();
                         } else if (action === 'show_products') {
                             toggleProducts(sellerId);
                         } else if (action === 'create_products') {
-                            window.location.href = `seller_products.php`;
+                            // Set session variables and redirect
+                            $.post('admin_manage_sellers.php', { set_session: true, seller_id: sellerId, hash: hash, csrf_token: csrfToken }, function(response) {
+                                if (response.success) {
+                                    window.location.href = 'seller_products.php';
+                                } else {
+                                    alert('Fehler beim Setzen der Sitzungsvariablen: ' + response.error);
+                                }
+                            }, 'json');
                         } else if (action === 'checkout') {
                                             $('#confirmCheckoutSellerId').val(sellerId);
                                             $('#confirmCheckoutHash').val(hash);
@@ -975,7 +1040,7 @@ $conn->close();
             });
         });
     </script>
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
     (function() {
         let selectedFile = null;
 
@@ -1042,7 +1107,7 @@ $conn->close();
 
     })();
     </script>
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
 			function toggleBackToTopButton() {

@@ -1,7 +1,7 @@
 <?php
 // Start session with secure settings
 session_start([
-    'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
+    'cookie_secure' => true, // Ensure the session cookie is only sent over HTTPS
     'cookie_httponly' => true, // Prevent JavaScript access to the session cookie
     'cookie_samesite' => 'Strict' // Add SameSite attribute for additional CSRF protection
 ]);
@@ -36,7 +36,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
             $_SESSION['failed_attempts'] = 0;
         }
     }
-	
+
     $username = $_POST['username'];
     $password = $_POST['password'];
 
@@ -54,23 +54,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
             $_SESSION['username'] = $username;
             $_SESSION['role'] = $user['role'];
             $_SESSION['user_id'] = $user['id']; // Store user_id in session
-
             // Log successful login
             log_action($conn, $user['id'], ucfirst($user['role']) . " logged in", "Username: $username");
 
             // Reset failed attempts on successful login
             $_SESSION['failed_attempts'] = 0;
-			
-			// Check if the user is a seller
+
+            // Check if the user is a seller
             if ($user['role'] === 'seller') {
                 $stmt = $conn->prepare("SELECT * FROM sellers WHERE email=?");
                 $stmt->bind_param("s", $username);
                 $stmt->execute();
                 $seller_result = $stmt->get_result();
-                
+
                 if ($seller_result->num_rows > 0) {
                     $seller = $seller_result->fetch_assoc();
-                    $_SESSION['seller_id'] =  $seller['id'];
+                    $_SESSION['seller_id'] = $seller['id'];
                     $_SESSION['seller_hash'] = $seller['hash'];
                     header("location: seller_products.php");
                     exit;
@@ -99,7 +98,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
                 exit;
             }
         } else {
-			$message_type = 'danger';
+            $message_type = 'danger';
             $message = "Ungültiger Benutzername oder Passwort";
 
             // Increment failed attempts on failed login
@@ -110,7 +109,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
             log_action($conn, 0, "Failed login attempt", "Username: $username");
         }
     } else {
-		$message_type = 'danger';
+        $message_type = 'danger';
         $message = "Ungültiger Benutzername oder Passwort";
 
         // Increment failed attempts on failed login
@@ -126,56 +125,67 @@ $conn->close();
 ?>
 <!DOCTYPE html>
 <html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Benutzer Login</title>
-    <link href="css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/all.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container login-container">
-        <h2 class="mt-5 text-center">Benutzer Login</h2>
-		<?php if ($message): ?>
-            <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
-                <?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?>
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-        <?php endif; ?>
-        <form action="login.php" method="post">
-            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
-            <div class="form-group">
-                <label for="username">Benutzername:</label>
-                <input type="text" class="form-control" id="username" name="username" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Passwort:</label>
-                <input type="password" class="form-control" id="password" name="password" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block" name="login">Anmelden</button>
-            <p class="text-center mt-3">
-                <a href="forgot_password.php">Passwort vergessen?</a>
-            </p>
-        </form>
-    </div>
-
-    <?php if (!empty(FOOTER)): ?>
-        <footer class="p-2 bg-light text-center fixed-bottom">
-            <div class="row justify-content-center">
-                <div class="col-lg-6 col-md-12">
-                    <p class="m-0">
-                        <?php echo process_footer_content(FOOTER); ?>
-                    </p>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+        <title>Benutzer Login</title>
+        <!-- Preload and link CSS files -->
+        <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+        <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+        <link rel="preload" href="css/style.css" as="style" id="style-css">
+        <noscript>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/all.min.css" rel="stylesheet">
+        <link href="css/style.css" rel="stylesheet">
+        </noscript>
+        <script nonce="<?php echo $nonce; ?>">
+            document.getElementById('bootstrap-css').rel = 'stylesheet';
+            document.getElementById('all-css').rel = 'stylesheet';
+            document.getElementById('style-css').rel = 'stylesheet';
+        </script>
+    </head>
+    <body>
+        <div class="container login-container">
+            <h2 class="mt-5 text-center">Benutzer Login</h2>
+            <?php if ($message): ?>
+                <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
+                    <?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?>
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
                 </div>
-            </div>
-        </footer>
-    <?php endif; ?>
-    
-    <script src="js/jquery-3.7.1.min.js"></script>
-    <script src="js/popper.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-</body>
+            <?php endif; ?>
+            <form action="login.php" method="post">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+                <div class="form-group">
+                    <label for="username">Benutzername:</label>
+                    <input type="text" class="form-control" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Passwort:</label>
+                    <input type="password" class="form-control" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" name="login">Anmelden</button>
+                <p class="text-center mt-3">
+                    <a href="forgot_password.php">Passwort vergessen?</a>
+                </p>
+            </form>
+        </div>
+
+        <?php if (!empty(FOOTER)): ?>
+            <footer class="p-2 bg-light text-center fixed-bottom">
+                <div class="row justify-content-center">
+                    <div class="col-lg-6 col-md-12">
+                        <p class="m-0">
+                            <?php echo process_footer_content(FOOTER); ?>
+                        </p>
+                    </div>
+                </div>
+            </footer>
+        <?php endif; ?>
+
+        <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+        <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+        <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+    </body>
 </html>
