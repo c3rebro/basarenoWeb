@@ -72,7 +72,7 @@ Verkäufer erhalten eine Nummer und einen Link, um ihre Artikel zu erstellen.
 <details>
 <summary>Artikel erstellen</summary>
 Verkäufer fügen Artikel mit Namen und Preisen hinzu.  
-![Artikel erstellen](./docs/Clipboard01.png)
+![Artikel erstellen](./docs/Clipboard01.jpg)
 </details>
 
 <details>
