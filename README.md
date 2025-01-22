@@ -1,6 +1,6 @@
 # BasarenoWeb
 
-**BasarenoWeb** ist die kostenlose Websoftware für Nummernbasare bzw. auch bekannt als Abgabebasar. Sie vereinfacht den Prozess für Verkäufer und Veranstalter, sich zu registrieren, Etiketten mit Barcodes zu erstellen und den Verkauf sowie die Abrechnung effizient zu verwalten.
+**BasarenoWeb** ist die kostenlose Websoftware für Nummernbasare bzw. auch bekannt als Abgabebasar. Sie vereinfacht den Prozess für Verkäufer und Veranstalter, sich zu registrieren, Etiketten mit QRcodes zu erstellen und den Verkauf sowie die Abrechnung effizient zu verwalten.
 
 ## Funktionen
 
@@ -72,7 +72,7 @@ Verkäufer erhalten eine Nummer und einen Link, um ihre Artikel zu erstellen.
 <details>
 <summary>Artikel erstellen</summary>
 Verkäufer fügen Artikel mit Namen und Preisen hinzu.  
-![Artikel erstellen](./doc/creating_items.png)
+![Artikel erstellen](./doc/Clipboard01.png)
 </details>
 
 <details>
