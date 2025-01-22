@@ -102,8 +102,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_password'])) {
         
         if ($stmt->execute()) {
             // Update the sellers table to set verified to true
-            $stmt = $conn->prepare("UPDATE sellers SET verified=1, password_hash=? WHERE id=?");
-            $stmt->bind_param("si", $password_hash, $seller_id);
+            $stmt = $conn->prepare("UPDATE sellers SET verified=1 WHERE id=?");
+            $stmt->bind_param("i", $seller_id);
             $stmt->execute();
             
             $message_type = 'success';

@@ -75,6 +75,7 @@ function get_db_connection() {
     }
 
     $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+    $conn->set_charset("utf8");
 
     if ($conn->connect_error) {
         die("Connection failed: " . $conn->connect_error);
@@ -93,38 +94,86 @@ function get_db_connection() {
  */
 function initialize_database($conn) {
     // Create the database if it doesn't exist
-    $sql = "CREATE DATABASE IF NOT EXISTS " . DB_NAME;
+    $sql = "CREATE DATABASE IF NOT EXISTS `bazaar_db`";
     if ($conn->query($sql) !== TRUE) {
         die("Error creating database: " . $conn->error);
     }
 
     // Select the database
-    $conn->select_db(DB_NAME);
+    $conn->select_db('bazaar_db');
 
     // Define the desired table structures
     $tables = [
         "bazaar" => [
-            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
             "startDate DATE NOT NULL",
             "startReqDate DATE NOT NULL",
-            "max_sellers INT NOT NULL",
-            "max_products_per_seller INT NOT NULL DEFAULT 0",
-            "brokerage DOUBLE",
-            "min_price DOUBLE",
-            "price_stepping DOUBLE",
-            "mailtxt_reqnewsellerid TEXT",
-            "mailtxt_reqexistingsellerid TEXT"
+            "max_sellers INT(11) NOT NULL",
+            "max_products_per_seller INT(11) NOT NULL DEFAULT 0",
+            "brokerage DOUBLE DEFAULT NULL",
+            "min_price DOUBLE DEFAULT NULL",
+            "price_stepping DOUBLE DEFAULT NULL",
+            "mailtxt_reqnewsellerid TEXT DEFAULT NULL",
+            "mailtxt_reqexistingsellerid TEXT DEFAULT NULL"
+        ],
+        "logs" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "user_id INT(11) NOT NULL",
+            "action VARCHAR(255) NOT NULL",
+            "details TEXT DEFAULT NULL",
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+        ],
+        "products" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "bazaar_id INT(10) DEFAULT 0",
+            "name VARCHAR(255) NOT NULL",
+            "size VARCHAR(255) NOT NULL",
+            "price DOUBLE NOT NULL",
+			"product_id INT(10) DEFAULT NULL",
+            "barcode VARCHAR(255) NOT NULL UNIQUE",
+            "seller_number INT(11) DEFAULT NULL",
+            "sold TINYINT(1) DEFAULT 0"
         ],
         "sellers" => [
-            "id INT AUTO_INCREMENT PRIMARY KEY",
-            "hash VARCHAR(255) NOT NULL",
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "user_id INT(11) NOT NULL",
+            "bazaar_id INT(11) DEFAULT 0",
+            "checkout_id INT(11) NOT NULL",
+            "checkout TINYINT(1) DEFAULT 0",
+            "fee_payed TINYINT(1) DEFAULT 0",
+            "signature MEDIUMTEXT DEFAULT NULL",
+            "seller_number INT(11) DEFAULT 0",
+            "seller_verified TINYINT(4) DEFAULT 0",
+            "email VARCHAR(255) DEFAULT NULL",
+            "reserved TINYINT(1) DEFAULT 0",
+            "verification_token VARCHAR(255) DEFAULT NULL"
+        ],
+        "settings" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "operationMode VARCHAR(50) NOT NULL DEFAULT 'online'",
+            "wifi_ssid VARCHAR(255) DEFAULT ''",
+            "wifi_password VARCHAR(255) DEFAULT ''"
+        ],
+        "users" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "username VARCHAR(255) NOT NULL UNIQUE",
+            "password_hash VARCHAR(255) NOT NULL",
+            "reset_token VARCHAR(64) DEFAULT NULL",
+            "reset_expiry DATETIME DEFAULT NULL",
+            "role ENUM('admin', 'cashier', 'assistant', 'seller') NOT NULL",
+            "verification_token TEXT DEFAULT NULL",
+            "user_verified TINYINT(1) NOT NULL DEFAULT 0"
+        ],
+        "user_details" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "hash VARCHAR(255) DEFAULT NULL",
             "bazaar_id INT(11) DEFAULT 0",
             "email VARCHAR(255) NOT NULL",
-            "reserved BOOLEAN DEFAULT FALSE",
-            "verified BOOLEAN DEFAULT FALSE",
-            "checkout BOOLEAN DEFAULT FALSE",
+            "reserved TINYINT(1) DEFAULT 0",
+            "verified TINYINT(1) DEFAULT 0",
+            "checkout TINYINT(1) DEFAULT 0",
             "checkout_id INT(6) DEFAULT 0",
-            "verification_token VARCHAR(255)",
+            "verification_token VARCHAR(255) DEFAULT NULL",
             "family_name VARCHAR(255) NOT NULL",
             "given_name VARCHAR(255) NOT NULL",
             "phone VARCHAR(255) NOT NULL",
@@ -132,41 +181,10 @@ function initialize_database($conn) {
             "house_number VARCHAR(255) NOT NULL",
             "zip VARCHAR(255) NOT NULL",
             "city VARCHAR(255) NOT NULL",
-            "consent BOOLEAN",
-            "fee_payed BOOLEAN DEFAULT FALSE NOT NULL",
-            "signature MEDIUMTEXT"
-        ],
-        "products" => [
-            "id INT AUTO_INCREMENT PRIMARY KEY",
-            "bazaar_id INT(10) DEFAULT 0",
-            "name VARCHAR(255) NOT NULL",
-            "size VARCHAR(255) NOT NULL",
-            "price DOUBLE NOT NULL",
-            "barcode VARCHAR(255) NOT NULL",
-            "seller_id INT",
-            "sold BOOLEAN DEFAULT FALSE",
-            "FOREIGN KEY (seller_id) REFERENCES sellers(id)"
-        ],
-        "users" => [
-            "id INT AUTO_INCREMENT PRIMARY KEY",
-            "username VARCHAR(255) NOT NULL UNIQUE",
-            "password_hash VARCHAR(255) NOT NULL",
-            "reset_token VARCHAR(64) NULL",
-            "reset_expiry DATETIME NULL",
-            "role ENUM('admin', 'cashier', 'assistant', 'seller') NOT NULL"
-        ],
-        "settings" => [
-            "id INT AUTO_INCREMENT PRIMARY KEY",
-            "operationMode VARCHAR(50) NOT NULL DEFAULT 'online'",
-            "wifi_ssid VARCHAR(255) DEFAULT ''",
-            "wifi_password VARCHAR(255) DEFAULT ''"
-        ],
-        "logs" => [
-            "id INT AUTO_INCREMENT PRIMARY KEY",
-            "user_id INT NOT NULL",
-            "action VARCHAR(255) NOT NULL",
-            "details TEXT",
-            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            "consent TINYINT(1) DEFAULT NULL",
+            "fee_payed TINYINT(1) NOT NULL DEFAULT 0",
+            "signature MEDIUMTEXT DEFAULT NULL",
+            "user_id INT(11) DEFAULT NULL"
         ]
     ];
 
@@ -175,7 +193,7 @@ function initialize_database($conn) {
         $result = $conn->query("SHOW TABLES LIKE '$tableName'");
         if ($result->num_rows == 0) {
             // Table doesn't exist, create it
-            $sql = "CREATE TABLE $tableName (" . implode(", ", $columns) . ")";
+            $sql = "CREATE TABLE $tableName (" . implode(", ", $columns) . ") ENGINE=InnoDB DEFAULT CHARSET=utf8";
             if ($conn->query($sql) !== TRUE) {
                 die("Error creating table $tableName: " . $conn->error);
             }
@@ -188,8 +206,8 @@ function initialize_database($conn) {
             }
 
             foreach ($columns as $columnDefinition) {
-                preg_match('/^(\w+)/', $columnDefinition, $matches);
-                $columnName = $matches[1];
+                preg_match('/^\w+/', $columnDefinition, $matches);
+                $columnName = $matches[0];
                 if (!in_array($columnName, $existingColumns)) {
                     // Column is missing, add it
                     $sql = "ALTER TABLE $tableName ADD $columnDefinition";
@@ -207,6 +225,7 @@ function initialize_database($conn) {
     $row = $result->fetch_assoc();
     return $row['count'] == 0;
 }
+
 
 /**
  * Check preconditions.
@@ -343,8 +362,9 @@ function send_email($to, $subject, $body) {
 	$headers = "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\r\n"; 
 	$headers .= "Reply-to: " . SMTP_FROM . "\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
-	$headers .= "Content-Type: text/html; charset=utf-8";
-
+	$headers .= "Content-Type: text/html; charset=utf-8\r\n";
+        $headers .= "Content-Transfer-Encoding: 8bit\r\n";
+        
     if (mail($to, encode_subject($subject), $body, $headers, "-f " . SMTP_FROM)) {
         return true;
     } else {
@@ -476,17 +496,34 @@ function process_footer_content($content) {
  */
 function get_current_bazaar_id($conn) {
     $currentDateTime = date('Y-m-d H:i:s');
-    $stmt = $conn->prepare("SELECT id FROM bazaar WHERE startReqDate <= ? AND startDate >= ? LIMIT 1");
+    
+    // SQL Query:
+    // 1. Selects the latest bazaar whose startDate is in the past and within the 14-day grace period
+    // 2. If no such bazaar exists, selects the next upcoming bazaar
+    $stmt = $conn->prepare("
+        SELECT id 
+        FROM bazaar
+        WHERE startDate <= DATE_ADD(?, INTERVAL 14 DAY)
+        ORDER BY 
+            CASE WHEN startDate <= ? THEN 1 ELSE 2 END, -- Prefer bazaars within the grace period
+            startDate ASC -- Otherwise, pick the next upcoming bazaar
+        LIMIT 1
+    ");
+    
+    // Bind parameters
     $stmt->bind_param("ss", $currentDateTime, $currentDateTime);
     $stmt->execute();
     $result = $stmt->get_result();
+    
+    // Check if a bazaar was found
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        return $row['id'];
+        return $row['id']; // Return the bazaar ID
     } else {
-        return null;
+        return 0; // No relevant bazaar found
     }
 }
+
 
 /**
  * Check if there is an active bazaar.
@@ -542,8 +579,8 @@ function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingse
     $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
-        $hash = generate_hash($email, $seller_id);
-        $bazaarId = get_current_bazaar_id($conn);
+        //$hash = generate_hash($email, $seller_id);
+        //$bazaarId = get_current_bazaar_id($conn);
         $verification_token = generate_verification_token();
 
         $stmt = $conn->prepare("UPDATE sellers SET verification_token = ?, verified = 0, consent = ?, bazaar_id = ? WHERE id = ?");
@@ -551,8 +588,8 @@ function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingse
         $stmt->execute();
         execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt_reqexistingsellerid);
     } else {
-        global $seller_message;
-        $seller_message = "Ungültige Verkäufer-ID oder E-Mail.";
+        global $alertMessage;
+        $alertMessage = "Ungültige Verkäufer-ID oder E-Mail.";
     }
 }
 
@@ -572,16 +609,58 @@ function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingse
  * @param bool $consent
  * @param string $mailtxt_reqnewsellerid
  */
-function process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid) {
-    $seller_id = generate_unique_seller_id($conn);
-    $hash = generate_hash($email, $seller_id);
-    $bazaarId = get_current_bazaar_id($conn);
-    $verification_token = generate_verification_token();
+function process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid, $password, $nonce = 0) {
+    try {
+        // Hash the password
+        $password_hash = password_hash($password, PASSWORD_BCRYPT);
+        $verification_token = generate_verification_token();
 
-    $stmt = $conn->prepare("INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, hash, bazaar_id, consent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("isisssssssssis", $seller_id, $email, $reserve, $verification_token, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $hash, $bazaarId, $consent);
-    $stmt->execute();
-    execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt_reqnewsellerid);
+        // Insert the new user into the `users` table
+        $stmt = $conn->prepare("INSERT INTO users (username, password_hash, verification_token, role) VALUES (?, ?, ?, 'seller')");
+        $stmt->bind_param("sss", $email, $password_hash, $verification_token);
+
+
+        if ($stmt->execute()) {
+
+                $user_id = $stmt->insert_id; // Get the inserted user's ID
+
+                // Insert the new user details into the new database table user_details
+                $stmt = $conn->prepare("INSERT INTO user_details (email, user_id, family_name, given_name, phone, street, house_number, zip, city, consent) 
+                                                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param(
+                    "sissssssii",
+                    $email,
+                    $user_id,
+                    $family_name,
+                    $given_name,
+                    $phone,
+                    $street,
+                    $house_number,
+                    $zip,
+                    $city,
+                    $consent
+                );
+
+                if ($stmt->execute()) {
+                        log_action($conn, 0, "New unverified user account created", "Email: $email");
+                        return(execute_sql_and_send_email($conn, $email, "", "", $verification_token, $mailtxt_reqnewsellerid, $nonce));
+                } else {
+                        show_modal($nonce, 
+                            "Ein Fehler ist aufgetreten. Der Admin wurde automatisch informiert. Bitte versuchen Sie es später erneut.", 
+                            "danger",
+                            "Fehler",
+                            "createAccountFailed");
+                }
+    }
+    
+    } catch (Exception $e) {
+        show_modal($nonce, 
+            "An error occurred. The admin has been informed. Please try again later." . $e->getMessage(), 
+            "danger", 
+            "Error", 
+            "createAccountFailed"
+        );
+    }
 }
 
 // =========================
@@ -649,9 +728,9 @@ function send_reset_password_email($email, $hash, $verification_token) {
     $send_result = send_email($email, $subject, $body);
     
     if ($send_result === true) {
-        $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
+        $alertMessage = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
     } else {
-        $seller_message = "Fehler beim Senden der Rücksetz-E-Mail: $send_result";
+        $alertMessage = "Fehler beim Senden der Rücksetz-E-Mail: $send_result";
     }
 }
 
@@ -665,27 +744,29 @@ function send_reset_password_email($email, $hash, $verification_token) {
  * @param string $verification_token
  * @param string $mailtxt
  */
-function execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt) {
-    global $seller_message, $given_name, $family_name;
+function execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt, $nonce = 0) {
+    global $alertMessage, $alertMessage_Type, $given_name, $family_name;
 
-    $verification_link = BASE_URI . "/verify.php?token=$verification_token&hash=$hash";
-    $create_products_link = BASE_URI . "/seller_products.php?seller_id=$seller_id&hash=$hash";
-    $revert_link = BASE_URI . "/verify.php?action=revert&seller_id=$seller_id&hash=$hash";
-    $delete_link = BASE_URI . "/flush.php?seller_id=$seller_id&hash=$hash";
+    $verification_link = BASE_URI . "/verify.php?token=$verification_token";
+    //$create_products_link = BASE_URI . "/seller_products.php";
+    //$revert_link = BASE_URI . "/verify.php?action=revert&seller_id=$seller_id&hash=$hash";
+    //$delete_link = BASE_URI . "/flush.php?seller_id=$seller_id&hash=$hash";
 
-    $subject = "Verifizierung Ihrer Verkäufer-ID: $seller_id";
+    $subject = "Verifizierung Ihres Verkäuferkontos."; //: $seller_id";
     $message = str_replace(
-        ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}', '{create_products_link}', '{revert_link}', '{delete_link}', '{seller_id}', '{hash}'],
-        [BASE_URI, $given_name, $family_name, $verification_link, $create_products_link, $revert_link, $delete_link, $seller_id, $hash],
+        ['{BASE_URI}', '{given_name}', '{family_name}', '{verification_link}'],
+        [BASE_URI, $given_name, $family_name, $verification_link],
         $mailtxt
     );
     $send_result = send_email($email, $subject, $message);
-
     if ($send_result === true) {
-        $seller_message = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
+        return true;
     } else {
-        $seller_message = "Fehler beim Senden der Bestätigungs-E-Mail: $send_result";
+        $alertMessage = "Fehler beim Senden der Bestätigungs-E-Mail: $send_result";
+        $alertMessage_Type = "danger";
     }
+    
+    return false;
 }
 
 /**
@@ -707,24 +788,32 @@ function generate_unique_seller_id($conn) {
 
 /**
  * Show a modal.
+ *
+ * @param string $nonce          A nonce for CSP compliance.
+ * @param string $message        The content of the modal message.
+ * @param string $message_type   The type of the modal (e.g., success, danger, info).
+ * @param string $message_title  The title of the modal.
+ * @param string $modalId        The unique ID for the modal (default: 'customModal').
  */
-function show_modal($nonce, $message, $message_type, $modalId = 'customModal') {
-    // Modal ID should be unique if you have multiple modals
+function show_modal($nonce, $message, $message_type = "danger", $message_title = "Title", $modalId = 'customModal') {
+    // Ensure valid input for message type
+    $validTypes = ['primary', 'success', 'danger', 'warning', 'info', 'secondary', 'light', 'dark'];
+    $modalClass = in_array($message_type, $validTypes) ? "bg-$message_type" : 'bg-primary';
 
     echo '<div class="modal fade" id="' . $modalId . '" tabindex="-1" role="dialog" aria-labelledby="' . $modalId . 'Label" aria-hidden="true">';
     echo '  <div class="modal-dialog" role="document">';
     echo '    <div class="modal-content">';
-    echo '      <div class="modal-header">';
-    echo '        <h5 class="modal-title" id="' . $modalId . 'Label">' . ucfirst($message_type) . '</h5>';
-    echo '        <button type="button" class="close" data-dismiss="modal" aria-label="Close">';
+    echo '      <div class="modal-header ' . $modalClass . ' text-white">';
+    echo '        <h5 class="modal-title" id="' . $modalId . 'Label">' . htmlspecialchars($message_title) . '</h5>';
+    echo '        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">';
     echo '          <span aria-hidden="true">&times;</span>';
     echo '        </button>';
     echo '      </div>';
     echo '      <div class="modal-body">';
-    echo htmlspecialchars($message);
+    echo $message;
     echo '      </div>';
     echo '      <div class="modal-footer">';
-    echo '        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>';
+    echo '        <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>';
     echo '      </div>';
     echo '    </div>';
     echo '  </div>';
@@ -737,6 +826,51 @@ function show_modal($nonce, $message, $message_type, $modalId = 'customModal') {
     echo '});';
     echo '</script>';
 }
+
+/**
+ * Show a toast notification.
+ *
+ * @param string $nonce          A nonce for CSP compliance.
+ * @param string $message        The content of the toast message.
+ * @param string $message_type   The type of the toast (e.g., success, danger, info).
+ * @param string $toastId        The unique ID for the toast (default: 'customToast').
+ * @param int    $timeout        The duration in milliseconds before the toast disappears (default: 5000).
+ * @param string $title          The title of the toast (default: '').
+ */
+function show_toast($nonce, $message, $title = '', $message_type = "info", $toastId = 'customToast', $timeout = 5000) {
+    // Ensure valid input for message type
+    $validTypes = ['primary', 'success', 'danger', 'warning', 'info', 'secondary', 'light', 'dark'];
+    $toastClass = in_array($message_type, $validTypes) ? "bg-$message_type text-white" : 'bg-info text-white';
+
+    // Render the toast HTML
+    echo '<div id="' . $toastId . '" class="toast custom-toast" role="alert" aria-live="assertive" aria-atomic="true" data-autohide="true" data-delay="' . $timeout . '">';
+    echo '  <div class="toast-header ' . $toastClass . '">';
+    echo '    <strong class="mr-auto">' . htmlspecialchars($title ?: ucfirst($message_type)) . '</strong>'; // Use title or fallback to message_type
+    echo '    <button type="button" class="ml-2 mb-1 close text-white" data-dismiss="toast" aria-label="Close">';
+    echo '      <span aria-hidden="true">&times;</span>';
+    echo '    </button>';
+    echo '  </div>';
+    echo '  <div class="toast-body">';
+    echo htmlspecialchars($message);
+    echo '  </div>';
+    echo '</div>';
+
+    // JavaScript to initialize and show the toast
+    echo '<script nonce="' . $nonce . '">';
+    echo 'document.addEventListener("DOMContentLoaded", function() {';
+    echo '  var toastEl = document.getElementById("' . $toastId . '");';
+    echo '  if (toastEl) {';
+    echo '      var toast = new bootstrap.Toast(toastEl);';
+    echo '      toast.show();';
+    echo '  }';
+    echo '});';
+    echo '</script>';
+}
+
+
+
+
+
 
 // =========================
 // Seller Management (Admin)

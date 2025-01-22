@@ -99,6 +99,9 @@ $conn->close();
 <!DOCTYPE html>
 <html lang="de">
 <head>
+	<style nonce="<?php echo $nonce; ?>">
+		html { visibility: hidden; }
+	</style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Benutzer Verwalten</title>
@@ -120,12 +123,15 @@ $conn->close();
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="dashboard.php">Bazaar Administration</a>
+        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav">
+				<li class="nav-item">
+                    <a class="nav-link" href="admin_dashboard.php">Admin Dashboard</a>
+                </li>
                 <li class="nav-item active">
                     <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten <span class="sr-only">(current)</span></a>
                 </li>
@@ -296,7 +302,6 @@ $conn->close();
         </footer>
     <?php endif; ?>
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
-    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
@@ -377,5 +382,11 @@ $conn->close();
             });
         });
     </script>
+	<script nonce="<?php echo $nonce; ?>">
+		// Show the HTML element once the DOM is fully loaded
+		document.addEventListener("DOMContentLoaded", function () {
+			document.documentElement.style.visibility = "visible";
+		});
+	</script>
 </body>
 </html>

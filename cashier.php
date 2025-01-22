@@ -21,63 +21,184 @@ $conn = get_db_connection();
 $message = '';
 $message_type = 'danger'; // Default message type for errors
 
-// Assume $user_id is available from the session or another source
-$user_id = $_SESSION['user_id'] ?? 0;
-$username = $_SESSION['username'] ?? '';
-
 $scanned_products = [];
-$sum_of_prices = isset($_SESSION['sum_of_prices']) ? $_SESSION['sum_of_prices'] : 0.0;
-$groups = isset($_SESSION['groups']) ? $_SESSION['groups'] : [];
-$buyer_index = isset($_SESSION['buyer_index']) ? $_SESSION['buyer_index'] : 1;
+$sum_of_prices = $_SESSION['sum_of_prices'] ?? 0.0;
+$groups = $_SESSION['groups'] ?? [];
+$buyer_index = $_SESSION['buyer_index'] ?? 1;
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (isset($_POST['barcode'])) {
-        $barcode = $_POST['barcode'];
-        log_action($conn, $_SESSION['user_id'], "Scanned barcode", "Barcode: $barcode");
+if ($_SERVER["REQUEST_METHOD"] == "POST") {	
+	if (isset($_POST['barcode']) || isset($_POST['isManualInput'])) {
+		header('Content-Type: application/json'); // Respond with JSON
+		
+		if (isset($_POST['isManualInput'])) {
+			$seller_number = (int)$_POST['manual-seller-number'];
+			$product_id = (int)$_POST['manual-product-id'];
 
-        $stmt = $conn->prepare("SELECT id, name, price, sold, seller_id FROM products WHERE barcode=?");
-        $stmt->bind_param("s", $barcode);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        log_action($conn, $_SESSION['user_id'], "SQL Query executed with prepared statement", "Barcode: $barcode");
+			// Get the current bazaar ID
+			$bazaar_id = get_current_bazaar_id($conn);
 
-        if ($result->num_rows > 0) {
-            $row = $result->fetch_assoc();
-            if ($row['sold'] == 1) {
-		$message_type = 'danger';
-                $message = "Produkt bereits gescannt";
-                log_action($conn, $_SESSION['user_id'], "Product already sold", "Product ID: " . $row['id']);
-            } else {
-                $formatted_price = number_format($row['price'], 2, ',', '.');
-		$message_type = 'success';
-                $message = "Produkt: " . htmlspecialchars($row['name']) . "<br>Preis: €" . $formatted_price . "<br>Verkäufer-ID: " . htmlspecialchars($row['seller_id']);
+			if ($bazaar_id === null) {
+				echo json_encode([
+					"status" => "error",
+					"message" => "No active bazaar found."
+				]);
+				exit;
+			}
 
-                $stmt = $conn->prepare("UPDATE products SET sold=1 WHERE barcode=?");
-                $stmt->bind_param("s", $barcode);
-                $stmt->execute();
-                log_action($conn, $_SESSION['user_id'], "Product marked as sold", "Product ID: " . $row['id']);
+			// Retrieve user_id using seller_number and bazaar_id
+			$stmt = $conn->prepare("SELECT user_id FROM sellers WHERE bazaar_id = ? AND seller_number = ?");
+			$stmt->bind_param("ii", $bazaar_id, $seller_number);
+			$stmt->execute();
+			$result = $stmt->get_result();
 
-                if (!isset($groups[0])) {
-                    $groups[0] = ['products' => [], 'sum' => 0];
+			if ($result->num_rows === 0) {
+				echo json_encode([
+					"status" => "error",
+					"message" => "Invalid seller number for the current bazaar."
+				]);
+				exit;
+			}
+
+			$row = $result->fetch_assoc();
+			$user_id = $row['user_id'];
+
+			// Generate the barcode
+			$barcode = sprintf("U%04dV%04dA%03d", $user_id, $seller_number, $product_id);
+			log_action($conn, $_SESSION['user_id'], "manual input barcode", "Barcode: $barcode");
+		} else {
+			$barcode = $_POST['barcode'];
+			log_action($conn, $_SESSION['user_id'], "Scanned barcode", "Barcode: $barcode");
+		}
+	
+        // Validate barcode format
+        if (preg_match('/^U(\d+)V(\d+)A(\d{3})$/', $barcode, $matches)) {
+            $user_id_fromQR = (int)$matches[1];
+            $seller_number = (int)$matches[2];
+            $article_id = (int)$matches[3];
+
+			$current_bazaar_id = get_current_bazaar_id($conn);
+
+			$stmt = $conn->prepare("
+				SELECT 1 
+				FROM sellers 
+				WHERE user_id = ? AND seller_number = ? AND bazaar_id = ?");
+			$stmt->bind_param("iii", $user_id_fromQR, $seller_number, $current_bazaar_id);
+			$stmt->execute();
+			$result = $stmt->get_result();
+
+			if ($result->num_rows === 0) {
+				echo json_encode([
+					"status" => "unauthorized",
+					"message" => "Seller not authorized for the current bazaar."
+				]);
+				exit;
+			}
+
+			// Check if the product exists
+			$stmt = $conn->prepare("
+				SELECT id, name, price, sold 
+				FROM products 
+				WHERE seller_number = ? AND product_id = ?");
+			$stmt->bind_param("ii", $seller_number, $article_id);
+			$stmt->execute();
+			$result = $stmt->get_result();
+
+			if ($result->num_rows === 0) {
+				echo json_encode([
+					"status" => "not_found",
+					"message" => "Product not found."
+				]);
+				exit;
+			}
+
+			$row = $result->fetch_assoc();
+	
+            $stmt = $conn->prepare("SELECT id, name, price, sold, seller_number FROM products WHERE barcode=? AND bazaar_id=? AND seller_number=?");
+            $stmt->bind_param("sii", $barcode, $current_bazaar_id, $seller_number);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($result->num_rows > 0) {
+                $row = $result->fetch_assoc();
+                if ($row['sold'] == 1) {
+                    //show_toast($nonce, 'Nope. Der Artikel wurde bereits gescannt', 'Warnung', 'warning', 'alreadyScannedToast', 3000);
+					echo json_encode([
+                        "status" => "already_scanned",
+                        "message" => "Product already scanned.",
+                        "product" => [
+							"id" => $row['id'], // Include product ID
+                            "name" => $row['name'],
+                            "price" => $row['price'],
+                            "sellerNumber" => $row['seller_number']
+                        ]
+                    ]);
+                    log_action($conn, $_SESSION['user_id'], "Product already sold", "Product ID: " . $row['id']);
+					exit;
+                } else {
+                    $formatted_price = number_format($row['price'], 2, ',', '.');
+                    //show_toast($nonce, 'Produkt "'.htmlspecialchars($row['name']).'" gescannt.', 'Erfolgreich', 'success', 'scannedSuccessToast', 2000);
+                    
+                    $stmt = $conn->prepare("UPDATE products SET sold=1 WHERE barcode=?");
+                    $stmt->bind_param("s", $barcode);
+                    $stmt->execute();
+                    log_action($conn, $_SESSION['user_id'], "Product marked as sold", "Product ID: " . $row['id']);
+
+                    if (!isset($groups[0])) {
+                        $groups[0] = ['products' => [], 'sum' => 0];
+                    }
+                    //$groups[0]['products'][] = $row;
+                    //$groups[0]['sum'] += $row['price'];
+
+                    //$sum_of_prices += $row['price'];
+                    //$_SESSION['sum_of_prices'] = $sum_of_prices;
+					
+					echo json_encode([
+                        "status" => "success",
+                        "message" => "Product scanned successfully.",
+                        "product" => [
+							"id" => $row['id'], // Include product ID
+                            "name" => $row['name'],
+                            "price" => $row['price'],
+                            "sellerNumber" => $row['seller_number']
+                        ]
+                    ]);
+					exit;
                 }
-                $groups[0]['products'][] = $row;
-                $groups[0]['sum'] += $row['price'];
-
-                $sum_of_prices += $row['price'];
-                $_SESSION['sum_of_prices'] = $sum_of_prices;
+            } else {
+                //show_modal($nonce, 'Produkt wurde nicht gefunden. Evtl. Sch*** Drucker? -> manuelle Eingabe.', 'danger', 'Nicht gefunden', 'productNotFoundModal');
+				echo json_encode([
+                    "status" => "not_found",
+                    "message" => "Product not found. Please check the barcode or use manual entry."
+                ]);
+                log_action($conn, $_SESSION['user_id'], "Product not found", "Barcode: $barcode");
+				exit;
             }
         } else {
-            $message_type = 'danger';
-            $message = "Produkt nicht gefunden";
-            log_action($conn, $_SESSION['user_id'], "Product not found", "Barcode: $barcode");
+            //show_modal($nonce, 'Ungültiges QRCode Format. -> manuelle Eingabe.', 'danger', 'Nicht Lesbar', 'codeNotReadableModal');
+			echo json_encode([
+                "status" => "invalid_format",
+                "message" => "Invalid QR Code format. Please use manual entry."
+            ]);
+			exit;
         }
     } elseif (isset($_POST['unsell_product'])) {
-        $product_id = $_POST['product_id'];
-
-        $stmt = $conn->prepare("UPDATE products SET sold=0 WHERE id=?");
-        $stmt->bind_param("i", $product_id);
-        $stmt->execute();
+        if (isset($_POST['product_id']) && is_numeric($_POST['product_id'])) {
+			$product_id = (int) $_POST['product_id'];
+	
+			$stmt = $conn->prepare("UPDATE products SET sold=0 WHERE id=?");
+			$stmt->bind_param("i", $product_id);
+			if ($stmt->execute()) {
+				log_action($conn, $_SESSION['user_id'], "Product marked as unsold", "Product ID: $product_id");
+				echo json_encode(["status" => "success", "message" => "Product unsold successfully."]);
+			} else {
+				echo json_encode(["status" => "error", "message" => "Failed to mark product as unsold."]);
+			}
+		} else {
+			echo json_encode(["status" => "error", "message" => "Invalid product ID."]);
+		}
         log_action($conn, $_SESSION['user_id'], "Product marked as unsold", "Product ID: $product_id");
+
+		exit;
     } elseif (isset($_POST['reset_sum'])) {
         array_unshift($groups, ['products' => [], 'sum' => 0]);
         $sum_of_prices = 0.0;
@@ -89,15 +210,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         log_action($conn, $_SESSION['user_id'], "Sum of prices reset");
     }
     $_SESSION['groups'] = $groups;
-}
-
-$scanned_products = [];
-
-$sql = "SELECT id, name, price, seller_id FROM products WHERE sold=1 ORDER BY id DESC LIMIT 30";
-$result = $conn->query($sql);
-log_action($conn, $_SESSION['user_id'], "Fetched last 30 scanned products");
-while ($row = $result->fetch_assoc()) {
-    $scanned_products[] = $row;
 }
 
 $conn->close();
@@ -122,101 +234,516 @@ $conn->close();
         document.getElementById('all-css').rel = 'stylesheet';
         document.getElementById('style-css').rel = 'stylesheet';
     </script>
-    <script src="js/quagga.min.js" nonce="<?php echo $nonce; ?>"></script>
-    <script nonce="<?php echo $nonce; ?>">
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("Document loaded");
+    <script src="js/html5-qrcode.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script nonce="<?php echo $nonce; ?>">
+	document.addEventListener('DOMContentLoaded', function () {
+		const groupSumHeading = document.querySelector("h3.sumPrice");
+		const manualBarcodeForm = document.getElementById("manual-entry-form-container");
+		const modal = document.getElementById("change-calculator-modal");
+		const amountReceivedInput = document.getElementById("amount-received");
+		const calculatedChangeInput = document.getElementById("calculated-change");
+		const confirmButton = document.getElementById("confirm-transaction");
+		const scannedProductsTable = document.getElementById("scanned-products");
+		const abschlussButton = document.querySelector('[name="reset_sum"]');
+		const scannerContainer = document.getElementById("scanner-container");
+		const toggleScannerButton = document.getElementById("toggle-scanner");
+		const html5QrCode = new Html5Qrcode("scanner-container");
+		const beepAudio = new Audio("assets/beep.wav"); // Path to your beep sound
+		let currentGroup = JSON.parse(localStorage.getItem("currentGroup")) || [];
+		let groups = JSON.parse(localStorage.getItem("groups")) || [];
+		let scanCooldown = false;
+		let lastScannedCode = null;
+		let isScannerRunning = true;
+		
+		function stopScanner() {
+			if (isScannerRunning) {
+				html5QrCode.stop().then(() => {
+					console.log("Scanner stopped.");
+					scannerContainer.classList.add("d-none"); // Hide scanner
+					toggleScannerButton.textContent = "Scanner starten";
+					toggleScannerButton.classList.remove("btn-danger");
+					toggleScannerButton.classList.add("btn-primary");
+					isScannerRunning = false;
+				}).catch((err) => {
+					console.error("Error stopping scanner:", err);
+				});
+			}
+		}
 
-            let scannerActive = false;
-            let timeoutHandle;
-            const restartDelay = 3000; // 2 seconds delay before restarting the scanner
+		function startScanner() {
+			if (!isScannerRunning) {
+				scannerContainer.classList.remove("d-none"); // Show scanner
+				toggleScannerButton.textContent = "Scanner stoppen";
+				toggleScannerButton.classList.remove("btn-primary");
+				toggleScannerButton.classList.add("btn-danger");
 
-            function startScanner() {
-                if (scannerActive) return;
+				if (!html5QrCode.isScanning) {
+					initializeScanner();
+				}
+				isScannerRunning = true;
+			}
+		}
 
-                console.log("Starting scanner");
-                Quagga.init({
-                    inputStream: {
-                        name: "Live",
-                        type: "LiveStream",
-                        target: document.querySelector('#scanner-container'),
-                        constraints: {
-                            width: 640,
-                            height: 480,
-                            frameRate: { max: 10 } // Limit to 10 FPS
-                        }
-                    },
-                    decoder: {
-                        readers: ["ean_reader"]
-                    },
-                    locate: true
-                }, function (err) {
-                    if (err) {
-                        console.log("Error initializing Quagga: ", err);
-                        return;
-                    }
-                    Quagga.start();
-                    scannerActive = true;
-                    document.getElementById('start-scanner').style.display = 'none';
-                    document.getElementById('stop-scanner').style.display = 'inline-block';
-                    resetScannerTimeout();
-                });
+		// Toggle scanner on button click
+		toggleScannerButton.addEventListener('click', function () {
+			if (isScannerRunning) {
+				stopScanner();
+			} else {
+				startScanner();
+			}
+		});
+		
+		manualBarcodeForm.addEventListener("submit", function (event) {
+			event.preventDefault(); // Prevent the default form submission
 
-                Quagga.onDetected(function (data) {
-                    console.log("Barcode detected: ", data.codeResult.code);
-                    document.getElementById('barcode').value = data.codeResult.code;
-                    document.getElementById('scan-form').submit();
-                    showNotification();
-                    stopScanner();
+			// Collect form data
+			const sellerNumber = document.getElementById("manual-seller-number").value;
+			const productId = document.getElementById("manual-product-id").value;
 
-                    // Restart the scanner after a delay
-                    setTimeout(startScanner, restartDelay);
-                });
-            }
+			// Validate input (optional but recommended)
+			if (!sellerNumber || !productId) {
+				showToast("Fehler ❌", "Bitte alle Felder ausfüllen.", "danger", 2000);
+				return;
+			}
 
-            function stopScanner() {
-                if (!scannerActive) return;
+			// Prepare POST data
+			const postData = new URLSearchParams();
+			postData.append("isManualInput", "1");
+			postData.append("manual-seller-number", sellerNumber);
+			postData.append("manual-product-id", productId);
 
-                console.log("Stopping scanner");
-                Quagga.stop();
-                scannerActive = false;
-                document.getElementById('stop-scanner').style.display = 'none';
-                document.getElementById('start-scanner').style.display = 'inline-block';
-                clearTimeout(timeoutHandle);
-            }
+			// Send AJAX request
+			fetch("cashier.php", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+				},
+				body: postData.toString(),
+			})
+				.then(response => response.json())
+				.then(data => {
+					if (data.status === "success") {
+						// Handle success (e.g., add product to current group)
+						const product = {
+							id: data.product.id,
+							name: data.product.name,
+							price: data.product.price,
+							sellerNumber: data.product.sellerNumber,
+						};
+						currentGroup.push(product);
+						renderCurrentGroup();
+						updateGroupSumPreview();
+						showToast("Erfolgreich ✔️", "Produkt erfolgreich hinzugefügt.", "success", 2000);
+					} else {
+						// Handle errors
+						showToast("Fehler ❌", data.message, "danger", 2000);
+					}
+				})
+				.catch(error => {
+					console.error("Error processing manual input:", error);
+					showToast("Fehler ❌", "Serverfehler. Bitte erneut versuchen.", "danger", 2000);
+				});
+		});
+	
+		function getQrBoxSize() {
+			const viewportWidth = window.innerWidth;
+			const viewportHeight = window.innerHeight;
 
-            function resetScannerTimeout() {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = setTimeout(stopScanner, 90000);
-            }
+			// Calculate 90% of the smaller viewport dimension
+			const smallerDimension = Math.min(viewportWidth, viewportHeight);
+			return Math.floor(smallerDimension * 0.9);
+		}
 
-            function showNotification() {
-                if (Notification.permission === "granted") {
-                    new Notification("Produkt erfolgreich gescannt!");
-                } else if (Notification.permission !== "denied") {
-                    Notification.requestPermission().then(permission => {
-                        if (permission === "granted") {
-                            new Notification("Produkt erfolgreich gescannt!");
-                        }
-                    });
-                }
-            }
+		function initializeScanner() {
+			const qrBoxSize = getQrBoxSize();
 
-            document.getElementById('start-scanner').addEventListener('click', startScanner);
-            document.getElementById('stop-scanner').addEventListener('click', stopScanner);
+			html5QrCode.start(
+				{ facingMode: "environment" }, // Rear camera
+				{
+					fps: 10,
+					qrbox: { width: qrBoxSize, height: qrBoxSize },
+				},
+				(decodedText, decodedResult) => {
+					if (!scanCooldown && decodedText !== lastScannedCode) {
+						lastScannedCode = decodedText;
 
-            document.addEventListener('visibilitychange', function() {
-                if (document.visibilityState === 'visible') {
-                    startScanner();
-                } else {
-                    stopScanner();
-                }
-            });
+						// Play beep sound
+						beepAudio.play();
 
-            window.onload = function() {
-                startScanner();
-            };
-        });
+						// Send scanned code to the server
+						ajaxPost(decodedText);
+
+						// Start cooldown
+						scanCooldown = true;
+						setTimeout(() => {
+							scanCooldown = false;
+							lastScannedCode = null; // Allow rescanning after cooldown
+						}, 2000); // 2-second cooldown
+					}
+				},
+				(errorMessage) => {
+					console.warn(`QR code scanning error: ${errorMessage}`);
+				}
+			).catch((err) => {
+				console.error("Error starting QR code scanner: ", err);
+			});
+		}
+
+		function ajaxPost(barcode) {
+			const xhr = new XMLHttpRequest();
+			xhr.open("POST", "cashier.php", true); // PHP handler
+			xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+
+			xhr.onload = function () {
+				if (xhr.status === 200) {
+					try {
+						const response = JSON.parse(xhr.responseText);
+						switch (response.status) {
+							case "success":
+								console.log("Server response:", response);
+
+								const product = {
+									id: response.product.id, // Include product ID
+									name: response.product.name,
+									price: response.product.price,
+									sellerNumber: response.product.sellerNumber,
+								};
+
+								// Add product to current group
+								currentGroup.push(product);
+								localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
+
+								// Update the table
+								renderScannedProducts();
+								updateGroupSumPreview();
+								// Show a success toast
+								showToast('Erfolgreich ✔️', `Produkt "${response.product.name}" erfolgreich gescannt.`, 'success', 2000);
+								break;
+
+							case "already_scanned":
+								console.log("Product already scanned:", response);
+
+								// Show a warning toast
+								showToast('Warnung ⚠️', `Produkt "${response.product.name}" wurde bereits gescannt.`, 'warning', 2000);
+								break;
+
+							case "not_found":
+								showToast('Fehler ❌', 'Produkt nicht gefunden. Bitte überprüfen Sie den Barcode.', 'danger', 2000);
+								break;
+
+							case "invalid_format":
+								showToast('Fehler ❌', 'Ungültiges Barcode-Format. Bitte verwenden Sie die manuelle Eingabe.', 'danger', 2000);
+								break;
+
+							default:
+								showToast('Fehler ❌', 'Unbekannter Fehler. Bitte erneut versuchen.', 'danger', 2000);
+								break;
+						}
+					} catch (error) {
+						console.error("Error parsing server response:", error);
+					}
+				} else {
+					console.error("Failed to process the scanned code:", xhr.status, xhr.statusText);
+				}
+			};
+
+			xhr.onerror = function () {
+				console.error("Error during the AJAX request.");
+			};
+
+			// Send the barcode to the server
+			xhr.send(`barcode=${encodeURIComponent(barcode)}`);
+		}
+		
+		function renderGroup(group, index) {
+			const groupSum = calculateSum(group.products).toFixed(2);
+			return `
+				<tr data-toggle="collapse" data-target="#group-${index}" class="clickable">
+					<td colspan="4">
+						Käufer ${groups.length - index} - Artikelanzahl: ${group.products.length} - Summe: €${groupSum}
+					</td>
+				</tr>
+				<tr id="group-${index}" class="collapse">
+					<td colspan="4">
+						<table class="table">
+							${group.products.map(renderProductRow).join("")}
+						</table>
+					</td>
+				</tr>`;
+		}
+
+		function renderProductRow(product) {
+			return `
+				<tr>
+					<td>${product.name}</td>
+					<td>€${product.price.toFixed(2)}</td>
+					<td>${product.sellerNumber}</td>
+					<td></td>
+				</tr>`;
+		}
+
+		function renderCurrentGroup() {
+			// If the current group is empty, display a placeholder row
+			if (currentGroup.length === 0) {
+				return "";
+			}
+
+			// Generate the HTML for the current group rows
+			const rowsHtml = currentGroup.map((product, index) => `
+				<tr>
+					<td>${product.name}</td>
+					<td>€${product.price.toFixed(2)}</td>
+					<td>${product.sellerNumber}</td>
+					<td>
+						<button class="btn btn-sm btn-danger remove-btn" data-id="${product.id}" data-index="${index}">
+							<i class="fas fa-trash-alt"></i> <!-- Font Awesome icon -->
+						</button>
+					</td>
+				</tr>
+			`).join("");
+
+			// Inject the rows into the table body
+			const tableBody = document.querySelector("#scanned-products tbody");
+			tableBody.innerHTML = rowsHtml;
+
+			// Attach event listeners for the "Entfernen" buttons
+			const removeButtons = tableBody.querySelectorAll(".remove-btn");
+			removeButtons.forEach(button => {
+				button.addEventListener("click", function () {
+					const productId = parseInt(this.dataset.id, 10);
+					const index = parseInt(this.dataset.index, 10); // Get the product index
+					removeProduct(productId, index);
+				});
+			});
+		}
+	
+		function renderScannedProducts() {
+			const tableBody = scannedProductsTable.querySelector("tbody");
+			tableBody.innerHTML = "";
+
+			groups.forEach((group, index) => {
+				tableBody.insertAdjacentHTML("beforeend", renderGroup(group, index));
+			});
+
+			tableBody.insertAdjacentHTML("beforeend", renderCurrentGroup());
+
+			// If both groups and currentGroup are empty, display a placeholder
+			if (groups.length === 0 && currentGroup.length === 0) {
+				const emptyRow = "";
+				tableBody.insertAdjacentHTML("beforeend", emptyRow);
+			}
+		}
+
+		function removeProduct(productId, index) {
+			const productToRemove = currentGroup[index];
+			if (!productToRemove || !productToRemove.id) {
+				console.error("Invalid product data for removal.");
+				return;
+			}
+
+			// Remove product from currentGroup
+			currentGroup.splice(index, 1);
+
+			// Update localStorage
+			localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
+
+			// Send AJAX request to unsell the product
+			const xhr = new XMLHttpRequest();
+			xhr.open("POST", "cashier.php", true); // PHP handler
+			xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+
+			xhr.onload = function () {
+				if (xhr.status === 200) {
+					try {
+						const response = JSON.parse(xhr.responseText);
+						if (response.status === "success") {
+							console.log(`Product ID ${productToRemove.id} unsold successfully.`);
+							currentGroup.splice(index, 1); // Remove the product from the group
+							renderScannedProducts(); // Re-render the table
+							updateGroupSumPreview();
+							showToast("Erfolgreich ✔️", "erfolgreich Storniert.", "success", 2000);
+						} else {
+							showToast("Fehler ❌", "Produkt konnte nicht entfernt werden.", "danger", 2000);
+						}
+					} catch (error) {
+						console.error("Error parsing server response:", error);
+					}
+				} else {
+					console.error("Failed to remove product:", xhr.status, xhr.statusText);
+					showToast("Fehler ❌", "Serverfehler beim Entfernen des Produkts.", "danger", 2000);
+				}
+			};
+
+			xhr.onerror = function () {
+				console.error("Error during the AJAX request.");
+				showToast("Fehler ❌", "Netzwerkfehler beim Entfernen des Produkts.", "danger", 2000);
+			};
+
+			// Send the product ID to the server
+			xhr.send(`unsell_product=1&product_id=${encodeURIComponent(productId)}`);
+
+			// Update the table
+			renderScannedProducts();
+		}
+		
+		function forceQrBoxRedraw() {
+			const qrBoxSize = getQrBoxSize();
+			html5QrCode.applyVideoConstraints({
+				width: qrBoxSize,
+				height: qrBoxSize,
+			}).then(() => {
+				console.log("QR box size updated.");
+			}).catch(err => {
+				console.error("Error updating QR box size:", err);
+			});
+		}
+
+		function reinitializeScanner() {
+			if (html5QrCode.isScanning) {
+				html5QrCode.stop().then(() => {
+					initializeScanner();
+				}).catch(err => {
+					console.error("Error stopping scanner:", err);
+				});
+			} else {
+				initializeScanner();
+			}
+		}
+
+		function calculateSum(products) {
+			return products.reduce((sum, product) => sum + product.price, 0);
+		}
+
+		scannedProductsTable.addEventListener("click", function (e) {
+			if (e.target.classList.contains("btn-danger")) {
+				const rowIndex = e.target.dataset.index;
+				currentGroup.splice(rowIndex, 1);
+				renderScannedProducts();
+			}
+		});
+	
+		// Initialize scanner on page load
+		initializeScanner();
+
+		// Render existing scanned products on page load
+		renderScannedProducts();
+
+		// Listen for viewport changes
+		window.addEventListener("resize", reinitializeScanner);
+
+		// Observe changes to the video element and force redraw
+		const observer = new MutationObserver((mutations) => {
+			mutations.forEach(mutation => {
+				if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
+					mutation.addedNodes.forEach(node => {
+						if (node.tagName === "VIDEO") {
+							setTimeout(forceQrBoxRedraw, 500); // Delay to ensure proper rendering
+						}
+					});
+				}
+			});
+		});
+		
+		function showToast(title, message, type = 'info', duration = 3000) {
+			const toastContainer = document.getElementById('toast-container');
+			const toastId = `toast-${Date.now()}`;
+			const bgClass = {
+				success: 'bg-success',
+				info: 'bg-info',
+				warning: 'bg-warning',
+				danger: 'bg-danger',
+			}[type] || 'bg-info';
+
+			// Create toast element
+			const toastElement = document.createElement('div');
+			toastElement.className = `toast ${bgClass} text-white border-0`;
+			toastElement.setAttribute('role', 'alert');
+			toastElement.setAttribute('aria-live', 'assertive');
+			toastElement.setAttribute('aria-atomic', 'true');
+			toastElement.id = toastId;
+
+			// Toast inner HTML
+			toastElement.innerHTML = `
+				<div class="toast-header ${bgClass} text-white">
+					<strong class="me-auto">${title}</strong>
+					<button type="button" class="btn-close btn-close-white" data-dismiss="toast" aria-label="Close"></button>
+				</div>
+				<div class="toast-body">
+					${message}
+				</div>
+			`;
+
+			// Append toast to container
+			toastContainer.appendChild(toastElement);
+
+			// Initialize the toast (Bootstrap 4.6.2 JS)
+			$(toastElement).toast({ delay: duration });
+			$(toastElement).toast('show');
+
+			// Remove toast after hidden event
+			$(toastElement).on('hidden.bs.toast', function () {
+				toastElement.remove();
+			});
+		}
+		
+		function saveCurrentGroup() {
+			if (currentGroup.length > 0) {
+				// Add currentGroup to groups
+				groups.unshift({ products: [...currentGroup] });
+				localStorage.setItem("groups", JSON.stringify(groups));
+
+				// Clear currentGroup and update localStorage
+				currentGroup = [];
+				localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
+
+				// Update the table
+				renderScannedProducts();
+			}
+		}
+		
+		function updateGroupSumPreview() {
+			const totalSum = calculateSum(currentGroup).toFixed(2);
+			groupSumHeading.textContent = `Summe: €${totalSum}`;
+		}
+
+		abschlussButton.addEventListener("click", function (e) {
+			e.preventDefault();
+			const totalSum = calculateSum(currentGroup).toFixed(2);
+
+			amountReceivedInput.value = "";
+			calculatedChangeInput.value = "";
+
+			modal.querySelector(".modal-body .form-group:first-child label").textContent = `Summe: €${totalSum}`;
+			$(modal).modal("show");
+		});
+		
+		document.getElementById("amount-received").addEventListener("input", function () {
+			const totalSum = calculateSum(currentGroup).toFixed(2);
+			const amountReceived = parseFloat(this.value) || 0;
+			const change = amountReceived - totalSum;
+			calculatedChangeInput.value = change >= 0 ? change.toFixed(2) : "Unzureichend";
+		});
+
+		confirmButton.addEventListener("click", function () {
+			const amountReceived = parseFloat(amountReceivedInput.value);
+			const totalSum = calculateSum(currentGroup).toFixed(2);
+
+			if (isNaN(amountReceived) || amountReceived < totalSum) {
+				calculatedChangeInput.classList.add("is-invalid");
+				calculatedChangeInput.value = "Unzureichend";
+				return;
+			}
+
+			calculatedChangeInput.classList.remove("is-invalid");
+			saveCurrentGroup();
+			updateGroupSumPreview();
+			showToast("Erfolgreich ✔️", "Zahlung abgeschlossen. Neuer Käufer begonnen.", "success", 3000);
+			$(modal).modal("hide");
+		});
+
+		renderScannedProducts();
+		observer.observe(scannerContainer, { childList: true, subtree: true });
+	});
     </script>
 </head>
 <body>
@@ -228,26 +755,24 @@ $conn->close();
         <div class="collapse navbar-collapse" id="navbarNav">
             <hr class="d-lg-none d-block">
             <ul class="navbar-nav">
-                <li class="nav-item ml-lg-auto">
+            <?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
+                <li class="nav-item">
                     <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
                 </li>
+            <?php else: ?>
+                <li class="nav-item">
+                    <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
+                </li>
+            <?php endif; ?>
             </ul>
         </div>
     </nav>
     <div class="container">
-		<?php if ($message): ?>
-            <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
-                <?php echo $message; ?>
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-        <?php endif; ?>
         <div class="scanner-wrapper">
             <div id="scanner-container">
                 <div id="scanner-line"></div>
@@ -255,70 +780,86 @@ $conn->close();
             </div>
         </div>
         <div class="button-container text-center">
-            <button id="start-scanner" class="btn btn-primary btn-full-width">Start Scanner</button>
-            <button id="stop-scanner" class="btn btn-secondary btn-full-width hidden">Stop Scanner</button>
+            <button id="toggle-scanner" class="btn btn-danger btn-full-width">Scanner stoppen</button>
         </div>
         <form id="scan-form" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
             <input type="hidden" id="barcode" name="barcode">
         </form>
-        <div class="manual-entry-form">
-            <form action="cashier.php?nocache=<?php echo time(); ?>" method="post">
-                <div class="form-group">
-                    <label for="manual-barcode">Manuelle Barcodeeingabe:</label>
-                    <input type="text" class="form-control" id="manual-barcode" name="barcode" required>
-                </div>
-                <button type="submit" class="btn btn-primary btn-full-width">Artikel hinzufügen</button>
-            </form>
-        </div>
+		<div class="manual-entry-container">
+			<!-- Expander button -->
+			<button class="btn btn-secondary btn-full-width mb-2 mt-2" type="button" data-toggle="collapse" data-target="#manual-entry-form-container" aria-expanded="false" aria-controls="manual-entry-form-container">
+				Manuelle Eingabe
+			</button>
+
+			<!-- Collapsible manual entry form -->
+			<div class="collapse" id="manual-entry-form-container">
+				<div class="card card-body">
+					<form id="manual-entry-form" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
+						<div class="form-group">
+							<label for="manual-seller-number">Verkäufernummer (V):</label>
+							<input type="number" class="form-control" id="manual-seller-number" name="seller_number" min="1" required>
+						</div>
+						<div class="form-group">
+							<label for="manual-product-id">Artikelnummer (A):</label>
+							<input type="number" class="form-control" id="manual-product-id" name="product_id" min="1" max="999" required>
+						</div>
+						<input type="hidden" name="isManualInput" value="1">
+						<button type="submit" class="btn btn-primary btn-full-width">Artikel hinzufügen</button>
+					</form>
+				</div>
+			</div>
+		</div>
+
         <form action="cashier.php?nocache=<?php echo time(); ?>" method="post">
-            <button type="submit" name="reset_sum" class="btn btn-warning btn-full-width mb-2">Abschluss</button>
+            <button type="submit" name="reset_sum" class="btn btn-success btn-full-width mb-2">Abschluss</button>
         </form>
-        <h3 class="mt-2">Summe: €<?php echo number_format($sum_of_prices, 2, ',', '.'); ?></h3>
+        <h3 class="mt-2 sumPrice">Summe: €<?php echo number_format($sum_of_prices, 2, ',', '.'); ?></h3>
         <hr>
         <h3 class="mt-1">Erfolgreich gescannte Artikel</h3>
-        <div class="table-container">
-            <table class="table table-bordered mt-3">
+		<div class="table-container">
+            <table id="scanned-products" class="table table-bordered mt-3">
                 <thead>
                     <tr>
                         <th>Artikelname</th>
-                        <th>Preis</th>
+                        <th>Preis (€)</th>
                         <th>Verkäufer-Nr.</th>
-                        <th>Aktionen</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($groups as $index => $group): ?>
-                    <tr data-toggle="collapse" data-target="#group-<?php echo $index; ?>" class="clickable">
-                        <td colspan="4">
-                            Käufer <?php echo $buyer_index - $index; ?> - Artikelanzahl: <?php echo count($group['products']); ?> - Summe: €<?php echo number_format($group['sum'], 2, ',', '.'); ?>
-                        </td>
-                    </tr>
-                    <tr id="group-<?php echo $index; ?>" class="collapse <?php echo $index === 0 ? 'show' : ''; ?>">
-                        <td colspan="4">
-                            <table class="table">
-                                <?php foreach ($group['products'] as $product): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($product['name']); ?></td>
-                                    <td><?php echo number_format($product['price'], 2, ',', '.'); ?> €</td>
-                                    <td><?php echo htmlspecialchars($product['seller_id']); ?></td>
-                                    <td>
-                                        <form class="d-block" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
-                                            <input type="hidden" name="product_id" value="<?php echo htmlspecialchars($product['id']); ?>">
-                                            <button type="submit" name="unsell_product" class="btn btn-danger btn-sm">Entfernen</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </table>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
+                    <!-- Rows will be dynamically inserted here -->
                 </tbody>
             </table>
         </div>
     </div>
-
-    <?php if (!empty(FOOTER)): ?>
+	<div id="change-calculator-modal" class="modal" tabindex="-1" role="dialog">
+		<div class="modal-dialog" role="document">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h5 class="modal-title">Berechnung des Wechselgeldes</h5>
+					<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+						<span aria-hidden="true">&times;</span>
+					</button>
+				</div>
+				<div class="modal-body">
+					<form id="calculator-form">
+						<div class="form-group">
+							<label for="amount-received">Erhaltene Summe (€):</label>
+							<input type="number" class="form-control" id="amount-received" placeholder="Betrag eingeben">
+						</div>
+						<div class="form-group">
+							<label for="calculated-change">Wechselgeld (€):</label>
+							<input type="text" class="form-control" id="calculated-change" readonly>
+						</div>
+					</form>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-primary" id="confirm-transaction">Bestätigen</button>
+					<button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+				</div>
+			</div>
+		</div>
+	</div>
+    <?php if (false): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
             <div class="row justify-content-center">
                 <div class="col-lg-6 col-md-12">
@@ -329,6 +870,10 @@ $conn->close();
             </div>
         </footer>
     <?php endif; ?>
+
+	<div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3">
+		<!-- Toasts will be dynamically added here -->
+	</div>
 
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
@@ -356,7 +901,13 @@ $conn->close();
                 $('html, body').animate({ scrollTop: 0 }, 600);
                 return false;
             });
-        });
+		});
     </script>
+	<script nonce="<?php echo $nonce; ?>">
+		// Show the HTML element once the DOM is fully loaded
+		document.addEventListener("DOMContentLoaded", function () {
+			document.documentElement.style.visibility = "visible";
+		});
+	</script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 <?php
+
 // Start session with secure settings
 session_start([
     'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
@@ -7,19 +8,28 @@ session_start([
 ]);
 
 $nonce = base64_encode(random_bytes(16));
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
 
 require_once 'utilities.php';
 
+// Send mail to user
+$email = "";
+$family_name = "";
+$given_name = "";
+$phone = "";
+$street = "";
+$house_number = "";
+$zip = "";
+$city = "";
+$use_existing_number = false;
+$useExistingNumberYes = false;
+	
 if (!check_config_exists()) {
     header("location: first_time_setup.php");
     exit;
 }
 
 $conn = get_db_connection();
-
-$message = '';
-$message_type = 'danger'; // Default message type for errors
 
 if (!$conn) {
     header("location: first_time_setup.php");
@@ -128,7 +138,8 @@ if ($operationMode === 'offline') {
 $sql = "SELECT id, startDate, startReqDate, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid FROM bazaar ORDER BY id DESC LIMIT 1";
 $result = $conn->query($sql);
 $bazaar = $result->fetch_assoc();
-$seller_message = '';
+$alertMessage = "";
+$alertMessage_Type = "";
 
 $currentDate = new DateTime();
 $startReqDate = null;
@@ -138,7 +149,7 @@ $bazaarOver = true; // Default to bazaar being over
 $maxSellersReached = false;
 $mailtxt_reqnewsellerid = null;
 $mailtxt_reqexistingsellerid = null;
-    
+
 if ($bazaar) {
     $startReqDate = !empty($bazaar['startReqDate']) ? new DateTime($bazaar['startReqDate']) : null;
     $startDate = !empty($bazaar['startDate']) ? new DateTime($bazaar['startDate']) : null;
@@ -178,33 +189,84 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 	$zip = !empty($_POST['zip']) ? sanitize_input($_POST['zip']) : 'Nicht angegeben';
 	$city = !empty($_POST['city']) ? sanitize_input($_POST['city']) : 'Nicht angegeben';
 	$reserve = isset($_POST['reserve']) ? 1 : 0;
-	$use_existing_number = $_POST['use_existing_number'] === 'yes';
+	$use_existing_number = false; //$_POST['use_existing_number'] === 'yes';
 	$consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
 
 	// Check if a seller ID request already exists for this email
-	$stmt = $conn->prepare("SELECT verification_token, verified FROM sellers WHERE email = ?");
+	$stmt = $conn->prepare("SELECT verification_token, user_verified FROM users WHERE username = ?");
 	$stmt->bind_param("s", $email);
 	$stmt->execute();
 	$result = $stmt->get_result();
 	$existing_seller = $result->fetch_assoc();
+	
+	$password = $_POST['password'];
+        $confirm_password = $_POST['confirm_password'];
 
-	if ($use_existing_number) {
+	// PWD Check
+	if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
+                show_modal($nonce, 
+                        "Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Großbuchstaben und einen Kleinbuchstaben enthalten.",
+                        "warning", 
+                        "Passwort",
+                        "pwdReqNotMetModal");
+	} elseif ($password !== $confirm_password) {
+                show_modal($nonce, 
+                        "Die Passwörter stimmen nicht überein",
+                        "warning", 
+                        "Passwort",
+                        "pwdReqNotSameModal");
+	} else {
+		//New or existing user ?
+/*
+		if ($use_existing_number) {
 		process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
 		// Log existing seller number request
 		log_action($conn, 0, "Existing seller number request", "Email: $email");
+		
+		
 	} else {
+		
+		*/
 		if ($existing_seller) {
 			if (!empty($existing_seller['verification_token'])) {
-                            show_modal($nonce, 'Eine Verkäufernr-Anfrage wurde bereits generiert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten, oder wenn Sie Probleme haben, Ihre bereits angefragte Nummer frei zu Schalten.', 'warning');
-			} elseif ($existing_seller['verified']) {
-                            show_modal($nonce, 'Eine Verkäufer Nummer wurde bereits für Sie aktiviert. Pro Verkäufer ist in der Regel nur eine Verkäufernr zulässig. Bitte melden Sie sich per Mail, wenn Sie eine weitere Nummer haben möchten.', 'warning');
+                            show_modal($nonce, 
+                                "Eine Registrierungs-Anfrage wurde für diese Mailadresse bereits generiert. Bitte klicken Sie auf den Bestätigungs-Link in der Email. Danach können Sie sich oben rechts anmelden.",
+                                "warning", 
+                                "Email bereits vergeben",
+                                "emailExitModal");
+							
+			} elseif ($existing_seller['user_verified']) {
+                            show_modal($nonce, 
+                                "Dieses Konto existiert bereits. Bitte melden Sie sich oben rechts an.",
+                                "warning", 
+                                "Email bereits vergeben",
+                                "emailExitModal");
 			} else {
-				process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+				//process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
 			}
 			// Log new seller request for existing seller
 			log_action($conn, 0, "New seller request for existing seller", "Email: $email");
 		} else {
-			process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid);
+			
+			if(process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid, $password, $nonce)) {
+                            show_modal($nonce, 
+                            "Ihr Konto wurde erfolgreich erstellt. Bitte schauen Sie in Ihre E-Mails und bestätigen Sie die Registrierung.", 
+                            "success",
+                            "Erfolgreich",
+                            "createAccountSuccess");
+                            
+                            // Send mail to user successful, reset FORM
+                            $email = "";
+                            $family_name = "";
+                            $given_name = "";
+                            $phone = "";
+                            $street = "";
+                            $house_number = "";
+                            $zip = "";
+                            $city = "";
+                            $use_existing_number = false;
+                            $useExistingNumberYes = false;
+                        }
 			// Log new seller request
 			log_action($conn, 0, "New seller request", "Email: $email");
 		}
@@ -216,9 +278,12 @@ $conn->close();
 <!DOCTYPE html>
 <html lang="de">
 <head>
+	<style nonce="<?php echo $nonce; ?>">
+		html { visibility: hidden; }
+	</style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Bazaar Landing Page</title>
+    <title>BasarenoWeb für Basar-Horrheim.de</title>
     <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
     <link rel="preload" href="css/all.min.css" as="style" id="all-css">
     <link rel="preload" href="css/style.css" as="style" id="style-css">
@@ -232,12 +297,65 @@ $conn->close();
         document.getElementById('all-css').rel = 'stylesheet';
         document.getElementById('style-css').rel = 'stylesheet';
     </script>
+	<script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
 </head>
 <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item active">
+                    <a class="nav-link" href="index.php">Startseite <span class="sr-only">(current)</span></a>
+                </li>
+			<?php if (isset($_SESSION['role']) && ($_SESSION['role'] === 'admin' || $_SESSION['role'] === 'cashier' || $_SESSION['role'] === 'assistant')): ?>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin_dashboard.php">Admin Dashboard</a>
+                </li>
+            <?php endif; ?>
+			<?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'seller'): ?>
+                <li class="nav-item">
+                    <a class="nav-link" href="seller_dashboard.php">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="seller_products.php">Meine Artikel</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="seller_edit.php">Meine Daten</a>
+                </li>
+            <?php endif; ?>
+            </ul>
+			<?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
+                <li class="nav-item">
+                    <a class="navbar-user" href="#">
+                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
+                </li>
+            <?php else: ?>
+                <li class="nav-item">
+                    <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
+                </li>
+            <?php endif; ?>
+        </div>
+    </nav>
     <div class="container">
         <h1 class="mt-5">Willkommen</h1>
-        <p class="lead">Verkäufer können hier Verkäufernummern anfordern und Artikellisten erstellen.</p>
+        <p class="lead">Verkäufer können hier neue Verkäufernummern anfordern und Artikellisten erstellen.</p>
 
+        <?php if ($alertMessage): ?>
+            <div class="alert alert-<?php echo htmlspecialchars($alertMessage_Type); ?>"><?php echo htmlspecialchars($alertMessage); ?>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Schliessen">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        <?php endif; ?>
+		
         <?php if ($bazaarOver): ?>
             <div class="alert alert-info">Der Bazaar ist geschlossen. Bitte kommen Sie wieder, wenn der nächste Bazaar stattfindet.</div>
         <?php elseif ($maxSellersReached): ?>
@@ -246,64 +364,74 @@ $conn->close();
             <div class="alert alert-info">Anfragen für neue Verkäufer-IDs sind derzeit noch nicht freigeschalten. Die nächste Nummernvergabe startet am: <?php echo htmlspecialchars($formattedDate); ?></div>
         <?php else: ?>
             <h2 class="mt-5">Verkäufer-ID anfordern</h2>
-            <?php if ($seller_message): ?>
-                <div class="alert alert-info"><?php echo htmlspecialchars($seller_message); ?></div>
-            <?php endif; ?>
             <form action="index.php" method="post">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                 <div class="row form-row">
                     <div class="form-group col-md-6">
                         <label for="family_name" class="required">Nachname:</label>
-                        <input type="text" class="form-control" id="family_name" name="family_name" required>
+                        <input type="text" class="form-control" id="family_name" value="<?php echo htmlspecialchars($family_name); ?>" name="family_name" required>
                     </div>
                     <div class="form-group col-md-6">
                         <label for="given_name" class="required">Vorname:</label>
-                        <input type="text" class="form-control" id="given_name" name="given_name" required>
+                        <input type="text" class="form-control" id="given_name" value="<?php echo htmlspecialchars($given_name); ?>" name="given_name" required>
                     </div>
                 </div>
                 <div class="row form-row">
                     <div class="form-group col-md-8">
                         <label for="street">Straße:</label>
-                        <input type="text" class="form-control" id="street" name="street">
+                        <input type="text" class="form-control" id="street" value="<?php echo htmlspecialchars($street); ?>" name="street">
                     </div>
                     <div class="form-group col-md-4">
                         <label for="house_number">Hausnummer:</label>
-                        <input type="text" class="form-control" id="house_number" name="house_number">
+                        <input type="text" class="form-control" id="house_number" value="<?php echo htmlspecialchars($house_number); ?>" name="house_number">
                     </div>
                 </div>
                 <div class="row form-row">
                     <div class="form-group col-md-4">
                         <label for="zip">PLZ:</label>
-                        <input type="text" class="form-control" id="zip" name="zip">
+                        <input type="text" class="form-control" id="zip" value="<?php echo htmlspecialchars($zip); ?>" name="zip">
                     </div>
                     <div class="form-group col-md-8">
                         <label for="city">Stadt:</label>
-                        <input type="text" class="form-control" id="city" name="city">
+                        <input type="text" class="form-control" id="city" value="<?php echo htmlspecialchars($city); ?>" name="city">
                     </div>
                 </div>
                 <div class="form-group">
                     <label for="phone" class="required">Telefonnummer:</label>
-                    <input type="text" class="form-control" id="phone" name="phone" required>
+                    <input type="text" class="form-control" id="phone" value="<?php echo htmlspecialchars($phone); ?>" name="phone" placeholder="Wie können wir Sie im &quot;Notfall&quot; schnell erreichen?" required>
                 </div>
                 <div class="form-group">
                     <label for="email" class="required">E-Mail:</label>
-                    <input type="email" class="form-control" id="email" name="email" required>
+                    <input type="email" class="form-control" id="email" value="<?php echo htmlspecialchars($email); ?>" name="email" required>
                 </div>
-                <div class="form-group">
+				<div class="row form-row">
+					<div class="form-group col-md-6">
+						<label for="password" class="required">Passwort erstellen:</label>
+						<input type="password" class="form-control" id="password" name="password" required>
+					</div>
+					<div class="form-group col-md-6">
+						<label for="confirm_password" class="required">Passwort wiederholen:</label>
+						<input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+					</div>
+				</div>
+
+				
+                <div class="form-group d-none">
                     <label for="reserve">Verkäufer-ID:</label>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_yes" value="yes">
-                        <label class="form-check-label" for="use_existing_number_yes">
-                            Ich habe bereits eine Nummer und möchte diese erneut verwenden
+                        <input class="form-check-input" type="radio"  value="no" disabled>
+                        <label class="form-check-label">
+                            Ich habe bereits eine Nummer und möchte diese erneut verwenden (Ab dem nächsten Basar verfügbar.)
                         </label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_no" value="no" checked>
+                        <input class="form-check-input" type="radio" name="use_existing_number" id="use_existing_number_no" value="yes" checked>
                         <label class="form-check-label" for="use_existing_number_no">
                             Ich möchte eine neue Nummer erhalten
                         </label>
                     </div>
                 </div>
+				
                 <div class="form-group hidden" id="seller_id_field">
                     <label for="seller_id">Verkäufer-ID:</label>
                     <input type="text" class="form-control" id="seller_id" name="seller_id">
@@ -313,17 +441,17 @@ $conn->close();
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="consent" id="consent_yes" value="yes" required>
                         <label class="form-check-label" for="consent_yes">
-                            Ja: Ich möchte, dass meine persönlichen Daten bis zum nächsten Bazaar gespeichert werden. Ich kann meine Etiketten beim nächsten Mal wiederverwenden.
+                            Ja: Ich möchte, dass meine pers. Daten bis zum nächsten Basar gespeichert werden. Meine Etiketten kann ich beim nächsten Basar wiederverwenden.
                         </label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="consent" id="consent_no" value="no" required>
                         <label class="form-check-label" for="consent_no">
-                            Nein: Ich möchte nicht, dass meine persönlichen Daten gespeichert werden. Wenn ich das nächste Mal am Bazaar teilnehme, muss ich neue Etiketten drucken.
+                            Nein: Ich möchte nicht, dass meine pers. Daten gespeichert werden. Wenn ich das nächste Mal am Basar teilnehme, muss ich neue Etiketten erstellen.
                         </label>
                     </div>
                 </div>
-                <p>Weitere Hinweise zum Datenschutz und wie wir mit Ihren Daten umgehen, erhalten Sie in unserer <a href='https://www.basar-horrheim.de/index.php/datenschutzerklaerung'>Datenschutzerklärung</a>. Bei Nutzung unserer Dienste erklären Sie sich mit den dort aufgeführen Bedingungen einverstanden.</p>
+                <p>Weitere Hinweise zum Datenschutz und wie wir mit den Daten umgehen, erhalten Sie in unserer <a href='https://www.basar-horrheim.de/index.php/datenschutzerklaerung'>Datenschutzerklärung</a>. Bei Nutzung unserer Dienste erklären Sie sich mit den dort aufgeführen Bedingungen einverstanden.</p>
                 <button type="submit" class="btn btn-primary btn-block" name="request_seller_id">Verkäufer-ID anfordern</button>
             </form>
             <p class="mt-3 text-muted">* Diese Felder sind Pflichtfelder.</p>
@@ -341,27 +469,12 @@ $conn->close();
             </div>
         </footer>
     <?php endif; ?>
-	
     <script nonce="<?php echo $nonce; ?>">
-        document.addEventListener('DOMContentLoaded', function() {
-            const useExistingNumberYes = document.getElementById('use_existing_number_yes');
-            const useExistingNumberNo = document.getElementById('use_existing_number_no');
-            const sellerIdField = document.getElementById('seller_id_field');
-
-            function toggleSellerIdField() {
-                if (useExistingNumberYes.checked) {
-                    sellerIdField.classList.remove('hidden');
-                } else {
-                    sellerIdField.classList.add('hidden');
-                }
-            }
-
-            useExistingNumberYes.addEventListener('click', toggleSellerIdField);
-            useExistingNumberNo.addEventListener('click', toggleSellerIdField);
+        // Show the HTML element once the DOM is fully loaded
+        document.addEventListener("DOMContentLoaded", function () {
+            document.documentElement.style.visibility = "visible";
         });
     </script>
-    
-    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>

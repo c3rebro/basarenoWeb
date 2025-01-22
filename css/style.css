@@ -83,12 +83,51 @@ body {
     flex-grow: 1;
     display: flex;
     align-items: center;
-    padding-left: 20px; /* Add padding to separate from brand */
+    /* padding-left: 20px;  Add padding to separate from brand */
+}
+
+li.nav-item {
+    list-style: none; /* Removes bullets or numbers */
+    padding: 0;
+    margin: 0;
 }
 
 .modal-xxl {
     max-height: 80vh;
     overflow-y: auto;
+}
+
+.toast-container {
+    position: fixed;
+    top: 1rem; /* Adjust as needed */
+    left: 50%;
+	width: 320px;
+    transform: translateX(-50%);
+    z-index: 1050;
+    padding: 1rem;
+	top: 80px;
+}
+
+.toast-body {
+    font-size: 13px; /* Smaller body text for mobile readability */
+    padding: 0.75rem 1rem;
+    background-color: #fff; /* Ensure the body remains white */
+	color: #000;
+}
+
+.custom-toast {
+    position: fixed;
+    top: 5rem;
+    left: 50%;
+	min-width: 320px;
+    transform: translate(-50%, -50%);
+    z-index: 1060;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+}
+
+.custom-toast.show {
+    opacity: 1;
 }
 
 /* Container Responsive */
@@ -148,11 +187,30 @@ body {
     align-items: center;
 }
 
+/* Ensure the container maintains its position and hides overflow */
 #scanner-container {
     position: relative;
-    width: 90vw;
-    height: 100%;
-    overflow: hidden;
+    width: 100%;           /* Full width of the parent container */
+    height: 100%;          /* Full height of the parent container */
+    max-width: 100vw;      /* Restrict width to the viewport width */
+    max-height: 100vh;     /* Restrict height to the viewport height */
+    overflow: hidden;      /* Crop overflow outside the container */
+    display: flex;         /* Enable centering */
+    justify-content: center;
+    align-items: center;
+    background-color: black; /* Optional: Add a background for contrast */
+}
+
+/* Crop the video feed to the desired scanning area */
+#scanner-container video {
+    width: auto;          /* Maintain video aspect ratio */
+    height: auto;         /* Maintain video aspect ratio */
+    max-width: none;      /* Prevent resizing to fit the parent */
+    max-height: none;     /* Prevent resizing to fit the parent */
+    position: absolute;   /* Allow precise positioning */
+    top: 50%;             /* Center vertically */
+    left: 50%;            /* Center horizontally */
+    transform: translate(-50%, -50%) scale(1.5); /* Adjust scaling for better visibility */
 }
 
 video {
@@ -336,32 +394,59 @@ video {
     }
 }
 
+/* CSS for the outer table */
+.outer-table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+.outer-table td {
+	border: 2px solid black; /* Visible borders for the outer table */
+	vertical-align: middle;
+	padding: 4px; /* Reduce padding for compact layout */
+	/* width: 33%; Each column occupies 1/3 of the width */
+}
+
+/* CSS for the inner table (price tag) */
+.price {
+	font-weight: bold;
+	font-size: 22px;
+	line-height: 0rem;
+}
+
+td p {
+	margin: 0;
+	text-wrap: auto;
+	text-align: left;
+	width: 135%;
+}
+.barcode-table {
+	width: 100%;
+	table-layout: fixed;
+}
+.barcode-table td {
+	border: none; /* Hide inner table borders */
+	padding: 2px; /* Reduce padding to shrink the height */
+}
+
+
+/* QR Code styling for consistent alignment */
+.barcode-table .qrcode {
+	display: block;
+	margin: 0 auto;
+}
+
 /* Print Styles */
 @media print {
-    body {
-        margin: 0;
-        margin-top: -80px !important;
-        padding: 0;
-    }
 
-    .table td {
-        padding: 0.4rem;
-    }
-    .barcode-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-    .barcode-table td {
-        border: 1px solid black;
-        white-space: normal !important;
-        width: 6cm;
-        height: 4cm;
-        text-align: left;
-        vertical-align: top;
-        padding: 5px;
-        position: relative;
-    }
+	/* CSS for the inner table (price tag) */
 
+
+    td p {
+        margin: 0; /* Remove any default paragraph margin */
+        padding: 4px 0; /* Add vertical padding */
+    }
+	
     .no-print {
         display: none !important; /* Buttons are always hidden during print */
     }
@@ -435,70 +520,6 @@ td.username {
     margin-left: 5px;
 }
 
-/* New Styles from print_barcodes.php */
-.barcode-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.barcode-table td {
-    white-space: normal !important;
-    border: 1px solid black;
-    width: 6cm;
-    height: 4cm;
-    text-align: left;
-    vertical-align: top;
-    padding: 4px;
-    position: relative;
-}
-
-.barcode-digits {
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-    margin-top: 5px;
-    text-align: center;
-}
-
-.seller-price-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.seller-id {
-    font-size: 22px;
-    padding-top: 5px;
-    padding-left: 5px;
-    text-align: left;
-    color: black;
-}
-
-.price {
-    font-size: 22px;
-    padding-right: 5px;
-    text-align: right;
-}
-
-.product-name {
-    font-size: 22px;
-    padding-left: 5px;
-    color: darkred;
-}
-
-.product-size {
-    color: black;
-}
-
-.checkout-id {
-    font-size: 18px;
-    color: blue;
-    font-weight: bold;
-}
-
-.barcode-container {
-    text-align: center;
-    margin-top: 10px;
-}
 
 /* New Styles from seller_products.php */
 .action-buttons {

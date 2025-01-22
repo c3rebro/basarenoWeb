@@ -15,7 +15,8 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION
 
 // Assume $user_id is available from the session or another source
 $user_id = $_SESSION['user_id'] ?? 0;
-$seller_id = $_SESSION['seller_id'] ?? $_GET['seller_id'];
+$seller_id = $_SESSION['seller_id'] ?? $_GET['seller_id'] ?? '0';
+$username = $_SESSION['username'] ?? '';
 
 if (!isset($seller_id)) {
     echo "Kein Verkäufer-ID angegeben.";
@@ -54,7 +55,13 @@ if ($result->num_rows > 0) {
               </tr>";
     }
 } else {
-    echo "<tr><td colspan='3'>Keine Produkte gefunden.</td></tr>";
+    echo "<tr>
+	<td>Keine Produkte gefunden.</td>
+	<td>N/A</td>
+	<td>N/A</td>
+	<td>N/A</td>
+	<td>N/A</td>
+	</tr>";
 }
 
 $conn->close();

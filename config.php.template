@@ -20,5 +20,5 @@ define('SMTP_FROM', '<?php echo $smtp_from; ?>');
 define('SMTP_FROM_NAME', '<?php echo $smtp_from_name; ?>');
 
 // Footer content
-define('FOOTER', 'Wir verwenden "Bazaar" die -wirklich- kostenlose Software für unseren Nummernbasar. Mehr dazu auf <a href="https://github.com/c3rebro/bazaar">GitHub</a>.');
+define('FOOTER', 'Wir verwenden "Basareno<i>Web</i>" die kostenlose Software für unseren Nummernbasar. Mehr dazu auf <a href="https://github.com/c3rebro/bazaar">GitHub</a>.');
 ?>

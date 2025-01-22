@@ -3,29 +3,16 @@
     <editor-bookmarks xmlns="http://www.netbeans.org/ns/editor-bookmarks/2" lastBookmarkId="0"/>
     <open-files xmlns="http://www.netbeans.org/ns/projectui-open-files/2">
         <group>
-            <file>file:/C:/xampp/htdocs/bazaar/reset_password.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/load_seller_products.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/config.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/seller_products.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/dashboard.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/verify.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/checkout.php</file>
             <file>file:/C:/xampp/htdocs/bazaar/admin_manage_bazaar.php</file>
             <file>file:/C:/xampp/htdocs/bazaar/admin_manage_sellers.php</file>
             <file>file:/C:/xampp/htdocs/bazaar/admin_manage_users.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/forgot_password.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/set_password.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/css/style.css</file>
-            <file>file:/C:/xampp/htdocs/bazaar/seller_edit.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/cashier.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/system_log.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/print_barcodes.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/index.php</file>
+            <file>file:/C:/xampp/htdocs/bazaar/seller_products.php</file>
+            <file>file:/C:/xampp/htdocs/bazaar/seller_dashboard.php</file>
             <file>file:/C:/xampp/htdocs/bazaar/system_settings.php</file>
+            <file>file:/C:/xampp/htdocs/bazaar/index.php</file>
             <file>file:/C:/xampp/htdocs/bazaar/login.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/acceptance.php</file>
             <file>file:/C:/xampp/htdocs/bazaar/utilities.php</file>
-            <file>file:/C:/xampp/htdocs/bazaar/pickup.php</file>
+            <file>file:/C:/xampp/htdocs/bazaar/verify.php</file>
         </group>
     </open-files>
 </project-private>
