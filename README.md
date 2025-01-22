@@ -1,6 +1,6 @@
 # BasarenoWeb
 
-**BasarenoWeb** ist die kostenlose Websoftware für Nummernbasare bzw. auch bekannt als Abgabebasar. Sie vereinfacht den Prozess für Verkäufer und Veranstalter, sich zu registrieren, Etiketten mit Barcodes zu erstellen und den Verkauf sowie die Abrechnung effizient zu verwalten.
+**BasarenoWeb** ist die kostenlose Websoftware für Nummernbasare bzw. auch bekannt als Abgabebasar. Sie vereinfacht den Prozess für Verkäufer und Veranstalter, sich zu registrieren, Etiketten mit QRcodes zu erstellen und den Verkauf sowie die Abrechnung effizient zu verwalten.
 
 ## Funktionen
 
@@ -54,60 +54,60 @@
 <details>
 <summary>Installationsassistent</summary>
 Assistent zur Einrichtung der Datenbank und erforderlicher Konfigurationen.  
-![Installationsassistent](./doc/installation_assistant.png)
+![Installationsassistent](/docs/first_time_setup.png)
 </details>
 
 <details>
 <summary>Verkäufernummer beantragen</summary>
 Verkäufer können eine Nummer beantragen, sobald ein Basar erstellt wurde und das Startdatum der Nummernvergabe festgelegt ist.  
-![Verkäufernummer beantragen](./doc/seller_number_request.png)
+![Verkäufernummer beantragen](/docs/index.png)
 </details>
 
 <details>
 <summary>Bestätigungs-E-Mail für Verkäufer</summary>
-Verkäufer erhalten eine Nummer und einen Link, um ihre Artikel zu erstellen.  
-![Bestätigungs-E-Mail](./doc/confirmation_email.png)
+Verkäufer erhalten einen Link, um ihr Konto zu bestätigen.  Der Text ist Konfigurierbar.
+![Bestätigungs-E-Mail](/docs/admin_manage_bazaar.jpg)
 </details>
 
 <details>
 <summary>Artikel erstellen</summary>
 Verkäufer fügen Artikel mit Namen und Preisen hinzu.  
-![Artikel erstellen](./doc/creating_items.png)
+![Artikel erstellen](/docs/seller_products.jpg)
 </details>
 
 <details>
 <summary>Etiketten drucken</summary>
-![Etiketten drucken](./doc/printing_labels.png)
+![Etiketten drucken](/docs/Clipboard01.jpg)
 </details>
 
 <details>
 <summary>Kassierer-Login</summary>
 Während des Verkaufs scannen Kassierer verkaufte Artikel.  
-![Kassierer-Login](./doc/cashier_login.png)
+![Kassierer-Login](/docs/Clipboard01.jpg)
 </details>
 
 <details>
 <summary>Artikel scannen</summary>
 Jeder erkannte Artikel wird als „Verkauft“ markiert. Wenn ein Code nicht lesbar ist, können Ziffern manuell eingegeben werden. Die letzten 30 gescannten Artikel werden angezeigt und können bei Bedarf manuell zurückgesetzt werden.  
-![Artikel scannen](./doc/scanning_items.png)
+![Artikel scannen](/docs/Clipboard01.jpg)
 </details>
 
 <details>
 <summary>Administrator-Login</summary>
 Nach dem Basar verteilt der Administrator die Einnahmen an die Verkäufer. Eine Liste der verkauften/nicht verkauften Artikel kann angezeigt, gedruckt und/oder dem Verkäufer per E-Mail als Zusammenfassung gesendet werden.  
-![Administrator-Login](./doc/administrator_login.png)
+![Administrator-Login](/docs/Clipboard01.jpg)
 </details>
 
 <details>
 <summary>Benutzerverwaltung</summary>
 Nach der Ersteinrichtung können zusätzliche Kassierer und Administratoren hinzugefügt oder entfernt werden.  
-![Benutzerverwaltung](./doc/user_management.png)
+![Benutzerverwaltung](/docs/Clipboard01.jpg)
 </details>
 
 <details>
 <summary>Basare erstellen</summary>
 Nummernvergabe ist nur möglich, nachdem der Administrator einen Basar erstellt hat und das aktuelle Datum vor dem „Startdatum der Nummernvergabe“ liegt. Nach Beginn des Basars und vor Erreichen des nächsten „Startdatums der Nummernvergabe“ ist keine Nummernvergabe möglich. Eine entsprechende Meldung erscheint.  
-![Basare erstellen](./doc/creating_bazaars.png)
+![Basare erstellen](/docs/Clipboard01.jpg)
 </details>
 
 ## Download
