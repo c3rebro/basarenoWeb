@@ -126,13 +126,15 @@ function initialize_database($conn) {
         "products" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
             "bazaar_id INT(10) DEFAULT 0",
+			"bucket_id INT(10) DEFAULT 0",
             "name VARCHAR(255) NOT NULL",
             "size VARCHAR(255) NOT NULL",
             "price DOUBLE NOT NULL",
 			"product_id INT(10) DEFAULT NULL",
             "barcode VARCHAR(255) NOT NULL UNIQUE",
             "seller_number INT(11) DEFAULT NULL",
-            "sold TINYINT(1) DEFAULT 0"
+            "sold TINYINT(1) DEFAULT 0",
+            "in_stock TINYINT(1) DEFAULT 1"
         ],
         "sellers" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
@@ -144,7 +146,6 @@ function initialize_database($conn) {
             "signature MEDIUMTEXT DEFAULT NULL",
             "seller_number INT(11) DEFAULT 0",
             "seller_verified TINYINT(4) DEFAULT 0",
-            "email VARCHAR(255) DEFAULT NULL",
             "reserved TINYINT(1) DEFAULT 0",
             "verification_token VARCHAR(255) DEFAULT NULL"
         ],
@@ -166,14 +167,11 @@ function initialize_database($conn) {
         ],
         "user_details" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
-            "hash VARCHAR(255) DEFAULT NULL",
+            "user_id INT(11) DEFAULT NULL",
             "bazaar_id INT(11) DEFAULT 0",
             "email VARCHAR(255) NOT NULL",
             "reserved TINYINT(1) DEFAULT 0",
             "verified TINYINT(1) DEFAULT 0",
-            "checkout TINYINT(1) DEFAULT 0",
-            "checkout_id INT(6) DEFAULT 0",
-            "verification_token VARCHAR(255) DEFAULT NULL",
             "family_name VARCHAR(255) NOT NULL",
             "given_name VARCHAR(255) NOT NULL",
             "phone VARCHAR(255) NOT NULL",
@@ -182,9 +180,7 @@ function initialize_database($conn) {
             "zip VARCHAR(255) NOT NULL",
             "city VARCHAR(255) NOT NULL",
             "consent TINYINT(1) DEFAULT NULL",
-            "fee_payed TINYINT(1) NOT NULL DEFAULT 0",
-            "signature MEDIUMTEXT DEFAULT NULL",
-            "user_id INT(11) DEFAULT NULL"
+            "signature MEDIUMTEXT DEFAULT NULL"
         ]
     ];
 
@@ -363,7 +359,7 @@ function send_email($to, $subject, $body) {
 	$headers .= "Reply-to: " . SMTP_FROM . "\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
 	$headers .= "Content-Type: text/html; charset=utf-8\r\n";
-        $headers .= "Content-Transfer-Encoding: 8bit\r\n";
+    $headers .= "Content-Transfer-Encoding: 8bit\r\n";
         
     if (mail($to, encode_subject($subject), $body, $headers, "-f " . SMTP_FROM)) {
         return true;
@@ -488,6 +484,40 @@ function process_footer_content($content) {
 // Bazaar Management
 // =========================
 
+
+/**
+ * Check if a bazaar is running based on the current date and startDate.
+ *
+ * @param mysqli $conn Database connection.
+ * @param int $bazaar_id The ID of the bazaar to check.
+ * @return bool True if the bazaar is running, false otherwise.
+ */
+function is_bazaar_running($conn, $bazaar_id) {
+    // Get the current date in 'YYYY-MM-DD' format
+    $current_date = date('Y-m-d');
+
+    // Query the bazaar's startDate
+    $sql = "SELECT startDate FROM bazaar WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $bazaar_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    // Check if a result exists
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $start_date = $row['startDate'];
+
+        // Compare the startDate with the current date
+        if ($start_date === $current_date) {
+            return true; // Bazaar is running
+        }
+    }
+
+    return false; // Bazaar is not running
+}
+
+
 /**
  * Get the current bazaar ID.
  *
@@ -524,6 +554,39 @@ function get_current_bazaar_id($conn) {
     }
 }
 
+/**
+ * Get the bazaar ID with open public registration.
+ *
+ * @param mysqli $conn
+ * @return int|null
+ */
+function get_bazaar_id_with_open_registration($conn) {
+    $currentDateTime = date('Y-m-d H:i:s');
+
+    // SQL Query:
+    // 1. Selects the bazaar where current datetime is >= startReqDate AND < startDate
+    $stmt = $conn->prepare(" 
+        SELECT id 
+        FROM bazaar 
+        WHERE startReqDate <= ? 
+          AND startDate > ? 
+        ORDER BY startReqDate ASC 
+        LIMIT 1
+    ");
+
+    // Bind parameters
+    $stmt->bind_param("ss", $currentDateTime, $currentDateTime);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    // Check if a bazaar was found
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        return $row['id']; // Return the bazaar ID
+    } else {
+        return null; // No bazaar found within the specified period
+    }
+}
 
 /**
  * Check if there is an active bazaar.
@@ -572,7 +635,7 @@ function get_bazaar_pricing_rules($conn, $bazaar_id) {
  * @param string $mailtxt_reqexistingsellerid
  */
 function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid) {
-    $seller_id = $_POST['seller_id'];
+    $seller_id = filter_input(INPUT_POST, 'seller_id');
     $stmt = $conn->prepare("SELECT id FROM sellers WHERE id = ? AND email = ?");
     $stmt->bind_param("is", $seller_id, $email);
     $stmt->execute();
@@ -686,8 +749,8 @@ function generate_verification_token() {
  * @param string $token
  * @param string $subject
  */
-function send_reset_password_email($email, $hash, $verification_token) {
-    $reset_link = BASE_URI . "/reset_password.php?token=$verification_token&hash=$hash";
+function send_reset_password_email($email, $verification_token) {
+    $reset_link = BASE_URI . "/reset_password.php?token=$verification_token";
 
     $subject = "Zurücksetzen Ihres Passwortes";
     
@@ -717,21 +780,16 @@ function send_reset_password_email($email, $hash, $verification_token) {
                 <p>Wenn Sie kein Passwort-Reset angefordert haben, ignorieren Sie bitte diese E-Mail.</p>
             </div>
             <div class='email-footer'>
-                <p>&copy; Wir verwenden BAZAAR. Die kostenlose Basarlösung.</p>
+                <p>&copy; Wir verwenden Basareno<i>Web</i>. Die kostenlose Basarlösung.</p>
             </div>
         </div>
     </body>
     </html>
     ";
 
+		
     // Use the existing send_email function
-    $send_result = send_email($email, $subject, $body);
-    
-    if ($send_result === true) {
-        $alertMessage = "Eine E-Mail mit einem Bestätigungslink wurde an $email gesendet.";
-    } else {
-        $alertMessage = "Fehler beim Senden der Rücksetz-E-Mail: $send_result";
-    }
+    return send_email($email, $subject, $body);
 }
 
 /**
@@ -933,6 +991,52 @@ function seller_has_products($conn, $seller_id) {
 // =========================
 // Product Management
 // =========================
+
+function clean_csv_value($value) {
+    // Trim leading/trailing spaces
+    $value = trim($value);
+
+    // Check if the field starts and ends with double quotes (Excel escaping)
+    if (substr($value, 0, 1) === '"' && substr($value, -1) === '"') {
+        // Remove the outermost double quotes
+        $value = substr($value, 1, -1);
+        
+        // Convert doubled double quotes ("") back to a single double quote (")
+        $value = str_replace('""', '"', $value);
+    }
+
+    return $value;
+}
+
+
+function normalize_price($price) {
+    // Remove spaces and non-numeric characters except dots and commas
+    $price = trim($price);
+    
+    // If the value contains both '.' and ',', assume European format (e.g., "1.300,50")
+    if (strpos($price, '.') !== false && strpos($price, ',') !== false) {
+        // Remove dots (thousands separator)
+        $price = str_replace('.', '', $price);
+    }
+
+    // Replace last comma with a dot (handling cases like "1,3" => "1.3")
+    $price = str_replace(',', '.', strrchr($price, ',') ? substr_replace($price, '.', strrpos($price, ','), 1) : $price);
+
+    // Convert to float
+    return is_numeric($price) ? (float)$price : 0;
+}
+
+function can_move_to_sale($conn, $user_id, $max_products_per_seller) {
+    $sql = "SELECT COUNT(*) AS count 
+            FROM products 
+            WHERE seller_number IN (SELECT seller_number FROM sellers WHERE user_id = ?) 
+            AND in_stock = 0 AND bazaar_id != 0";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $count = $stmt->get_result()->fetch_assoc()['count'];
+    return $count < $max_products_per_seller;
+}
 
 /**
  * Calculate the check digit for EAN-13 barcode.

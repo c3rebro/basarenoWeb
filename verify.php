@@ -11,8 +11,8 @@ $alertMessage_Type = "";
 $conn = get_db_connection();
 
 // Check if the token parameter is set
-if (isset($_GET['token'])) {
-    $token = $_GET['token'];
+if (filter_input(INPUT_GET, 'token') !== null) {
+    $token = filter_input(INPUT_GET, 'token');
 
     // Query to check if the token exists in the database
     $sql = "SELECT id FROM users WHERE verification_token=?";
@@ -28,7 +28,7 @@ if (isset($_GET['token'])) {
         $update_stmt->bind_param("s", $token);
 
         if ($update_stmt->execute()) {
-            $alertMessage = "Ihr Konto wurde erfolgreich verifiziert. Sie werden in wenigen Sekunden weitergeleitet.";
+            $alertMessage = "Dein Konto wurde erfolgreich verifiziert. Du wirst in wenigen Sekunden weitergeleitet...";
             $alertMessage_Type = 'success';
             header("Refresh: 3; url=login.php");
         } else {

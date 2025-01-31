@@ -25,19 +25,18 @@ $scanned_products = [];
 $sum_of_prices = $_SESSION['sum_of_prices'] ?? 0.0;
 $groups = $_SESSION['groups'] ?? [];
 $buyer_index = $_SESSION['buyer_index'] ?? 1;
+$current_bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {	
-	if (isset($_POST['barcode']) || isset($_POST['isManualInput'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {	
+	if (filter_input(INPUT_POST, 'barcode') !== null || filter_input(INPUT_POST, 'isManualInput') !== null) {
 		header('Content-Type: application/json'); // Respond with JSON
 		
-		if (isset($_POST['isManualInput'])) {
-			$seller_number = (int)$_POST['manual-seller-number'];
-			$product_id = (int)$_POST['manual-product-id'];
+		if (filter_input(INPUT_POST, 'isManualInput') !== null) {
+			$seller_number = filter_input(INPUT_POST, 'manual-seller-number', FILTER_SANITIZE_NUMBER_INT);
+			$product_id = filter_input(INPUT_POST, 'manual-product-id', FILTER_SANITIZE_NUMBER_INT);
 
-			// Get the current bazaar ID
-			$bazaar_id = get_current_bazaar_id($conn);
 
-			if ($bazaar_id === null) {
+			if ($current_bazaar_id === null) {
 				echo json_encode([
 					"status" => "error",
 					"message" => "No active bazaar found."
@@ -47,7 +46,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 			// Retrieve user_id using seller_number and bazaar_id
 			$stmt = $conn->prepare("SELECT user_id FROM sellers WHERE bazaar_id = ? AND seller_number = ?");
-			$stmt->bind_param("ii", $bazaar_id, $seller_number);
+			$stmt->bind_param("ii", $current_bazaar_id, $seller_number);
 			$stmt->execute();
 			$result = $stmt->get_result();
 
@@ -66,7 +65,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 			$barcode = sprintf("U%04dV%04dA%03d", $user_id, $seller_number, $product_id);
 			log_action($conn, $_SESSION['user_id'], "manual input barcode", "Barcode: $barcode");
 		} else {
-			$barcode = $_POST['barcode'];
+			$barcode = filter_input(INPUT_POST, 'barcode');
 			log_action($conn, $_SESSION['user_id'], "Scanned barcode", "Barcode: $barcode");
 		}
 	
@@ -75,8 +74,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $user_id_fromQR = (int)$matches[1];
             $seller_number = (int)$matches[2];
             $article_id = (int)$matches[3];
-
-			$current_bazaar_id = get_current_bazaar_id($conn);
 
 			$stmt = $conn->prepare("
 				SELECT 1 
@@ -181,8 +178,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             ]);
 			exit;
         }
-    } elseif (isset($_POST['unsell_product'])) {
-        if (isset($_POST['product_id']) && is_numeric($_POST['product_id'])) {
+    } elseif (filter_input(INPUT_POST, 'unsell_product') !== null) {
+        if (filter_input(INPUT_POST, 'product_id') !== null && is_numeric($_POST['product_id'])) {
 			$product_id = (int) $_POST['product_id'];
 	
 			$stmt = $conn->prepare("UPDATE products SET sold=0 WHERE id=?");
@@ -199,7 +196,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         log_action($conn, $_SESSION['user_id'], "Product marked as unsold", "Product ID: $product_id");
 
 		exit;
-    } elseif (isset($_POST['reset_sum'])) {
+    } elseif (filter_input(INPUT_POST, 'reset_sum') !== null) {
         array_unshift($groups, ['products' => [], 'sum' => 0]);
         $sum_of_prices = 0.0;
         $_SESSION['sum_of_prices'] = $sum_of_prices;
@@ -222,6 +219,7 @@ $conn->close();
     <title>Kassierer</title>
     <!-- Preload and link CSS files -->
     <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+	<link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="preload" href="css/all.min.css" as="style" id="all-css">
     <link rel="preload" href="css/style.css" as="style" id="style-css">
     <noscript>
@@ -235,6 +233,7 @@ $conn->close();
         document.getElementById('style-css').rel = 'stylesheet';
     </script>
     <script src="js/html5-qrcode.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script src="js/utilities.js" nonce="<?php echo $nonce; ?>"></script>
 	<script nonce="<?php echo $nonce; ?>">
 	document.addEventListener('DOMContentLoaded', function () {
 		const groupSumHeading = document.querySelector("h3.sumPrice");
@@ -248,7 +247,8 @@ $conn->close();
 		const scannerContainer = document.getElementById("scanner-container");
 		const toggleScannerButton = document.getElementById("toggle-scanner");
 		const html5QrCode = new Html5Qrcode("scanner-container");
-		const beepAudio = new Audio("assets/beep.wav"); // Path to your beep sound
+		const exactPaymentButton = document.getElementById("exact-payment");
+		const beepAudio = new Audio("assets/beep.wav"); // Path to beep sound
 		let currentGroup = JSON.parse(localStorage.getItem("currentGroup")) || [];
 		let groups = JSON.parse(localStorage.getItem("groups")) || [];
 		let scanCooldown = false;
@@ -346,22 +346,20 @@ $conn->close();
 		});
 	
 		function getQrBoxSize() {
-			const viewportWidth = window.innerWidth;
-			const viewportHeight = window.innerHeight;
-
-			// Calculate 90% of the smaller viewport dimension
-			const smallerDimension = Math.min(viewportWidth, viewportHeight);
-			return Math.floor(smallerDimension * 0.9);
+			const minDimension = Math.min(window.innerWidth, window.innerHeight);
+			const qrSize = Math.floor(minDimension * 0.6); // 60% of the smallest viewport dimension
+			return Math.max(qrSize, 200); // Ensure a minimum size for small screens
 		}
 
 		function initializeScanner() {
-			const qrBoxSize = getQrBoxSize();
+			const qrBoxSize = {width: 125, height: 250};
 
 			html5QrCode.start(
 				{ facingMode: "environment" }, // Rear camera
 				{
-					fps: 10,
-					qrbox: { width: qrBoxSize, height: qrBoxSize },
+					fps: 3,
+					qrbox: qrBoxSize,
+					aspectRatio: 1,
 				},
 				(decodedText, decodedResult) => {
 					if (!scanCooldown && decodedText !== lastScannedCode) {
@@ -489,7 +487,7 @@ $conn->close();
 			}
 
 			// Generate the HTML for the current group rows
-			const rowsHtml = currentGroup.map((product, index) => `
+			return currentGroup.map((product, index) => `
 				<tr>
 					<td>${product.name}</td>
 					<td>€${product.price.toFixed(2)}</td>
@@ -501,20 +499,6 @@ $conn->close();
 					</td>
 				</tr>
 			`).join("");
-
-			// Inject the rows into the table body
-			const tableBody = document.querySelector("#scanned-products tbody");
-			tableBody.innerHTML = rowsHtml;
-
-			// Attach event listeners for the "Entfernen" buttons
-			const removeButtons = tableBody.querySelectorAll(".remove-btn");
-			removeButtons.forEach(button => {
-				button.addEventListener("click", function () {
-					const productId = parseInt(this.dataset.id, 10);
-					const index = parseInt(this.dataset.index, 10); // Get the product index
-					removeProduct(productId, index);
-				});
-			});
 		}
 	
 		function renderScannedProducts() {
@@ -534,6 +518,16 @@ $conn->close();
 			}
 		}
 
+		// Attach a single event listener to the table for better performance
+		document.querySelector("#scanned-products tbody").addEventListener("click", function (event) {
+			if (event.target.closest(".remove-btn")) {
+				const button = event.target.closest(".remove-btn");
+				const productId = parseInt(button.dataset.id, 10);
+				const index = parseInt(button.dataset.index, 10);
+				removeProduct(productId, index);
+			}
+		});
+							
 		function removeProduct(productId, index) {
 			const productToRemove = currentGroup[index];
 			if (!productToRemove || !productToRemove.id) {
@@ -541,10 +535,16 @@ $conn->close();
 				return;
 			}
 
+			// Ensure the index is within bounds
+			if (index < 0 || index >= currentGroup.length) {
+				console.error("Invalid product index:", index);
+				return;
+			}
+
 			// Remove product from currentGroup
 			currentGroup.splice(index, 1);
 
-			// Update localStorage
+			// Update localStorage before re-rendering
 			localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
 
 			// Send AJAX request to unsell the product
@@ -560,6 +560,7 @@ $conn->close();
 							console.log(`Product ID ${productToRemove.id} unsold successfully.`);
 							currentGroup.splice(index, 1); // Remove the product from the group
 							renderScannedProducts(); // Re-render the table
+							
 							updateGroupSumPreview();
 							showToast("Erfolgreich ✔️", "erfolgreich Storniert.", "success", 2000);
 						} else {
@@ -590,7 +591,7 @@ $conn->close();
 			const qrBoxSize = getQrBoxSize();
 			html5QrCode.applyVideoConstraints({
 				width: qrBoxSize,
-				height: qrBoxSize,
+				height: qrBoxSize
 			}).then(() => {
 				console.log("QR box size updated.");
 			}).catch(err => {
@@ -631,60 +632,6 @@ $conn->close();
 		// Listen for viewport changes
 		window.addEventListener("resize", reinitializeScanner);
 
-		// Observe changes to the video element and force redraw
-		const observer = new MutationObserver((mutations) => {
-			mutations.forEach(mutation => {
-				if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
-					mutation.addedNodes.forEach(node => {
-						if (node.tagName === "VIDEO") {
-							setTimeout(forceQrBoxRedraw, 500); // Delay to ensure proper rendering
-						}
-					});
-				}
-			});
-		});
-		
-		function showToast(title, message, type = 'info', duration = 3000) {
-			const toastContainer = document.getElementById('toast-container');
-			const toastId = `toast-${Date.now()}`;
-			const bgClass = {
-				success: 'bg-success',
-				info: 'bg-info',
-				warning: 'bg-warning',
-				danger: 'bg-danger',
-			}[type] || 'bg-info';
-
-			// Create toast element
-			const toastElement = document.createElement('div');
-			toastElement.className = `toast ${bgClass} text-white border-0`;
-			toastElement.setAttribute('role', 'alert');
-			toastElement.setAttribute('aria-live', 'assertive');
-			toastElement.setAttribute('aria-atomic', 'true');
-			toastElement.id = toastId;
-
-			// Toast inner HTML
-			toastElement.innerHTML = `
-				<div class="toast-header ${bgClass} text-white">
-					<strong class="me-auto">${title}</strong>
-					<button type="button" class="btn-close btn-close-white" data-dismiss="toast" aria-label="Close"></button>
-				</div>
-				<div class="toast-body">
-					${message}
-				</div>
-			`;
-
-			// Append toast to container
-			toastContainer.appendChild(toastElement);
-
-			// Initialize the toast (Bootstrap 4.6.2 JS)
-			$(toastElement).toast({ delay: duration });
-			$(toastElement).toast('show');
-
-			// Remove toast after hidden event
-			$(toastElement).on('hidden.bs.toast', function () {
-				toastElement.remove();
-			});
-		}
 		
 		function saveCurrentGroup() {
 			if (currentGroup.length > 0) {
@@ -741,37 +688,27 @@ $conn->close();
 			$(modal).modal("hide");
 		});
 
+		// Event for "Passend gegeben" button
+		exactPaymentButton.addEventListener("click", function () {
+			const totalSum = calculateSum(currentGroup).toFixed(2);
+			amountReceivedInput.value = totalSum;
+			const amountReceived = parseFloat(totalSum);
+			
+			
+			saveCurrentGroup();
+			updateGroupSumPreview();
+			showToast("Erfolgreich ✔️", "Zahlung abgeschlossen. Neuer Käufer begonnen.", "success", 3000);
+			$(modal).modal("hide");
+		});
+	
 		renderScannedProducts();
-		observer.observe(scannerContainer, { childList: true, subtree: true });
 	});
     </script>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="dashboard.php">Bazaar Kassier</a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <hr class="d-lg-none d-block">
-            <ul class="navbar-nav">
-            <?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
-                <li class="nav-item">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            <?php else: ?>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
-                </li>
-            <?php endif; ?>
-            </ul>
-        </div>
-    </nav>
+	<!-- Navbar -->
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
     <div class="container">
         <div class="scanner-wrapper">
             <div id="scanner-container">
@@ -853,8 +790,15 @@ $conn->close();
 					</form>
 				</div>
 				<div class="modal-footer">
-					<button type="button" class="btn btn-primary" id="confirm-transaction">Bestätigen</button>
-					<button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+					<div class="row mx-auto">
+							<button type="button" class="btn btn-success w-100 m-3 mb-5" id="confirm-transaction">Summe</button>
+						<div class="col-md-6 col-sm-12 mb-3">
+							<button type="button" class="btn btn-primary w-100" id="exact-payment">Passend gegeben</button>
+						</div>
+						<div class="col-md-6 col-sm-12 mb-3">
+							<button type="button" class="btn btn-secondary w-100" data-dismiss="modal">Abbrechen</button>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>

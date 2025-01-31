@@ -27,13 +27,13 @@ $csrf_token = generate_csrf_token();
 $username = $_SESSION['username'] ?? '';
 
 // Handle fee payment
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['pay_fee'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'pay_fee') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
             header("location: logout.php");
 			exit;
     }
 
-    $seller_number = intval($_POST['seller_number']); // Use seller_number instead of id
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT); // Use seller_number instead of id
     $stmt = $conn->prepare("UPDATE sellers SET fee_payed=TRUE WHERE seller_number=?");
     $stmt->bind_param("i", $seller_number);
     if ($stmt->execute()) {
@@ -46,12 +46,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['pay_fee'])) {
 }
 
 // Handle fee reversion
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['revert_fee'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'revert_fee') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
-    $seller_number = intval($_POST['seller_number']); // Use seller_number instead of id
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT); // Use seller_number instead of id
     $stmt = $conn->prepare("UPDATE sellers SET fee_payed=FALSE WHERE seller_number=?");
     $stmt->bind_param("i", $seller_number);
     if ($stmt->execute()) {
@@ -64,14 +64,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['revert_fee'])) {
 }
 
 // Process AJAX search requests
-if ($_SERVER["REQUEST_METHOD"] === "GET" && isset($_GET['search_term'])) {
-    $search_term = trim($_GET['search_term']);
+if ($_SERVER["REQUEST_METHOD"] === "GET" && filter_input(INPUT_GET, 'search_term') !== null) {
+    $search_term = trim(filter_input(INPUT_GET, 'search_term'));
 
     if (strlen($search_term) >= 3) {
         $sql = "
             SELECT 
                 s.seller_number,
                 s.fee_payed,
+				s.reserved,
                 ud.family_name,
                 ud.given_name,
                 ud.email,
@@ -124,6 +125,7 @@ $conn->close();
         html { visibility: hidden; }
     </style>
     <meta charset="UTF-8">
+	<link rel="icon" type="image/x-icon" href="favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Assistenzfunktionen - Korbannahme</title>
     <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
@@ -141,32 +143,9 @@ $conn->close();
     </script>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item active">
-                    <a class="nav-link" href="acceptance.php">Korbannahme <span class="sr-only">(current)</span></a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="pickup.php">Korbrückgabe</a>
-                </li>
-            </ul>
-            <ul class="navbar-nav">
-                <li class="nav-item ml-lg-auto">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+	<!-- Navbar -->
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
 
     <div class="container">
         <h2 class="mt-5">Korbannahme</h2>
@@ -177,21 +156,24 @@ $conn->close();
 
         <div id="placeholder" class="alert alert-info">Bitte mindestens 3 Zeichen eingeben.</div>
 
-        <table class="table table-bordered table-responsive hidden" id="resultsTable">
-            <thead>
-                <tr>
-                    <th>Verk.Nr.</th>
-                    <th>Nachname</th>
-                    <th>Vorname</th>
-                    <th class="d-none d-md-table-cell">E-Mail</th>
-                    <th>Telefon</th>
-                    <th class="d-none d-lg-table-cell">Adresse</th>
-                    <th>Gebühr bezahlt</th>
-                    <th>Aktion</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+		<div class="table-responsive">
+			<table class="table table-bordered hidden" id="resultsTable">
+				<thead>
+					<tr>
+						<th>Verk.Nr.</th>
+						<th>Nachname</th>
+						<th class="d-none">Vorname</th>
+						<th class="d-none">E-Mail</th>
+						<th class="d-none">Telefon</th>
+						<th class="d-none">Adresse</th>
+						<th>Zus. Nummer</th>
+						<th>Bezahlt</th>
+						<th>Aktion</th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</div>
     </div>
 
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
@@ -222,6 +204,7 @@ $conn->close();
 
                         data.forEach(row => {
                             const feeStatus = row.fee_payed ? 'Ja' : 'Nein';
+							const helperStatus = row.reserved ? 'Ja' : 'Nein';
                             const feeButton = row.fee_payed
                                 ? `<button type="submit" class="btn btn-danger" name="revert_fee">Zurück</button>`
                                 : `<button type="submit" class="btn btn-success" name="pay_fee">Bezahlt</button>`;
@@ -230,10 +213,11 @@ $conn->close();
                                 <tr>
                                     <td>${row.seller_number}</td>
                                     <td>${row.family_name}</td>
-                                    <td>${row.given_name}</td>
-                                    <td class="d-none d-md-table-cell">${row.email}</td>
-                                    <td>${row.phone}</td>
-                                    <td class="d-none d-md-table-cell">${row.street} ${row.house_number}, ${row.zip} ${row.city}</td>
+                                    <td class="d-none">${row.given_name}</td>
+                                    <td class="d-none">${row.email}</td>
+                                    <td class="d-none">${row.phone}</td>
+                                    <td class="d-none">${row.street} ${row.house_number}, ${row.zip} ${row.city}</td>
+									<td>${helperStatus}</td>
                                     <td>${feeStatus}</td>
                                     <td>
                                         <form action="acceptance.php" method="post" class="d-inline">
@@ -265,5 +249,8 @@ $conn->close();
             document.documentElement.style.visibility = "visible";
         });
     </script>
+	<script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>
 </html>

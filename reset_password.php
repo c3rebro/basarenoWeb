@@ -11,9 +11,8 @@ require_once 'utilities.php';
 $message = '';
 $message_type = 'danger'; // Default message type for errors
 
-if (isset($_GET['token']) && isset($_GET['hash'])) {
-    $token = $_GET['token'];
-    $hash = $_GET['hash'];
+if (filter_input(INPUT_GET, 'token') !== null) {
+    $token = filter_input(INPUT_GET, 'token');
 
     $conn = get_db_connection();
     $stmt = $conn->prepare("SELECT id, username FROM users WHERE reset_token=? AND reset_expiry > NOW()");
@@ -26,22 +25,16 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
         $user_id = $user['id'];
         $email = $user['username'];
 
-        // Verify the hash
-        $expected_hash = generate_hash($email, $user_id);
-        if ($hash !== $expected_hash) {
-            $message = "Ungültiger Hash.";
-        }
-
-        if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['csrf_token'])) {
-            if (!validate_csrf_token($_POST['csrf_token'])) {
+        if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'csrf_token') !== null) {
+            if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
                 die("CSRF token validation failed.");
             }
 
-            $password = $_POST['password'];
-            $confirm_password = $_POST['confirm_password'];
+            $password = filter_input(INPUT_POST, 'password');
+            $confirm_password = filter_input(INPUT_POST, 'confirm_password');
 
-            if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/[0-9]/', $password)) {
-                $message = "Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Großbuchstaben, einen Kleinbuchstaben und eine Zahl enthalten.";
+            if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
+                $message = "Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Großbuchstaben und einen Kleinbuchstaben enthalten.";
             } elseif ($password !== $confirm_password) {
                 $message = "Passwörter stimmen nicht überein.";
             } else {
@@ -53,7 +46,8 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
 
                 if ($stmt->execute()) {
                     $message_type = 'success';
-                    $message = "Passwort erfolgreich zurückgesetzt.";
+                    $message = "Passwort erfolgreich zurückgesetzt. Du wirst in 3 Sek. weiter geleitet.";
+					header("Refresh: 3; url=login.php");
                 } else {
                     $message = "Fehler beim Zurücksetzen des Passworts: " . $conn->error;
                 }
@@ -94,7 +88,7 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
 <div class="container">
     <div class="form-container mt-5">
         <h2 class="text-center">Passwort zurücksetzen</h2>
-        <p class="text-center">Bitte geben Sie Ihr neues Passwort ein. Stellen Sie sicher, dass es den Sicherheitsanforderungen entspricht.</p>
+        <p class="text-center">Bitte gib Dein neues Passwort ein. Stelle sicher, dass es den Sicherheitsanforderungen entspricht.</p>
         <?php if ($message): ?>
             <div class="alert alert-<?php echo $message_type; ?>"><?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?></div>
         <?php endif; ?>
@@ -103,7 +97,7 @@ if (isset($_GET['token']) && isset($_GET['hash'])) {
             <div class="form-group">
                 <label for="password">Neues Passwort:</label>
                 <input type="password" class="form-control" id="password" name="password" required>
-                <small class="form-text text-muted">Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Großbuchstaben, einen Kleinbuchstaben und eine Zahl enthalten.</small>
+                <small class="form-text text-muted">Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Großbuchstaben und einen Kleinbuchstaben enthalten.</small>
             </div>
             <div class="form-group">
                 <label for="confirm_password">Passwort bestätigen:</label>

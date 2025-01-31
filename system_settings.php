@@ -37,14 +37,14 @@ $currentPassword = htmlspecialchars($currentSettings['wifi_password']);
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $updates = [];
 
-    if (isset($_POST['edit_base_uri'])) {
+    if (filter_input(INPUT_POST, 'edit_base_uri') !== null) {
         $new_base_uri = sanitize_url($_POST['new_base_uri']);
         $updates['BASE_URI'] = $new_base_uri;
         $base_uri_message = "BASE_URI erfolgreich aktualisiert!";
     }
 
-    if (isset($_POST['edit_debug_mode'])) {
-        $new_debug_mode = isset($_POST['new_debug_mode']) ? true : false;
+    if (filter_input(INPUT_POST, 'edit_debug_mode') !== null) {
+        $new_debug_mode = filter_input(INPUT_POST, 'new_debug_mode') !== null ? true : false;
         $updates['DEBUG'] = $new_debug_mode;
         $debug_mode_message = "DEBUG Modus erfolgreich aktualisiert!";
     }
@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         update_config($updates);
     }
 	
-    if (isset($_POST['apply'])) {
+    if (filter_input(INPUT_POST, 'apply') !== null) {
         $operationMode = sanitize_input($_POST['operationMode']);
         $wifi_ssid = $operationMode === 'offline' ? sanitize_input($_POST['wifi_ssid']) : '';
         $wifi_password = $operationMode === 'offline' ? sanitize_input($_POST['wifi_password']) : '';
@@ -87,7 +87,7 @@ rsn_pairwise=CCMP";
         exit;
     }
 
-    if (isset($_POST['recalculate_hashes'])) {
+    if (filter_input(INPUT_POST, 'recalculate_hashes') !== null) {
         $sql = "SELECT id, email FROM sellers";
         $result = $conn->query($sql);
 
@@ -107,19 +107,19 @@ rsn_pairwise=CCMP";
         }
     }
 	
-    if (isset($_POST['edit_secret'])) {
+    if (filter_input(INPUT_POST, 'edit_secret') !== null) {
         $new_secret = sanitize_input($_POST['new_secret']);
         $updates['SECRET'] = $new_secret;
         $secret_message = "Geheimnis erfolgreich aktualisiert!";
     }
 
-    if (isset($_POST['edit_footer'])) {
+    if (filter_input(INPUT_POST, 'edit_footer') !== null) {
         $new_footer = sanitize_footer_content($_POST['new_footer']);
         $updates['FOOTER'] = addcslashes($new_footer, "'");
         $footer_message = "Footer erfolgreich aktualisiert!";
     }
 
-    if (isset($_POST['update_smtp'])) {
+    if (filter_input(INPUT_POST, 'update_smtp') !== null) {
         $smtp_from = sanitize_input($_POST['smtp_from']);
         $smtp_from_name = sanitize_input($_POST['smtp_from_name']);
         $updates['SMTP_FROM'] = $smtp_from;
@@ -127,7 +127,7 @@ rsn_pairwise=CCMP";
         $smtp_message = "SMTP-Einstellungen erfolgreich aktualisiert!";
     }
 
-    if (isset($_POST['update_db'])) {
+    if (filter_input(INPUT_POST, 'update_db') !== null) {
         $db_server = sanitize_input($_POST['db_server']);
         $db_username = sanitize_input($_POST['db_username']);
         $db_password = sanitize_input($_POST['db_password']);
@@ -174,43 +174,9 @@ $conn->close();
     </script>
 </head>
 <body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="dashboard.php">Bazaar Administration</a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten <span class="sr-only">(current)</span></a>
-                </li>
-                <li class="nav-item active">
-                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_log.php">Protokolle</a>
-                </li>
-            </ul>
-            <hr class="d-lg-none d-block">
-            <ul class="navbar-nav">
-                <li class="nav-item ml-lg-auto">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+	<!-- Navbar -->
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
 
     <div class="container">
         <h1 class="text-center mb-4 headline-responsive">Systemeinstellungen</h1>

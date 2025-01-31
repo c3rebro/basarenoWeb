@@ -28,9 +28,12 @@ $username = $_SESSION['username'] ?? '';
 // Generate CSRF token for the form
 $csrf_token = generate_csrf_token();
 
+$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+$checkout_id = 0;
+
 // Handle setting session variables for product creation
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_session'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'set_session') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'error' => 'CSRF token validation failed.']);
         exit;
     }
@@ -42,8 +45,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_session'])) {
 }
 
 // Handle AJAX search request
-if ($_SERVER["REQUEST_METHOD"] === "GET" && isset($_GET['search_term'])) {
-    $search_term = trim($_GET['search_term']);
+if ($_SERVER["REQUEST_METHOD"] === "GET" && filter_input(INPUT_GET, 'search_term') !== null) {
+    $search_term = trim(filter_input(INPUT_GET, 'search_term'));
 
     if (strlen($search_term) >= 3) {
         // Prepare SQL query
@@ -94,95 +97,138 @@ if ($_SERVER["REQUEST_METHOD"] === "GET" && isset($_GET['search_term'])) {
 }
 
 // Handle seller addition
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_seller'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'add_seller') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
-    // Sanitize inputs
-    $family_name = sanitize_input($_POST['family_name']);
-    $given_name = sanitize_input($_POST['given_name']);
-    $email = sanitize_input($_POST['email']);
-    $password = $_POST['password'];
-    $phone = sanitize_input($_POST['phone']);
-    $street = sanitize_input($_POST['street']);
-    $house_number = sanitize_input($_POST['house_number']);
-    $zip = sanitize_input($_POST['zip']);
-    $city = sanitize_input($_POST['city']);
-    $consent = isset($_POST['consent']) ? 1 : 0;
+    // Check if creating a new user or adding a seller number to an existing user
+    $create_new_user = filter_input(INPUT_POST, 'createNewUser') !== null && $_POST['createNewUser'] == '1';
+    $selected_user_id = filter_input(INPUT_POST, 'selected_user_id') !== null ? intval($_POST['selected_user_id']) : null;
 
-    // Validate email duplication
-    $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
-    $stmt->bind_param("s", $email);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    if ($result->num_rows > 0) {
-        die("Ein Benutzer mit dieser E-Mail existiert bereits.");
+    if ($create_new_user) {
+        // Create a new user with a seller number
+        $family_name = sanitize_input($_POST['family_name']);
+        $given_name = sanitize_input($_POST['given_name']);
+        $email = sanitize_input($_POST['email']);
+        $password = filter_input(INPUT_POST, 'password');
+        $phone = sanitize_input($_POST['phone']);
+        $street = sanitize_input($_POST['street']);
+        $house_number = sanitize_input($_POST['house_number']);
+        $zip = sanitize_input($_POST['zip']);
+        $city = sanitize_input($_POST['city']);
+        $consent = filter_input(INPUT_POST, 'consent') !== null ? 1 : 0;
+
+        // Validate email duplication
+        $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows > 0) {
+            die("Ein Benutzer mit dieser E-Mail existiert bereits.");
+        }
+
+        // Validate password complexity
+        if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
+            die("Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Groß- und Kleinbuchstaben enthalten.");
+        }
+
+        // Hash the password
+        $password_hash = password_hash($password, PASSWORD_BCRYPT);
+
+        // Begin transaction
+        $conn->begin_transaction();
+        try {
+            // Insert into users table
+            $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role, user_verified) VALUES (?, ?, 'seller', 1)");
+            $stmt->bind_param("ss", $email, $password_hash);
+            $stmt->execute();
+            $user_id = $conn->insert_id;
+
+            // Insert into user_details table
+            $stmt = $conn->prepare("INSERT INTO user_details (user_id, family_name, given_name, email, phone, street, house_number, zip, city, consent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("issssssssi", $user_id, $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $consent);
+            $stmt->execute();
+
+            // Proceed to seller number assignment
+        } catch (Exception $e) {
+            $conn->rollback();
+            die("Fehler beim Erstellen des Benutzers: " . $e->getMessage());
+        }
+    } elseif ($selected_user_id) {
+        // Add a seller number to an existing user
+        $user_id = $selected_user_id;
+    } else {
+        die("Ungültige Anforderung: Weder neuer Benutzer noch bestehender Benutzer ausgewählt.");
     }
 
-    // Validate password complexity
-    if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
-        die("Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Groß- und Kleinbuchstaben enthalten.");
-    }
-
-    // Hash the password
-    $password_hash = password_hash($password, PASSWORD_BCRYPT);
-
-    // Begin transaction
-    $conn->begin_transaction();
+    // Insert into sellers table
     try {
-        // Insert into users table
-        $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role, user_verified) VALUES (?, ?, 'seller', 1)");
-        $stmt->bind_param("ss", $email, $password_hash);
-        $stmt->execute();
-        $user_id = $conn->insert_id;
+		// Step 1: Check for the lowest available revoked seller number (set to 0)
+		$stmt = $conn->prepare("
+			SELECT seller_number 
+			FROM sellers 
+			WHERE seller_number >= 100 
+			  AND user_id = 0 
+			  AND bazaar_id = 0 
+			  AND seller_verified = 0
+			ORDER BY seller_number ASC
+			LIMIT 1
+		");
+		$stmt->execute();
+		$result = $stmt->get_result();
 
-        // Insert into user_details table
-        $stmt = $conn->prepare("INSERT INTO user_details (user_id, family_name, given_name, email, phone, street, house_number, zip, city, consent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("issssssssi", $user_id, $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $consent);
-        $stmt->execute();
+		if ($result->num_rows > 0) {
+			// Step 2: Reuse an existing revoked seller number
+			$seller_number = $result->fetch_assoc()['seller_number'];
 
-        // Determine next seller number and checkout ID
-        $stmt = $conn->prepare("SELECT MAX(seller_number) AS max_seller_number, MAX(checkout_id) AS max_checkout_id FROM sellers");
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $seller_number = $result['max_seller_number'] + 1;
-        $checkout_id = $result['max_checkout_id'] + 1;
+			// Update the existing revoked seller entry
+			$stmt = $conn->prepare("
+				UPDATE sellers 
+				SET user_id = ?, bazaar_id = ?, seller_verified = 1, checkout_id = ?, reserved = 1
+				WHERE seller_number = ? AND user_id = 0 AND bazaar_id = 0 AND seller_verified = 0
+			");
+			$stmt->bind_param("iiii", $user_id, $bazaar_id, $checkout_id, $seller_number);
+			$stmt->execute();
+		} else {
+			// Step 3: No revoked seller number found, generate the next sequential number
+			$stmt = $conn->prepare("SELECT MAX(seller_number) AS max_seller_number FROM sellers");
+			$stmt->execute();
+			$result = $stmt->get_result()->fetch_assoc();
+			$seller_number = max(100, $result['max_seller_number'] + 1);
 
-        // Insert into sellers table
-        $stmt = $conn->prepare("INSERT INTO sellers (user_id, seller_number, checkout_id, bazaar_id) VALUES (?, ?, ?, ?)");
-        $bazaar_id = 0; // Example, set as needed
-        $stmt->bind_param("iiii", $user_id, $seller_number, $checkout_id, $bazaar_id);
-        $stmt->execute();
+			// Step 4: Determine next checkout ID
+			$stmt = $conn->prepare("SELECT MAX(checkout_id) AS max_checkout_id FROM sellers");
+			$stmt->execute();
+			$result = $stmt->get_result()->fetch_assoc();
+			$checkout_id = $result['max_checkout_id'] + 1;
 
-        // Send notification email
-        $subject = "Ihr Konto wurde erstellt";
-		$message_type = "success";
-        $message = "Hallo $family_name,\n\nIhr Konto wurde erfolgreich erstellt. Hier sind Ihre Zugangsdaten:\n\nE-Mail: $email\nPasswort: (wie von Ihnen festgelegt)\n\nBitte melden Sie sich an, um fortzufahren.";
-        $headers = "From: noreply@yourdomain.com";
-        //mail($email, $subject, $message, $headers);
+			// Step 5: Insert a new seller record
+			$stmt = $conn->prepare("
+				INSERT INTO sellers (user_id, seller_number, checkout_id, bazaar_id, seller_verified, reserved) 
+				VALUES (?, ?, ?, ?, 1, 1)
+			");
+			$stmt->bind_param("iiii", $user_id, $seller_number, $checkout_id, $bazaar_id);
+			$stmt->execute();
+		}
 
-        // Commit transaction
-        $conn->commit();
+		echo "Verkäufer erfolgreich erstellt. Verkäufernummer: $seller_number.";
+	} catch (Exception $e) {
+		$conn->rollback();
+		die("Fehler beim Zuweisen der Verkäufernummer: " . $e->getMessage());
+	}
 
-        // Log action
-        log_action($conn, $user_id, "New user and seller created", "Email: $email, Seller Number: $seller_number");
-        echo "Benutzer und Verkäufer erfolgreich erstellt.";
-    } catch (Exception $e) {
-        $conn->rollback();
-        die("Fehler beim Erstellen des Benutzers: " . $e->getMessage());
-    }
 }
 
 // Handle seller update
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'edit_seller') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         log_action($conn, $user_id, "CSRF token validation failed for editing seller");
 		
         die("CSRF token validation failed.");
     }
 	
-	$seller_number = intval($_POST['seller_number']);
+	$seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
 	$family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
 	$given_name = htmlspecialchars($_POST['given_name'], ENT_QUOTES, 'UTF-8');
 	$email = htmlspecialchars($_POST['email'], ENT_QUOTES, 'UTF-8');
@@ -191,7 +237,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
 	$house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
 	$zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
 	$city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
-	$verified = isset($_POST['verified']) ? 1 : 0;
+	$verified = filter_input(INPUT_POST, 'verified') !== null ? 1 : 0;
 
 	if (empty($family_name) || empty($email)) {
             $message_type = 'danger';
@@ -213,14 +259,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_seller'])) {
 }
 
 // Handle seller deletion
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_seller'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'delete_seller') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         log_action($conn, $user_id, "CSRF token validation failed for deleting seller");
         die("CSRF token validation failed.");
     }
 
-    $seller_number = intval($_POST['seller_number']);
-    $delete_products = isset($_POST['delete_products']) ? $_POST['delete_products'] : false;
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
+    $delete_products = filter_input(INPUT_POST, 'delete_products') !== null ? $_POST['delete_products'] : false;
 
     if (seller_has_products($conn, $seller_number)) {
         if ($delete_products) {
@@ -264,16 +310,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_seller'])) {
 }
 
 // Handle CSV import
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && filter_input(INPUT_POST, 'confirm_import') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         log_action($conn, $user_id, "CSRF token validation failed for editing seller");
 		
         die("CSRF token validation failed.");
     }
 	
     $file = $_FILES['csv_file']['tmp_name'];
-    $delimiter = $_POST['delimiter'];
-    $encoding = $_POST['encoding'];
+    $delimiter = filter_input(INPUT_POST, 'delimiter');
+    $encoding = filter_input(INPUT_POST, 'encoding');
     $handle = fopen($file, 'r');
     $consent = 1;
 	
@@ -334,52 +380,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirm_import'])) {
 }
 
 // Product exist check
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['check_seller_products'])) {
-    $seller_number = intval($_POST['seller_number']);
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'check_seller_products') !== null) {
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
     $has_products = seller_has_products($conn, $seller_number);
     echo json_encode(['has_products' => $has_products]);
     exit;
 }
 
-// Handle seller checkout
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout_seller'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
-        log_action($conn, $user_id, "CSRF token validation failed for seller checkout");
-        echo json_encode(['error' => 'CSRF token validation failed.']);
-        exit;
-    }
-
-    $seller_number = intval($_POST['seller_number']);
-
-    // Set session variables for checkout
-    $_SESSION['seller_number'] = $seller_number;
-
-    // Perform any additional actions needed for checkout
-    $stmt = $conn->prepare("UPDATE sellers SET checkout=TRUE WHERE id=?");
-    $stmt->bind_param("i", $seller_number);
-    if ($stmt->execute()) {
-        log_action($conn, $user_id, "Seller checked out", "ID=$seller_number");
-        echo json_encode(['success' => true]);
-    } else {
-        log_action($conn, $user_id, "Error checking out seller", $conn->error);
-        echo json_encode(['error' => 'Fehler beim Auschecken des Verkäufers: ' . $conn->error]);
-    }
-    exit;
-}
-
 // Handle product update
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'update_product') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         log_action($conn, $user_id, "CSRF token validation failed for editing seller");
 		
         die("CSRF token validation failed.");
     } else {
         $bazaar_id = get_current_bazaar_id($conn);
-        $product_id = intval($_POST['product_id']);
+        $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
         $name = htmlspecialchars($_POST['name'], ENT_QUOTES, 'UTF-8');
         $size = htmlspecialchars($_POST['size'], ENT_QUOTES, 'UTF-8');
         $price = floatval($_POST['price']);
-		$sold = isset($_POST['sold']) ? 1 : 0; // Convert checkbox to boolean
+		$sold = filter_input(INPUT_POST, 'sold') !== null ? 1 : 0; // Convert checkbox to boolean
 		
         $stmt = $conn->prepare("UPDATE products SET name=?, size=?, price=?, sold=?, bazaar_id=? WHERE id=?");
         $stmt->bind_param("ssdiii", $name, $size, $price, $sold, $bazaar_id, $product_id);
@@ -396,14 +416,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_product'])) {
 }
 
 // Handle product deletion
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_product'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'delete_product') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         log_action($conn, $user_id, "CSRF token validation failed for editing seller");
 		
         die("CSRF token validation failed.");
     } else {
-        $product_id = intval($_POST['product_id']);
-        $seller_number = intval($_POST['seller_number']);
+        $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
+        $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
 
         $stmt = $conn->prepare("DELETE FROM products WHERE id=? AND seller_number=?");
         $stmt->bind_param("ii", $product_id, $seller_number);
@@ -425,9 +445,9 @@ $sort_by = isset($_COOKIE['sort_by']) ? $_COOKIE['sort_by'] : 'id';
 $order = isset($_COOKIE['order']) ? $_COOKIE['order'] : 'ASC';
 
 // Validate sort_by to prevent SQL injection
-$valid_columns = ['id', 'checkout_id', 'family_name', 'checkout'];
+$valid_columns = ['seller_number', 'checkout_id', 'family_name', 'checkout'];
 if (!in_array($sort_by, $valid_columns)) {
-    $sort_by = 'id'; // Default to 'id' if invalid
+    $sort_by = 'seller_number'; // Default to 'id' if invalid
 }
 
 // Get all sellers
@@ -475,6 +495,7 @@ $conn->close();
         html { visibility: hidden; }
     </style>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Verkäufer Verwalten</title>
     <!-- Preload and link CSS files -->
@@ -495,45 +516,7 @@ $conn->close();
 </head>
 <body>
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-				<li class="nav-item">
-                    <a class="nav-link" href="admin_dashboard.php">Admin Dashboard</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link active" href="admin_manage_sellers.php">Verkäufer verwalten <span class="sr-only">(current)</span></a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_log.php">Protokolle</a>
-                </li>
-            </ul>
-            <hr class="d-lg-none d-block">
-            <ul class="navbar-nav">
-                <li class="nav-item ml-lg-auto">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
 
     <div class="container">
 		<!-- Hidden input for CSRF token -->
@@ -616,13 +599,13 @@ $conn->close();
 					</div>
 
 					<!-- Search for existing user -->
-					<div id="existingUserSearch" class="hidden">
+					<div id="existingUserSearch" class="hidden table-responsive-sm">
 						<label for="userSearchInput">Benutzer suchen:</label>
 						<input type="text" id="userSearchInput" class="form-control" placeholder="Suchen nach Name, Vorname oder E-Mail (mind. 3 Zeichen)">
 
 						<div id="userSearchPlaceholder" class="alert alert-info mt-2">Bitte mindestens 3 Zeichen eingeben.</div>
 
-						<table class="table table-bordered table-responsive mt-3 hidden" id="userSearchResultsTable">
+						<table class="table table-bordered w-100 mt-3 hidden" id="userSearchResultsTable">
 							<thead>
 								<tr>
 									<th>Benutzer-ID</th>
@@ -703,7 +686,7 @@ $conn->close();
                                     while ($row = $sellers_result->fetch_assoc()) {
                                             $checkout_class = $row['checkout'] ? 'done' : '';
                                             echo "<tr class='$checkout_class'>
-                                                            <td>" . htmlspecialchars($row['user_id'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
+                                                            <td>" . htmlspecialchars($row['seller_number'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td>" . htmlspecialchars($row['family_name'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td>" . htmlspecialchars($row['given_name'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td>" . htmlspecialchars($row['email'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
@@ -966,28 +949,6 @@ $conn->close();
         </div>
     </div>
 
-	<!-- Confirm Checkout Modal -->
-	<div class="modal fade" id="confirmCheckoutModal" tabindex="-1" role="dialog" aria-labelledby="confirmCheckoutModalLabel" aria-hidden="true">
-		<div class="modal-dialog" role="document">
-			<div class="modal-content">
-				<div class="modal-header">
-					<h5 class="modal-title" id="confirmCheckoutModalLabel">Verkäufer abrechnen</h5>
-					<button type="button" class="close" data-dismiss="modal" aria-label="Close">
-						<span aria-hidden="true">&times;</span>
-					</button>
-				</div>
-				<div class="modal-body">
-					<p>Möchten Sie diesen Verkäufer wirklich abrechnen?</p>
-					<input type="hidden" id="confirmCheckoutSellerId">
-				</div>
-				<div class="modal-footer">
-					<button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
-					<button type="button" class="btn btn-primary" id="confirmCheckoutButton">Abrechnen</button>
-				</div>
-			</div>
-		</div>
-	</div>
-
 	<!-- Back to Top Button -->
 	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
 	
@@ -1119,8 +1080,15 @@ $conn->close();
 							}
 						}, 'json');
 					} else if (action === 'checkout') {
-						$('#confirmCheckoutSellerId').val(sellerId);
-						$('#confirmCheckoutModal').modal('show');
+						const csrfToken = $('#csrf_token').val();
+
+						$.post('admin_manage_sellers.php', { set_session: true, seller_number: sellerId, csrf_token: csrfToken }, function(response) {
+								if (response.success) {
+										window.location.href = 'checkout.php';
+								} else {
+										alert('Fehler beim Auschecken des Verkäufers: ' + response.error);
+								}
+						}, 'json');
 					}
 				});
 
@@ -1131,19 +1099,6 @@ $conn->close();
 				location.reload();
 			});
 		});
-
-        $('#confirmCheckoutButton').on('click', function() {
-                const sellerId = $('#confirmCheckoutSellerId').val();
-                const csrfToken = $('#csrf_token').val();
-
-                $.post('admin_manage_sellers.php', { checkout_seller: true, seller_number: sellerId, csrf_token: csrfToken }, function(response) {
-                        if (response.success) {
-                                window.location.href = 'checkout.php';
-                        } else {
-                                alert('Fehler beim Auschecken des Verkäufers: ' + response.error);
-                        }
-                }, 'json');
-        });
 
         $('#filter').on('change', function() {
             const filter = $(this).val();
@@ -1257,12 +1212,27 @@ $conn->close();
 			const resultsTable = document.getElementById('userSearchResultsTable');
 			const resultsBody = resultsTable.querySelector('tbody');
 			const selectedUserIdInput = document.getElementById('selectedUserId');
+			const requiredFields = [
+				'#family_name',
+				'#email',
+				'#password',
+			];
+			
+			// Function to toggle required attribute
+			function toggleRequiredFields(isRequired) {
+				requiredFields.forEach(selector => {
+					$(selector).prop('required', isRequired);
+				});
+			}
 	
 			// Toggle visibility of new user fields and search
 			createNewUserCheckbox.addEventListener('change', function () {
 				const isChecked = createNewUserCheckbox.checked;
 				newUserFields.classList.toggle('hidden', !isChecked);
 				existingUserSearch.classList.toggle('hidden', isChecked);
+				
+				// Toggle required attributes
+				toggleRequiredFields(isChecked);
 			});
 	
 			// Handle live search
@@ -1344,7 +1314,8 @@ $conn->close();
 
 			// Initial check on page load
 			toggleBackToTopButton();
-
+		
+	
 			// Show or hide the "Back to Top" button on scroll
 			$(window).scroll(function() {
 				toggleBackToTopButton();

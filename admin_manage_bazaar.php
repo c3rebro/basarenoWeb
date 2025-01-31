@@ -31,21 +31,22 @@ $sql = "SELECT max_sellers, max_products_per_seller, brokerage, min_price, price
 $result = $conn->query($sql);
 $latestBazaar = $result->fetch_assoc();
 
-$max_sellers = $latestBazaar['max_sellers'] ?? '';
-$max_products_per_seller = $latestBazaar['max_products_per_seller'] ?? '';
-$brokerage = $latestBazaar['brokerage'] ?? '';
-$min_price = $latestBazaar['min_price'] ?? '';
-$price_stepping = $latestBazaar['mailtxt_reqexistingsellerid'] ?? '';
+
+$max_sellers = $latestBazaar['max_sellers'] ?? 0;
+$max_products_per_seller = $latestBazaar['max_products_per_seller'] ?? 0;
+$brokerage = $latestBazaar['brokerage'] ?? 0;
+$min_price = $latestBazaar['min_price'] ?? 0;
+$price_stepping = $latestBazaar['mailtxt_reqexistingsellerid'] ?? 0;
 $mailtxt_reqnewsellerid = $latestBazaar['mailtxt_reqnewsellerid'] ?? '';
 $mailtxt_reqexistingsellerid = $latestBazaar['mailtxt_reqexistingsellerid'] ?? '';
 
 // Set default sorting options
-$sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'startDate';
-$sortOrder = isset($_GET['sortOrder']) ? $_GET['sortOrder'] : 'DESC';
+$sortBy = filter_input(INPUT_GET, 'sortBy') !== null ? $_GET['sortBy'] : 'startDate';
+$sortOrder = filter_input(INPUT_GET, 'sortOrder') !== null ? $_GET['sortOrder'] : 'DESC';
 
 // CSV Export functionality
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'export_csv') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -98,10 +99,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['export_csv'])) {
 }
 
 // CSV Import functionality
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'import_csv') !== null) {
     $conn = get_db_connection();
 
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -120,7 +121,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
             // Disable foreign key checks
             $conn->query("SET FOREIGN_KEY_CHECKS=0");
 
-            $import_option = $_POST['importoptions'];
+            $import_option = filter_input(INPUT_POST, 'importoptions');
 
             if ($import_option === 'delete_before_importing') {
                 $conn->query("TRUNCATE TABLE products");
@@ -215,8 +216,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_csv'])) {
 }
 
 // Handle bazaar addition
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'add_bazaar') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -228,8 +229,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
     $price_stepping = htmlspecialchars($_POST['price_stepping']);
     $max_sellers = htmlspecialchars($_POST['max_sellers']);
     $max_products_per_seller = htmlspecialchars($_POST['max_products_per_seller']);
-    $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
-    $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
+    $mailtxt_reqnewsellerid = filter_input(INPUT_POST, 'mailtxt_reqnewsellerid');
+    $mailtxt_reqexistingsellerid = filter_input(INPUT_POST, 'mailtxt_reqexistingsellerid');
 
     if (empty($startDate) || empty($startReqDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
         $message_type = 'danger';
@@ -245,19 +246,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
             $message_type = 'danger';
             $message = "Sie können diesen Bazaar nicht erstellen. Ein neuerer Bazaar existiert bereits.";
         } else {
-            $delete_sellers_sql = "SELECT id FROM sellers WHERE consent = 0";
-            $delete_sellers_result = $conn->query($delete_sellers_sql);
-            while ($seller = $delete_sellers_result->fetch_assoc()) {
-                $seller_id = $seller['id'];
-                $conn->query("DELETE FROM products WHERE seller_id = $seller_id");
-                $conn->query("DELETE FROM sellers WHERE id = $seller_id");
-            }
+            //$delete_sellers_sql = "SELECT id FROM sellers WHERE consent = 0";
+            //$delete_sellers_result = $conn->query($delete_sellers_sql);
+            //while ($seller = $delete_sellers_result->fetch_assoc()) {
+            //    $seller_id = $seller['id'];
+            //    $conn->query("DELETE FROM products WHERE seller_id = $seller_id");
+            //    $conn->query("DELETE FROM sellers WHERE id = $seller_id");
+            //}
 
-            $conn->query("UPDATE sellers SET checkout_id = 0, fee_payed = FALSE");
+            //$conn->query("UPDATE sellers SET checkout_id = 0, fee_payed = FALSE");
 
             // Delete products that are sold for sellers with consent = 1
-            $delete_sold_products_sql = "DELETE FROM products WHERE sold = TRUE AND seller_id IN (SELECT id FROM sellers WHERE consent = 1)";
-            $conn->query($delete_sold_products_sql);
+            //$delete_sold_products_sql = "DELETE FROM products WHERE sold = TRUE AND seller_id IN (SELECT id FROM sellers WHERE consent = 1)";
+            //$conn->query($delete_sold_products_sql);
 
             $brokerage = $brokerage / 100;
             $sql = "INSERT INTO bazaar (startDate, startReqDate, brokerage, min_price, price_stepping, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid, max_products_per_seller) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -277,8 +278,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_bazaar'])) {
 }
 
 // Handle bazaar modification
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'edit_bazaar') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -290,8 +291,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
     $price_stepping = htmlspecialchars($_POST['price_stepping']);
     $max_sellers = htmlspecialchars($_POST['max_sellers']);
     $max_products_per_seller = htmlspecialchars($_POST['max_products_per_seller']);
-    $mailtxt_reqnewsellerid = $_POST['mailtxt_reqnewsellerid'];
-    $mailtxt_reqexistingsellerid = $_POST['mailtxt_reqexistingsellerid'];
+    $mailtxt_reqnewsellerid = filter_input(INPUT_POST, 'mailtxt_reqnewsellerid');
+    $mailtxt_reqexistingsellerid = filter_input(INPUT_POST, 'mailtxt_reqexistingsellerid');
 
     if (empty($startDate) || empty($brokerage) || empty($min_price) || empty($price_stepping) || empty($max_sellers) || empty($mailtxt_reqnewsellerid) || empty($mailtxt_reqexistingsellerid) || empty($max_products_per_seller)) {
         $message_type = 'danger';
@@ -318,8 +319,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_bazaar'])) {
 }
 
 // Handle bazaar removal
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'remove_bazaar') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -345,8 +346,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_bazaar'])) {
 }
 
 // Handle bazaar fetch details
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] === 'fetch_bazaar_data') {
-    $bazaar_id = $_POST['bazaar_id'];
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'action') !== null && $_POST['action'] === 'fetch_bazaar_data') {
+    $bazaar_id = filter_input(INPUT_POST, 'bazaar_id');
     $conn = get_db_connection();
     // Fetch products count
     $products_count_all = $conn->query("SELECT COUNT(*) as count FROM products WHERE bazaar_id = $bazaar_id")->fetch_assoc()['count'] ?? 0;
@@ -383,6 +384,7 @@ $conn->close();
 <html lang="de">
     <head>
         <meta charset="UTF-8">
+        <link rel="icon" type="image/x-icon" href="favicon.ico">
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
         <title>Bazaar Verwalten</title>
         <!-- Preload and link CSS files -->
@@ -405,46 +407,9 @@ $conn->close();
         <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
     </head>
     <body>
-        <!-- Navbar -->
-		<nav class="navbar navbar-expand-lg navbar-light">
-			<a class="navbar-brand" href="#">Basareno<i>Web</i></a>
-			<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-				<span class="navbar-toggler-icon"></span>
-			</button>
-			<div class="collapse navbar-collapse" id="navbarNav">
-				<ul class="navbar-nav">
-					<li class="nav-item">
-						<a class="nav-link" href="admin_dashboard.php">Admin Dashboard</a>
-					</li>
-					<li class="nav-item">
-						<a class="nav-link" href="admin_manage_users.php">Benutzer verwalten</a>
-					</li>
-					<li class="nav-item active">
-						<a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten <span class="sr-only">(current)</span></a>
-					</li>
-					<li class="nav-item">
-						<a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten</a>
-					</li>
-					<li class="nav-item">
-						<a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
-					</li>
-					<li class="nav-item">
-						<a class="nav-link" href="system_log.php">Protokolle</a>
-					</li>
-				</ul>
-				<hr class="d-lg-none d-block">
-				<ul class="navbar-nav">
-					<li class="nav-item ml-lg-auto">
-						<a class="navbar-user" href="#">
-							<i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-						</a>
-					</li>
-					<li class="nav-item">
-						<a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-					</li>
-				</ul>
-			</div>
-		</nav>
+		<!-- Navbar -->
+		<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
 
         <div class="container">
             <!-- Hidden input for CSRF token -->
@@ -472,7 +437,7 @@ $conn->close();
                                 <label for="startDate">Veranstaltungsdatum:</label>
                                 <input type="date" class="form-control" id="startDate" name="startDate" required>
                             </div>
-                            <div class="form-group col-md-4 d-none">
+                            <div class="form-group col-md-4">
                                 <label for="startReqDate">Anforderungsdatum:</label>
                                 <input type="date" class="form-control" id="startReqDate" name="startReqDate">
                             </div>
@@ -681,7 +646,7 @@ $conn->close();
                         <tr>
                             <th>ID</th>
                             <th>Basar<br>Startdatum</th>
-                            <th class="d-none">Start der<br>Nummernverg.</th>
+                            <th>Start der<br>Nummernverg.</th>
                             <th>Prov. in (%)</th>
                             <th>Min.<br>Preis (€)</th>
                             <th>Preisab-<br>stufung (€)</th>
@@ -695,7 +660,7 @@ $conn->close();
                             <tr id="bazaar-<?php echo htmlspecialchars($row['id']); ?>">
                                 <td><?php echo htmlspecialchars($row['id']); ?></td>
                                 <td><?php echo htmlspecialchars($row['startDate']); ?></td>
-                                <td class="d-none"><?php echo htmlspecialchars($row['startReqDate']); ?></td>
+                                <td><?php echo htmlspecialchars($row['startReqDate']); ?></td>
                                 <td><?php echo htmlspecialchars($row['brokerage'] * 100); ?></td>
                                 <td><?php echo htmlspecialchars($row['min_price']); ?></td>
                                 <td><?php echo htmlspecialchars($row['price_stepping']); ?></td>
@@ -737,7 +702,7 @@ $conn->close();
                                 <label for="editStartDate">Startdatum:</label>
                                 <input type="date" class="form-control" id="editStartDate" name="startDate" required>
                             </div>
-                            <div class="form-group d-none">
+                            <div class="form-group">
                                 <label for="editStartReqDate">Anforderungsdatum:</label>
                                 <input type="date" class="form-control" id="editStartReqDate" name="startReqDate">
                             </div>

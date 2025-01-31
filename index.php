@@ -87,9 +87,9 @@ if ($operationMode === 'offline') {
 				<div class="container mt-5">
 					<div class="jumbotron text-center">
 						<h1 class="display-4">Zertifikats- Warnung</h1>
-						<p class="lead">Beim Klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptieren Sie bitte das selbstsignierte Zertifikat.</p>
+						<p class="lead">Beim Klick auf einen der Buttons wird vom Browser eine Warnung ausgegeben. Um fortzufahren, akzeptiere bitte das selbstsignierte Zertifikat.</p>
 						<hr class="my-4">
-						<p>Öffnen Sie die "Erweiterte Optionen" und wählen Sie "Weiter zu bazaar.lan (unsicher)" aus.</p>
+						<p>Öffne die "Erweiterte Optionen" und wähle "Weiter zu bazaar.lan (unsicher)" aus.</p>
 						<table class="dashboard-table mx-auto">
 							<tr>
 								<td colspan="2">
@@ -174,8 +174,8 @@ if ($bazaar) {
     $maxSellersReached = $sellerCount >= $maxSellers;
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) && $canRequestSellerId && !$maxSellersReached) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'request_seller_id') !== null && $canRequestSellerId && !$maxSellersReached) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -188,9 +188,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 	$house_number = !empty($_POST['house_number']) ? sanitize_input($_POST['house_number']) : 'Nicht angegeben';
 	$zip = !empty($_POST['zip']) ? sanitize_input($_POST['zip']) : 'Nicht angegeben';
 	$city = !empty($_POST['city']) ? sanitize_input($_POST['city']) : 'Nicht angegeben';
-	$reserve = isset($_POST['reserve']) ? 1 : 0;
+	$reserve = filter_input(INPUT_POST, 'reserve') !== null ? 1 : 0;
 	$use_existing_number = false; //$_POST['use_existing_number'] === 'yes';
-	$consent = isset($_POST['consent']) && $_POST['consent'] === 'yes' ? 1 : 0;
+	$consent = filter_input(INPUT_POST, 'consent') !== null && $_POST['consent'] === 'yes' ? 1 : 0;
 
 	// Check if a seller ID request already exists for this email
 	$stmt = $conn->prepare("SELECT verification_token, user_verified FROM users WHERE username = ?");
@@ -199,8 +199,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 	$result = $stmt->get_result();
 	$existing_seller = $result->fetch_assoc();
 	
-	$password = $_POST['password'];
-        $confirm_password = $_POST['confirm_password'];
+	$password = filter_input(INPUT_POST, 'password');
+        $confirm_password = filter_input(INPUT_POST, 'confirm_password');
 
 	// PWD Check
 	if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
@@ -230,14 +230,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 		if ($existing_seller) {
 			if (!empty($existing_seller['verification_token'])) {
                             show_modal($nonce, 
-                                "Eine Registrierungs-Anfrage wurde für diese Mailadresse bereits generiert. Bitte klicken Sie auf den Bestätigungs-Link in der Email. Danach können Sie sich oben rechts anmelden.",
+                                "Eine Registrierungs-Anfrage wurde für diese Mailadresse bereits generiert. Bitte klicke auf den Bestätigungs-Link in der Email. Danach kannst Du Dich oben rechts anmelden.",
                                 "warning", 
                                 "Email bereits vergeben",
                                 "emailExitModal");
 							
 			} elseif ($existing_seller['user_verified']) {
                             show_modal($nonce, 
-                                "Dieses Konto existiert bereits. Bitte melden Sie sich oben rechts an.",
+                                "Dieses Konto existiert bereits. Bitte melde Dich oben rechts an.",
                                 "warning", 
                                 "Email bereits vergeben",
                                 "emailExitModal");
@@ -250,7 +250,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['request_seller_id']) &
 			
 			if(process_new_seller($conn, $email, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $reserve, $consent, $mailtxt_reqnewsellerid, $password, $nonce)) {
                             show_modal($nonce, 
-                            "Ihr Konto wurde erfolgreich erstellt. Bitte schauen Sie in Ihre E-Mails und bestätigen Sie die Registrierung.", 
+                            "Das Konto wurde erfolgreich erstellt. Bitte schaue in Deine E-Mails und bestätige die Registrierung.", 
                             "success",
                             "Erfolgreich",
                             "createAccountSuccess");
@@ -278,9 +278,10 @@ $conn->close();
 <!DOCTYPE html>
 <html lang="de">
 <head>
-	<style nonce="<?php echo $nonce; ?>">
-		html { visibility: hidden; }
-	</style>
+    <style nonce="<?php echo $nonce; ?>">
+            html { visibility: hidden; }
+    </style>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>BasarenoWeb für Basar-Horrheim.de</title>
@@ -301,50 +302,9 @@ $conn->close();
 </head>
 <body>
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item active">
-                    <a class="nav-link" href="index.php">Startseite <span class="sr-only">(current)</span></a>
-                </li>
-			<?php if (isset($_SESSION['role']) && ($_SESSION['role'] === 'admin' || $_SESSION['role'] === 'cashier' || $_SESSION['role'] === 'assistant')): ?>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_dashboard.php">Admin Dashboard</a>
-                </li>
-            <?php endif; ?>
-			<?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'seller'): ?>
-                <li class="nav-item">
-                    <a class="nav-link" href="seller_dashboard.php">Dashboard</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="seller_products.php">Meine Artikel</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="seller_edit.php">Meine Daten</a>
-                </li>
-            <?php endif; ?>
-            </ul>
-			<?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
-                <li class="nav-item">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            <?php else: ?>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
-                </li>
-            <?php endif; ?>
-        </div>
-    </nav>
-    <div class="container">
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+		
+	<div class="container">
         <h1 class="mt-5">Willkommen</h1>
         <p class="lead">Verkäufer können hier neue Verkäufernummern anfordern und Artikellisten erstellen.</p>
 
@@ -357,13 +317,13 @@ $conn->close();
         <?php endif; ?>
 		
         <?php if ($bazaarOver): ?>
-            <div class="alert alert-info">Der Bazaar ist geschlossen. Bitte kommen Sie wieder, wenn der nächste Bazaar stattfindet.</div>
+            <div class="alert alert-info">Der Basar ist (noch) geschlossen. Bitte komm wieder, wenn der nächste Basar stattfindet.</div>
         <?php elseif ($maxSellersReached): ?>
             <div class="alert alert-info">Es tut uns leid, aber die maximale Anzahl an Verkäufern wurde erreicht. Die Registrierung für eine Verkäufernummer wurde geschlossen.</div>
         <?php elseif (!$canRequestSellerId): ?>
-            <div class="alert alert-info">Anfragen für neue Verkäufer-IDs sind derzeit noch nicht freigeschalten. Die nächste Nummernvergabe startet am: <?php echo htmlspecialchars($formattedDate); ?></div>
+            <div class="alert alert-info">Anfragen für neue Verkäufer Nummern sind derzeit noch nicht freigeschalten. Die nächste Nummernvergabe startet am: <?php echo htmlspecialchars($formattedDate); ?></div>
         <?php else: ?>
-            <h2 class="mt-5">Verkäufer-ID anfordern</h2>
+            <h2 class="mt-5">Neue Verkäufer-Nummer anfordern</h2>
             <form action="index.php" method="post">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
                 <div class="row form-row">
@@ -398,11 +358,11 @@ $conn->close();
                 </div>
                 <div class="form-group">
                     <label for="phone" class="required">Telefonnummer:</label>
-                    <input type="text" class="form-control" id="phone" value="<?php echo htmlspecialchars($phone); ?>" name="phone" placeholder="Wie können wir Sie im &quot;Notfall&quot; schnell erreichen?" required>
+                    <input type="text" class="form-control" id="phone" value="<?php echo htmlspecialchars($phone); ?>" name="phone" placeholder="Wie können wir Dich im &quot;Notfall&quot; schnell erreichen?" required>
                 </div>
                 <div class="form-group">
                     <label for="email" class="required">E-Mail:</label>
-                    <input type="email" class="form-control" id="email" value="<?php echo htmlspecialchars($email); ?>" name="email" required>
+                    <input type="email" class="form-control" id="email" value="<?php echo htmlspecialchars($email); ?>" name="email" placeholder="Das wird gleichzeitig Dein Benutzername sein." required>
                 </div>
 				<div class="row form-row">
 					<div class="form-group col-md-6">
@@ -417,7 +377,7 @@ $conn->close();
 
 				
                 <div class="form-group d-none">
-                    <label for="reserve">Verkäufer-ID:</label>
+                    <label for="reserve">Verkäufer-Nummer:</label>
                     <div class="form-check">
                         <input class="form-check-input" type="radio"  value="no" disabled>
                         <label class="form-check-label">
@@ -433,7 +393,7 @@ $conn->close();
                 </div>
 				
                 <div class="form-group hidden" id="seller_id_field">
-                    <label for="seller_id">Verkäufer-ID:</label>
+                    <label for="seller_id">Verkäufer-Nummer:</label>
                     <input type="text" class="form-control" id="seller_id" name="seller_id">
                 </div>
                 <div class="form-group">
@@ -451,13 +411,16 @@ $conn->close();
                         </label>
                     </div>
                 </div>
-                <p>Weitere Hinweise zum Datenschutz und wie wir mit den Daten umgehen, erhalten Sie in unserer <a href='https://www.basar-horrheim.de/index.php/datenschutzerklaerung'>Datenschutzerklärung</a>. Bei Nutzung unserer Dienste erklären Sie sich mit den dort aufgeführen Bedingungen einverstanden.</p>
-                <button type="submit" class="btn btn-primary btn-block" name="request_seller_id">Verkäufer-ID anfordern</button>
+                <p>Weitere Hinweise zum Datenschutz und wie wir mit den Daten umgehen, haben Wir in unserer <a href='https://www.basar-horrheim.de/index.php/datenschutzerklaerung'>Datenschutzerklärung</a> für Dich zusammen gestellt. Bei Nutzung unserer Dienste erklärst Du uns gegenüber, mit den dort aufgeführen Bedingungen einverstanden zu sein.</p>
+                <button type="submit" class="btn btn-primary btn-block" name="request_seller_id">Verkäufernummer anfordern</button>
             </form>
             <p class="mt-3 text-muted">* Diese Felder sind Pflichtfelder.</p>
         <?php endif; ?>
     </div>
-
+	
+	<!-- Back to Top Button -->
+	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+	
     <?php if (!empty(FOOTER)): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
             <div class="row justify-content-center">
@@ -475,6 +438,35 @@ $conn->close();
             document.documentElement.style.visibility = "visible";
         });
     </script>
+	<script nonce="<?php echo $nonce; ?>">
+		document.addEventListener("DOMContentLoaded", function () {
+			// Function to toggle the visibility of the "Back to Top" button
+			function toggleBackToTopButton() {
+				const scrollTop = $(window).scrollTop();
+
+				if (scrollTop > 100) {
+					$('#back-to-top').fadeIn();
+				} else {
+					$('#back-to-top').fadeOut();
+				}
+			}
+
+			// Initial check on page load
+			toggleBackToTopButton();
+		
+	
+			// Show or hide the "Back to Top" button on scroll
+			$(window).scroll(function() {
+				toggleBackToTopButton();
+			});
+		
+			// Smooth scroll to top
+			$('#back-to-top').click(function() {
+				$('html, body').animate({ scrollTop: 0 }, 600);
+				return false;
+			});
+		});
+	</script>
     <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>

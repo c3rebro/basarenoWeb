@@ -29,8 +29,8 @@ $username = $_SESSION['username'] ?? '';
 $csrf_token = generate_csrf_token();
 
 // Handle AJAX search requests
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-	if (isset($_GET['search_term']) && strlen(trim($_GET['search_term'])) >= 3) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'GET') {
+	if (filter_input(INPUT_GET, 'search_term') !== null && strlen(trim($_GET['search_term'])) >= 3) {
 		header('Content-Type: application/json');
 		$search_term = '%' . trim($_GET['search_term']) . '%';
 		$sql = "
@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 }
 
 // Handle signature submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
     $input = json_decode(file_get_contents('php://input'), true);
 
     if (isset($input['submit_signature']) && $input['submit_signature'] === true) {
@@ -97,13 +97,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
 // Handle signature removal
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['remove_signature'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'remove_signature') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 	header('Content-Type: application/json');
 	
-    $seller_number = intval($_POST['seller_number']);
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
     $stmt = $conn->prepare("UPDATE sellers SET signature=NULL WHERE seller_number=?");
     $stmt->bind_param("i", $seller_number);
     if ($stmt->execute()) {
@@ -152,7 +152,7 @@ $conn->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Abholung</title>
+    <title>Korbrückgabe</title>
     <!-- Preload and link CSS files -->
     <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
     <link rel="preload" href="css/all.min.css" as="style" id="all-css">
@@ -170,33 +170,9 @@ $conn->close();
     <script src="js/signature_pad.min.js" nonce="<?php echo $nonce; ?>"></script>
 </head>
 <body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="dashboard.php">Assistenzfunktionen</a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="acceptance.php">Korbannahme</a>
-                </li>
-                <li class="nav-item active">
-                    <a class="nav-link" href="pickup.php">Korbrückgabe <span class="sr-only">(current)</span></a>
-                </li>
-            </ul>
-            <ul class="navbar-nav">
-                <li class="nav-item ml-auto">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white" href="logout.php">Abmelden</a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+	<!-- Navbar -->
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
     
     <div class="container">
     <h2 class="mt-5">Abholung</h2>

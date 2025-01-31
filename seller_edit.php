@@ -35,13 +35,13 @@ if (!isset($seller_id) || !isset($user_id)) {
 $csrf_token = generate_csrf_token();
 
 // Validate CSRF token
-if ($_SERVER["REQUEST_METHOD"] == "POST" && !validate_csrf_token($_POST['csrf_token'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && !validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
     die("CSRF token validation failed.");
 }
 
 // Handle POST request to edit user details
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'edit_seller') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
     }
 
@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
 
     if ($stmt->execute()) {
         $message_type = 'success';
-        $message = 'Ihre Daten wurden erfolgreich aktualisiert.';
+        $message = 'Deine Daten wurden erfolgreich aktualisiert.';
     } else {
         $message_type = 'danger';
         $message = 'Fehler beim Aktualisieren der Daten: ' . $conn->error;
@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
 }
 
 // Handle account deletion
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_delete'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'confirm_delete') !== null) {
     // Begin a transaction to ensure atomicity
     $conn->begin_transaction();
 
@@ -155,8 +155,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_delete'])) {
     <!DOCTYPE html>
     <html lang="en">
     <head>
-        <meta charset="UTF-8">
-        <title>Account Deletion</title>
+		<meta charset="UTF-8">
+        <title>Kontolöschung</title>
         <link href="css/bootstrap.min.css" rel="stylesheet">
         <style nonce="<?php echo $nonce; ?>">
             .message-container {
@@ -203,6 +203,7 @@ $conn->close();
         html { visibility: hidden; }
     </style>
     <meta charset="UTF-8">
+	<link rel="icon" type="image/x-icon" href="favicon.ico">
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Verkäufer bearbeiten</title>
     <!-- Preload and link CSS files -->
@@ -222,42 +223,10 @@ $conn->close();
 </head>
 <body>
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="index.php">Basar-Horrheim.de</a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="seller_dashboard.php">Dashboard</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="seller_products.php">Meine Artikel</a>
-                </li>
-                <li class="nav-item active">
-                    <a class="nav-link" href="seller_edit.php">Meine Daten <span class="sr-only">(current)</span></a>
-                </li>
-            </ul>
-            <hr class="d-lg-none d-block">
-            <?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
-                <li class="nav-item">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            <?php else: ?>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
-                </li>
-            <?php endif; ?>
-        </div>
-    </nav>
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
     <div class="container">
-        <h1 class="mt-5">Verkäuferdaten bearbeiten</h1>
+        <h1 class="mt-5">Mein Benutzerkonto</h1>
         <?php if ($message): ?>
             <div class="alert alert-<?php echo $message_type; ?>"><?php echo $message; ?></div>
         <?php endif; ?>
@@ -303,12 +272,12 @@ $conn->close();
                     <input type="text" class="form-control" id="city" name="city" value="<?php echo htmlspecialchars($user_details['city'], ENT_QUOTES, 'UTF-8'); ?>">
                 </div>
             </div>
-            <div class="form-row">
-                <div class="col-md-6">
-                    <button type="submit" class="btn btn-primary" name="edit_seller">Änderungen speichern</button>
+            <div class="row">
+                <div class="col-sm-12 col-md-6 mt-3">
+                    <button type="submit" class="btn btn-primary w-100" name="edit_seller">Änderungen speichern</button>
                 </div>
-                <div class="col-md-6 text-right">
-                    <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#confirmDeleteModal">Konto löschen</button>
+                <div class="col-sm-12 col-md-6 mt-3">
+                    <button type="button" class="btn btn-danger w-100" data-toggle="modal" data-target="#confirmDeleteModal">Konto löschen</button>
                 </div>
             </div>
         </form>
@@ -319,13 +288,13 @@ $conn->close();
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="confirmDeleteModalLabel">Bestätigen Sie die Löschung</h5>
+                    <h5 class="modal-title" id="confirmDeleteModalLabel">Wirklich ALLES löschen?</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
                 <div class="modal-body">
-                    Sind Sie sicher, dass Sie Ihr Konto und alle zugehörigen Daten löschen möchten? Dies betrifft auch alle Verkäufernummern. Diese Aktion kann nicht rückgängig gemacht werden. Die Verkäufernummern werden frei gegeben. Trotzdem orfahren?
+                    Bist Du sicher, dass Du Dein Konto und alle zugehörigen Daten löschen möchtest? Dies betrifft auch alle Verkäufernummern und deren Artikel. Diese Aktion kann nicht rückgängig gemacht werden. Die Verkäufernummern werden frei gegeben. Sicher?
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
@@ -337,12 +306,45 @@ $conn->close();
             </div>
         </div>
     </div>
+	
+	<!-- Back to Top Button -->
+	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
+	
     <script nonce="<?php echo $nonce; ?>">
         // Show the HTML element once the DOM is fully loaded
         document.addEventListener("DOMContentLoaded", function () {
             document.documentElement.style.visibility = "visible";
         });
     </script>
+	<script nonce="<?php echo $nonce; ?>">
+		document.addEventListener("DOMContentLoaded", function () {
+			// Function to toggle the visibility of the "Back to Top" button
+			function toggleBackToTopButton() {
+				const scrollTop = $(window).scrollTop();
+
+				if (scrollTop > 100) {
+					$('#back-to-top').fadeIn();
+				} else {
+					$('#back-to-top').fadeOut();
+				}
+			}
+
+			// Initial check on page load
+			toggleBackToTopButton();
+		
+	
+			// Show or hide the "Back to Top" button on scroll
+			$(window).scroll(function() {
+				toggleBackToTopButton();
+			});
+		
+			// Smooth scroll to top
+			$('#back-to-top').click(function() {
+				$('html, body').animate({ scrollTop: 0 }, 600);
+				return false;
+			});
+		});
+	</script>
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 </body>

@@ -26,10 +26,10 @@ $user_id = $_SESSION['user_id'] ?? 0;
 $username = $_SESSION['username'] ?? '';
 
 // Handle user addition
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
-    $username = $_POST['username'];
-    $password = $_POST['password'];
-    $role = $_POST['role'];
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'add_user') !== null) {
+    $username = filter_input(INPUT_POST, 'username');
+    $password = filter_input(INPUT_POST, 'password');
+    $role = filter_input(INPUT_POST, 'role');
 
     if (empty($username) || empty($password) || empty($role)) {
         $error = "Alle Felder sind erforderlich.";
@@ -48,8 +48,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_user'])) {
 }
 
 // Handle user deletion
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_user'])) {
-    $user_id = intval($_POST['user_id']);
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'delete_user') !== null) {
+    $user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
     $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
     $stmt->bind_param("i", $user_id);
     if ($stmt->execute()) {
@@ -62,9 +62,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_user'])) {
 }
 
 // Handle password update
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_password'])) {
-    $user_id = intval($_POST['user_id']);
-    $new_password = $_POST['new_password'];
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'set_password') !== null) {
+    $user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+    $new_password = filter_input(INPUT_POST, 'new_password');
     $password_hash = password_hash($new_password, PASSWORD_BCRYPT);
 
     $stmt = $conn->prepare("UPDATE users SET password_hash=? WHERE id=?");
@@ -103,6 +103,7 @@ $conn->close();
 		html { visibility: hidden; }
 	</style>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Benutzer Verwalten</title>
     <!-- Preload and link CSS files -->
@@ -121,46 +122,9 @@ $conn->close();
     </script>
 </head>
 <body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-				<li class="nav-item">
-                    <a class="nav-link" href="admin_dashboard.php">Admin Dashboard</a>
-                </li>
-                <li class="nav-item active">
-                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten <span class="sr-only">(current)</span></a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_log.php">Protokolle</a>
-                </li>
-            </ul>
-            <hr class="d-lg-none d-block">
-            <ul class="navbar-nav">
-                <li class="nav-item ml-lg-auto">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+	<!-- Navbar -->
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
     
     <div class="container">
         <h1 class="text-center mb-4 headline-responsive">Benutzerverwaltung</h1>
@@ -303,6 +267,7 @@ $conn->close();
     <?php endif; ?>
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script src="js/utilities.js" nonce="<?php echo $nonce; ?>"></script>
     <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button

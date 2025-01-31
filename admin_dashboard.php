@@ -64,7 +64,13 @@ $conn->close();
 <!DOCTYPE html>
 <html lang="de">
 <head>
+    <style nonce="<?php echo $nonce; ?>">
+        html {
+            visibility: hidden;
+        }
+    </style>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin-Dashboard</title>
     <!-- Preload and link CSS files -->
@@ -104,46 +110,9 @@ $conn->close();
     </script>
 </head>
 <body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <a class="navbar-brand" href="#">Basareno<i>Web</i></a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-				<li class="nav-item active">
-                    <a class="nav-link" href="admin_dashboard.php">Admin Dashboard <span class="sr-only">(current)</span></a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_users.php">Benutzer verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_bazaar.php">Bazaar verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin_manage_sellers.php">Verkäufer verwalten</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_settings.php">Systemeinstellungen</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="system_log.php">Protokolle</a>
-                </li>
-            </ul>
-            <hr class="d-lg-none d-block">
-            <ul class="navbar-nav">
-                <li class="nav-item ml-lg-auto">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+	<!-- Navbar -->
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
     
     <div class="container">
 		<div class="jumbotron text-center">

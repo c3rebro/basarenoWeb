@@ -1,4 +1,13 @@
 <?php
+$config_template = 'config.php.template';
+$disabled_config = 'config.php.template.disabled';
+
+// Check if config.php exists before including utilities.php
+if (!file_exists($config_template)) {
+    header("location: index.php");
+    exit;
+}
+
 // Check if config.php exists before including utilities.php
 if (file_exists('config.php')) {
     require_once('utilities.php');
@@ -13,23 +22,23 @@ $setup_error = '';
 $setup_success = '';
 
 // Initialize form variables with POST data or defaults
-$db_host = isset($_POST['db_host']) ? $_POST['db_host'] : '';
-$db_name = isset($_POST['db_name']) ? $_POST['db_name'] : '';
-$db_username = isset($_POST['db_username']) ? $_POST['db_username'] : '';
-$db_password = isset($_POST['db_password']) ? $_POST['db_password'] : '';
-$smtp_from = isset($_POST['smtp_from']) ? $_POST['smtp_from'] : '';
-$smtp_from_name = isset($_POST['smtp_from_name']) ? $_POST['smtp_from_name'] : '';
-$admin_email = isset($_POST['admin_email']) ? $_POST['admin_email'] : '';
-$admin_username = isset($_POST['admin_username']) ? $_POST['admin_username'] : '';
-$admin_password = isset($_POST['admin_password']) ? $_POST['admin_password'] : '';
-$secret = isset($_POST['secret']) ? $_POST['secret'] : 'Of3lG8HGdf452nF653oFG93hGF93hf';
-$base_uri = isset($_POST['base_uri']) ? $_POST['base_uri'] : 'https://www.example.de/bazaar';
-$language = isset($_POST['language']) ? $_POST['language'] : 'en';
+$db_host = filter_input(INPUT_POST, 'db_host', FILTER_UNSAFE_RAW) ?? '';
+$db_name = filter_input(INPUT_POST, 'db_name', FILTER_UNSAFE_RAW) ?? '';
+$db_username = filter_input(INPUT_POST, 'db_username', FILTER_UNSAFE_RAW) ?? '';
+$db_password = filter_input(INPUT_POST, 'db_password', FILTER_UNSAFE_RAW) ?? '';
+$smtp_from = filter_input(INPUT_POST, 'smtp_from', FILTER_VALIDATE_EMAIL) ?? '';
+$smtp_from_name = filter_input(INPUT_POST, 'smtp_from_name', FILTER_UNSAFE_RAW) ?? '';
+$admin_email = filter_input(INPUT_POST, 'admin_email', FILTER_VALIDATE_EMAIL) ?? '';
+$admin_username = filter_input(INPUT_POST, 'admin_email', FILTER_VALIDATE_EMAIL) ?? '';
+$admin_password = filter_input(INPUT_POST, 'admin_password', FILTER_UNSAFE_RAW) ?? '';
+$secret = filter_input(INPUT_POST, 'secret', FILTER_UNSAFE_RAW) ?? '<-- zufaellige buchstanden zahlenkombination hier eingeben-->';
+$base_uri = filter_input(INPUT_POST, 'base_uri', FILTER_UNSAFE_RAW) ?? 'https://www.example.de/bazaar';
+$language = filter_input(INPUT_POST, 'language', FILTER_UNSAFE_RAW) ?? 'en';
 
 // Check if the form is submitted
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
     // Test database connection
-    if (isset($_POST['test_db'])) {
+    if (filter_input(INPUT_POST, 'test_db') !== null) {
         $db_conn = new mysqli($db_host, $db_username, $db_password);
         if ($db_conn->connect_error) {
             $db_error = "Datenbankverbindung fehlgeschlagen: " . htmlspecialchars($db_conn->connect_error);
@@ -40,7 +49,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     // Test mail settings
-    if (isset($_POST['test_mail'])) {
+    if (filter_input(INPUT_POST, 'test_mail') !== null) {
         $subject = "Test-E-Mail";
         $body = "Dies ist eine Test-E-Mail.";
         $headers = "From: " . htmlspecialchars($smtp_from_name) . " <" . htmlspecialchars($smtp_from) . ">\r\n";
@@ -55,50 +64,85 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     // Complete setup
-    if (isset($_POST['complete_setup'])) {
-        // Ensure no errors before proceeding
-        if (!$db_error && !$mail_error) {
-            // Create config.php from template
-            $config_content = file_get_contents('config.php.template');
-            $config_content = str_replace(
-				['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>', '<?php echo $language; ?>'],
-				[htmlspecialchars($db_host), htmlspecialchars($db_name), htmlspecialchars($db_username), htmlspecialchars($db_password), htmlspecialchars($smtp_from), htmlspecialchars($smtp_from_name), htmlspecialchars($secret), htmlspecialchars($base_uri), htmlspecialchars($language)], $config_content
-			);
-
-			// Set the initialization flag to true
-			$config_content = str_replace("define('DB_INITIALIZED', false);", "define('DB_INITIALIZED', true);", $config_content);
-
-            file_put_contents('config.php', $config_content);
-
-            // Initialize the database and insert settings
-            require_once 'config.php';
-			require_once 'utilities.php';
-            $conn = get_db_connection();
-            if ($conn) {
-                initialize_database($conn);
-
-                // Use prepared statement to create the admin user
-                $password_hash = password_hash($admin_password, PASSWORD_BCRYPT);
-                $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')");
-                $stmt->bind_param("ss", $admin_username, $password_hash);
-                if ($stmt->execute()) {
-                    // Insert initial settings including Betriebsart
-                    $stmt = $conn->prepare("INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')");
-                    if ($stmt->execute()) {
-                        $setup_success = "Ersteinrichtung abgeschlossen. Administrator-Konto erstellt. Weiterleitung zur Login-Seite...";
-                        header("refresh:5;url=index.php");
-                    } else {
-                        $setup_error = "Fehler beim Speichern der Einstellungen: " . htmlspecialchars($conn->error);
-                    }
-                } else {
-                    $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . htmlspecialchars($conn->error);
-                }
-                $conn->close();
-            } else {
-                $setup_error = "Fehler beim Herstellen der Datenbankverbindung.";
-            }
+    if (filter_input(INPUT_POST, 'complete_setup') !== null) {
+        if (!$admin_username || !preg_match('/^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/', $admin_username)) {
+            $setup_error = "Bitte gib eine gültige E-Mail-Adresse ein.";
         } else {
-            $setup_error = "Bitte beheben Sie die oben genannten Fehler, bevor Sie die Einrichtung abschließen.";
+            // Ensure no errors before proceeding
+            if (!$db_error && !$mail_error) {
+                // Create config.php from template
+                $config_content = file_get_contents($config_template);
+                $config_content = str_replace(
+                                    ['<?php echo $db_host; ?>', '<?php echo $db_name; ?>', '<?php echo $db_username; ?>', '<?php echo $db_password; ?>', '<?php echo $smtp_from; ?>', '<?php echo $smtp_from_name; ?>', '<?php echo $secret; ?>', '<?php echo $base_uri; ?>', '<?php echo $language; ?>'],
+                                    [htmlspecialchars($db_host), htmlspecialchars($db_name), htmlspecialchars($db_username), htmlspecialchars($db_password), htmlspecialchars($smtp_from), htmlspecialchars($smtp_from_name), htmlspecialchars($secret), htmlspecialchars($base_uri), htmlspecialchars($language)], $config_content
+                            );
+
+                            // Set the initialization flag to true
+                            $config_content = str_replace("define('DB_INITIALIZED', false);", "define('DB_INITIALIZED', true);", $config_content);
+
+                file_put_contents('config.php', $config_content);
+
+                // Initialize the database and insert settings
+                require_once 'config.php';
+                            require_once 'utilities.php';
+                $conn = get_db_connection();
+                if ($conn) {
+                    initialize_database($conn);
+
+                    // Use prepared statement to create the admin user
+                                    $password_hash = password_hash($admin_password, PASSWORD_BCRYPT);
+                                    $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role, user_verified) VALUES (?, ?, 'admin', 1)");
+                                    $stmt->bind_param("ss", $admin_username, $password_hash);
+
+                                    if ($stmt->execute()) {
+                                            $admin_id = $stmt->insert_id; // Get the inserted admin's ID
+
+                                            // Insert initial settings including Betriebsart
+                                            $stmt = $conn->prepare("INSERT INTO settings (operationMode, wifi_ssid, wifi_password) VALUES ('online', '', '')");
+                                            if ($stmt->execute()) {
+
+                                                    // Insert default admin details into user_details table
+                                                    $default_value = "kA";
+                                                    $stmt = $conn->prepare("INSERT INTO user_details (email, user_id, family_name, given_name, phone, street, house_number, zip, city, consent) 
+                                                                                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                                                    $default_consent = 1; // Assuming consent is stored as an integer
+                                                    $stmt->bind_param("sissssssii",
+                                                            $admin_username, // Email
+                                                            $admin_id, // user_id (FK)
+                                                            $default_value, // family_name
+                                                            $default_value, // given_name
+                                                            $default_value, // phone
+                                                            $default_value, // street
+                                                            $default_value, // house_number
+                                                            $default_value, // zip
+                                                            $default_value, // city
+                                                            $default_consent // consent
+                                                    );
+
+                                                    if ($stmt->execute()) {
+                                                        if (rename($config_template, $disabled_config)) {
+                                                                $setup_success = "Ersteinrichtung abgeschlossen. Administrator-Konto erstellt. Weiterleitung zur Login-Seite...";
+                                                                header("refresh:5;url=index.php");
+                                                            } else {
+                                                                $setup_error = "Fehler.";
+                                                            }
+                                                    } else {
+                                                            $setup_error = "Fehler beim Erstellen der Admin-Benutzerdetails: " . htmlspecialchars($conn->error);
+                                                    }
+
+                                            } else {
+                                                    $setup_error = "Fehler beim Speichern der Einstellungen: " . htmlspecialchars($conn->error);
+                                            }
+                                    } else {
+                                            $setup_error = "Fehler beim Erstellen des Administrator-Kontos: " . htmlspecialchars($conn->error);
+                                    }
+                    $conn->close();
+                } else {
+                    $setup_error = "Fehler beim Herstellen der Datenbankverbindung.";
+                }
+            } else {
+                $setup_error = "Bitte beheben Sie die oben genannten Fehler, bevor Sie die Einrichtung abschließen.";
+            }
         }
     }
 }
@@ -107,6 +151,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <title>Ersteinrichtung</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -168,7 +213,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="db_password">Datenbank-Passwort:</label>
                 <input type="password" class="form-control" id="db_password" name="db_password" required value="<?php echo htmlspecialchars($db_password); ?>">
             </div>
-            <button type="submit" class="btn btn-secondary" name="test_db">Datenbankverbindung testen</button>
 
             <!-- Mail settings -->
             <h4>Mail-Einstellungen</h4>
@@ -180,17 +224,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="smtp_from_name">SMTP Von Name:</label>
                 <input type="text" class="form-control" id="smtp_from_name" name="smtp_from_name" required value="<?php echo htmlspecialchars($smtp_from_name); ?>">
             </div>
-            <div class="form-group">
-                <label for="admin_email">Administrator E-Mail (für Test-E-Mail):</label>
-                <input type="email" class="form-control" id="admin_email" name="admin_email" required value="<?php echo htmlspecialchars($admin_email); ?>">
-            </div>
-            <button type="submit" class="btn btn-secondary" name="test_mail">Mail-Einstellungen testen</button>
-
             <!-- Admin account settings -->
             <h4>Administrator-Konto</h4>
             <div class="form-group">
-                <label for="admin_username">Administrator-Benutzername:</label>
-                <input type="text" class="form-control" id="admin_username" name="admin_username" required value="<?php echo htmlspecialchars($admin_username); ?>">
+                <label for="admin_email">Administrator E-Mail (Benutzername):</label>
+                <input type="email" class="form-control" id="admin_email" name="admin_email" required value="<?php echo htmlspecialchars($admin_email); ?>">
             </div>
             <div class="form-group">
                 <label for="admin_password">Administrator-Passwort:</label>
@@ -208,16 +246,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="base_uri">Basis-URI:</label>
                 <input type="text" class="form-control" id="base_uri" name="base_uri" required value="<?php echo htmlspecialchars($base_uri); ?>">
             </div>
-			<!-- Language settings -->
-			<h4>Spracheinstellungen</h4>
-			<div class="form-group">
-				<label for="language">Sprache:</label>
-				<select class="form-control" id="language" name="language" required>
-					<option value="en" <?php echo ($language === 'en' ? 'selected' : ''); ?>>English</option>
-					<option value="de" <?php echo ($language === 'de' ? 'selected' : ''); ?>>Deutsch</option>
-					<!-- Add more languages as needed -->
-				</select>
-			</div>
+
             <button type="submit" class="btn btn-primary" name="complete_setup">Ersteinrichtung abschließen</button>
         </form>
     </div>

@@ -1,7 +1,7 @@
 <?php
 require_once 'utilities.php';
 
-if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {
+if (!filter_input(INPUT_GET, 'seller_id') !== null || !filter_input(INPUT_GET, 'hash') !== null) {
     echo "Kein Verkäufer-ID oder Hash angegeben.";
     exit();
 }
@@ -9,8 +9,8 @@ if (!isset($_GET['seller_id']) || !isset($_GET['hash'])) {
 $message = '';
 $message_type = 'danger'; // Default message type for errors
 
-$seller_id = $_GET['seller_id'];
-$hash = $_GET['hash'];
+$seller_id = filter_input(INPUT_GET, 'seller_id');
+$hash = filter_input(INPUT_GET, 'hash');
 
 $conn = get_db_connection();
 $sql = "SELECT * FROM sellers WHERE id=? AND hash=? AND verified=1";
@@ -83,9 +83,9 @@ if ($user_result->num_rows > 0) {
     exit();
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['set_password'])) {
-    $password = $_POST['password'];
-    $confirm_password = $_POST['confirm_password'];
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'set_password') !== null) {
+    $password = filter_input(INPUT_POST, 'password');
+    $confirm_password = filter_input(INPUT_POST, 'confirm_password');
 
     // Enforce password policy
     if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/[0-9]/', $password)) {

@@ -19,28 +19,36 @@ $alertMessage_Type = "";
 $max_attempts = 5;
 $lockout_time = 15 * 60; // 15 minutes
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
-    if (!validate_csrf_token($_POST['csrf_token'])) {
-        die("CSRF token validation failed.");
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'login') !== null) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+        $alertMessage_Type = 'danger';
+        $alertMessage = "CSRF token validation failed.";
+        exit;
     }
 
-    // Check if the account is locked
+    // Check if the account is locked due to too many failed attempts
     if (isset($_SESSION['failed_attempts']) && $_SESSION['failed_attempts'] >= $max_attempts) {
         if (time() - $_SESSION['last_attempt_time'] < $lockout_time) {
             $alertMessage_Type = 'danger';
-            $alertMessage = "Ihr Konto ist vorübergehend gesperrt. Bitte versuchen Sie es später erneut.";
-            $conn->close();
+            $alertMessage = "Das Konto ist vorübergehend gesperrt worden. Bitte versuche es später erneut.";
             exit;
         } else {
-            // Reset failed attempts after lockout period
-            $_SESSION['failed_attempts'] = 0;
+            $_SESSION['failed_attempts'] = 0; // Reset failed attempts
         }
     }
 
-    $username = $_POST['username'];
-    $password = $_POST['password'];
+    // Validate email as username
+    $username = trim(filter_input(INPUT_POST, 'username', FILTER_VALIDATE_EMAIL));
+    if (!$username) {
+        $alertMessage_Type = 'danger';
+        $alertMessage = "Ungültiges E-Mail-Format.";
+        exit;
+    }
 
-    // Use prepared statement to prevent SQL injection
+    // Secure password handling (no sanitization)
+    $password = filter_input(INPUT_POST, 'password', FILTER_UNSAFE_RAW);
+
+    // Use prepared statement
     $stmt = $conn->prepare("SELECT * FROM users WHERE username=?");
     $stmt->bind_param("s", $username);
     $stmt->execute();
@@ -48,58 +56,55 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
 
     if ($result->num_rows > 0) {
         $user = $result->fetch_assoc();
-        // Verify the password
         if (password_verify($password, $user['password_hash'])) {
+            session_regenerate_id(true); // Prevent session fixation
             $_SESSION['loggedin'] = true;
             $_SESSION['username'] = $username;
             $_SESSION['role'] = $user['role'];
-            $_SESSION['user_id'] = $user['id']; // Store user_id in session
-			
-			// Fetch seller numbers associated with the user
-			$seller_numbers = [];
-			$seller_stmt = $conn->prepare("SELECT seller_number FROM sellers WHERE user_id = ?");
-			$seller_stmt->bind_param("i", $user['id']);
-			$seller_stmt->execute();
-			$seller_result = $seller_stmt->get_result();
+            $_SESSION['user_id'] = $user['id'];
 
-			while ($row = $seller_result->fetch_assoc()) {
-				$seller_numbers[] = $row['seller_number'];
-			}
+            // Fetch seller numbers associated with the user
+            $seller_numbers = [];
+            $seller_stmt = $conn->prepare("SELECT seller_number FROM sellers WHERE user_id = ?");
+            $seller_stmt->bind_param("i", $user['id']);
+            $seller_stmt->execute();
+            $seller_result = $seller_stmt->get_result();
 
-			// Assign seller numbers to the session
-			$_SESSION['seller_numbers'] = $seller_numbers;
-			
-			// Assign the first seller_number as current
-			$_SESSION['current_seller_number'] = $seller_numbers[0] ?? null;
-			
+            while ($row = $seller_result->fetch_assoc()) {
+                $seller_numbers[] = $row['seller_number'];
+            }
+
+            // Assign seller numbers to the session
+            $_SESSION['seller_numbers'] = $seller_numbers;
+
             // Log successful login
             log_action($conn, $user['id'], ucfirst($user['role']) . " logged in", "Username: $username");
 
             // Reset failed attempts on successful login
             $_SESSION['failed_attempts'] = 0;
 
-            // Check if the user is a seller
+            // Check if the user is verified
             if (!$user['user_verified']) {
                 $alertMessage_Type = 'danger';
-                $alertMessage = "Unverifiziertes Konto. Haben Sie den Link in der Email angeklickt?";
-            } elseif ($user['role'] === 'seller') {
-                header("location: seller_dashboard.php");
-                exit;
+                $alertMessage = "Unverifiziertes Konto. Hast Du den Link in der E-Mail angeklickt?";
             } else {
                 // Redirect based on role
                 switch ($user['role']) {
                     case 'admin':
-                            header("location: admin_dashboard.php");
+                        header("location: admin_dashboard.php");
                         break;
                     case 'assistant':
-                            header("location: admin_dashboard.php");
+                        header("location: admin_dashboard.php");
                         break;
                     case 'cashier':
-                            header("location: cashier.php");
+                        header("location: cashier.php");
+                        break;
+                    case 'seller':
+                        header("location: seller_dashboard.php");
                         break;
                     default:
                         $alertMessage_Type = 'danger';
-                        $alertMessage = "Unbekannte Rolle";
+                        $alertMessage = "Unbekannte Rolle.";
                         session_destroy();
                         break;
                 }
@@ -107,37 +112,41 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
             }
         } else {
             $alertMessage_Type = 'danger';
-            $alertMessage = "Ungültiger Benutzername oder Passwort";
+            $alertMessage = "Ungültiger Benutzername oder Passwort.";
 
             // Increment failed attempts on failed login
             $_SESSION['failed_attempts'] = ($_SESSION['failed_attempts'] ?? 0) + 1;
             $_SESSION['last_attempt_time'] = time();
 
             // Log failed login attempt
-            log_action($conn, 0, "Failed login attempt", "Username: $username");
+            log_action($conn, 0, "Failed login attempt", "Username: " . htmlspecialchars($username, ENT_QUOTES, 'UTF-8'));
         }
     } else {
         $alertMessage_Type = 'danger';
-        $alertMessage = "Ungültiger Benutzername oder Passwort";
+        $alertMessage = "Ungültiger Benutzername oder Passwort.";
 
         // Increment failed attempts on failed login
         $_SESSION['failed_attempts'] = ($_SESSION['failed_attempts'] ?? 0) + 1;
         $_SESSION['last_attempt_time'] = time();
 
         // Log failed login attempt
-        log_action($conn, 0, "Failed login attempt", "Username: $username");
+        log_action($conn, 0, "Failed login attempt", "Username: " . htmlspecialchars($username, ENT_QUOTES, 'UTF-8'));
     }
 }
 
 $conn->close();
+
 ?>
 <!DOCTYPE html>
 <html lang="de">
     <head>
-	    <style nonce="<?php echo $nonce; ?>">
-			html { visibility: hidden; }
-		</style>
+        <style nonce="<?php echo $nonce; ?>">
+            html {
+                visibility: hidden;
+            }
+        </style>
         <meta charset="UTF-8">
+        <link rel="icon" type="image/x-icon" href="favicon.ico">
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
         <title>Benutzer Login</title>
         <!-- Preload and link CSS files -->
@@ -156,33 +165,33 @@ $conn->close();
         </script>
     </head>
     <body>
-	<!-- Navbar -->
+        <!-- Navbar -->
         <nav class="navbar navbar-expand-lg navbar-light">
-            <a class="navbar-brand" href="index.php">Basar-Horrheim.de</a>
+            <a class="navbar-brand" href="index.php">Basareno<i>Web</i></a>
             <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
+                <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav">
-                            <li class="nav-item">
-								<a class="nav-link" href="index.php">Startseite</a>
-                            </li>
-                    </ul>
-                    <hr class="d-lg-none d-block">
-            <?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
-                <li class="nav-item">
-                    <a class="navbar-user" href="#">
-                        <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                </li>
-            <?php else: ?>
-                <li class="nav-item">
-                    <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
-                </li>
-            <?php endif; ?>
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="index.php">Startseite</a>
+                    </li>
+                </ul>
+                <hr class="d-lg-none d-block">
+                <?php if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']): ?>
+                    <li class="nav-item">
+                        <a class="navbar-user" href="#">
+                            <i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['username']); ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
+                    </li>
+                <?php else: ?>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-primary text-white p-2" href="login.php">Anmelden</a>
+                    </li>
+                <?php endif; ?>
             </div>
         </nav>
         <div class="container login-container">
@@ -222,12 +231,12 @@ $conn->close();
                 </div>
             </footer>
         <?php endif; ?>
-		<script nonce="<?php echo $nonce; ?>">
-			// Show the HTML element once the DOM is fully loaded
-			document.addEventListener("DOMContentLoaded", function () {
-				document.documentElement.style.visibility = "visible";
-			});
-		</script>
+        <script nonce="<?php echo $nonce; ?>">
+            // Show the HTML element once the DOM is fully loaded
+            document.addEventListener("DOMContentLoaded", function () {
+                document.documentElement.style.visibility = "visible";
+            });
+        </script>
         <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
         <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
         <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>

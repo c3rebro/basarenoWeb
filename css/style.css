@@ -1,4 +1,8 @@
 /* General Styles */
+html {
+    scroll-behavior: smooth;
+}
+
 body {
     margin: 0;
     font-family: "Segoe UI", Arial, sans-serif;
@@ -59,7 +63,7 @@ body {
 .navbar-brand {
     margin-right: 20px; /* Add margin to separate from nav items */
     padding: 10px; /* Optional: Add padding */
-    border-right: 1px solid #ccc; /* Or use a background color */
+    /* border-right: 1px solid #ccc;  Or use a background color */
     background: #f8f9fa !important;
 }
 
@@ -215,16 +219,6 @@ li.nav-item {
 
 video {
     width: 90vw;
-}
-
-#scanner-line {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background-color: red;
-    z-index: 1;
 }
 
 .overlay {
@@ -403,22 +397,26 @@ video {
 .outer-table td {
 	border: 2px solid black; /* Visible borders for the outer table */
 	vertical-align: middle;
-	padding: 4px; /* Reduce padding for compact layout */
+	padding: 0px; /* Reduce padding for compact layout */
 	/* width: 33%; Each column occupies 1/3 of the width */
 }
 
 /* CSS for the inner table (price tag) */
 .price {
-	font-weight: bold;
-	font-size: 22px;
+	font-size: 20px;
 	line-height: 0rem;
+}
+
+.product-number {
+	text-align: center;
 }
 
 td p {
 	margin: 0;
 	text-wrap: auto;
 	text-align: left;
-	width: 135%;
+	width: 128%;
+	margin-left: 5px;
 }
 .barcode-table {
 	width: 100%;
@@ -426,7 +424,7 @@ td p {
 }
 .barcode-table td {
 	border: none; /* Hide inner table borders */
-	padding: 2px; /* Reduce padding to shrink the height */
+	padding: 5px; /* Reduce padding to shrink the height */
 }
 
 
@@ -436,17 +434,67 @@ td p {
 	margin: 0 auto;
 }
 
+.seller-nr {
+	font-size: 22px;
+	font-weight: bold;
+}
+	
 /* Print Styles */
-@media print {
-
-	/* CSS for the inner table (price tag) */
-
-
-    td p {
-        margin: 0; /* Remove any default paragraph margin */
-        padding: 4px 0; /* Add vertical padding */
+@media print {	
+	.cover-page-hint {
+		display: block !important;
+		font-size: 25px;
+	}
+	
+	
+    /* Cover Page: Manually Rotate the Seller Number */
+    /* Cover Page: Rotate & Center Seller Number */
+    .cover-page {
+        width: 21cm; /* A4 width */
+        height: 29.7cm; /* A4 height */
+        position: absolute;
+		display: block !important;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-90deg); /* Center & Rotate */
+        font-size: 400px; /* Large text */
+        font-weight: bold;
+        text-align: center;
+        white-space: nowrap; /* Prevents wrapping */
+        page-break-after: always !important; /* Ensures price tags start on a new page */
     }
 	
+	/* Ensure other pages remain in portrait mode */
+    @page {
+        size: A4 portrait;
+    }
+	
+    .barcode-table td {
+		border: none; /* Hide inner table borders */
+		padding: 5px; /* Reduce padding to shrink the height */
+    }
+    
+    /* CSS for the inner table (price tag) */
+    td {
+      padding: 20px; /* Increase padding for print */
+    }
+    
+    td p {
+		margin: 0;
+		white-space: normal; /* Ensure text wraps */
+		word-wrap: break-word; /* Allow word wrapping */
+		overflow-wrap: break-word; /* Ensure content wraps properly */
+		text-align: left;
+		width: 128%;
+		margin-left: 5px;
+		padding: 4px 0; /* Add vertical padding */
+    }
+	
+    /* Ensure QR code column has enough space */
+    td.qr-code {
+      width: 150px; /* Adjust as needed for QR code size */
+    }
+    
     .no-print {
         display: none !important; /* Buttons are always hidden during print */
     }

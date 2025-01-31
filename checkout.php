@@ -16,11 +16,10 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION
     exit;
 }
 
-$seller_id = $_SESSION['seller_id'];
-$hash = $_SESSION['seller_hash'];
+$seller_number = $_SESSION['seller_number'];
 
-if (!isset($seller_id) || !isset($hash)) {
-    echo "Kein Verkäufer-ID oder Hash angegeben.";
+if (!isset($seller_number)) {
+    echo "Ungültige Daten.";
     exit();
 }
 
@@ -30,8 +29,8 @@ $message = '';
 $message_type = 'danger'; // Default message type for errors
 
 // Use prepared statement to prevent SQL Injection
-$stmt = $conn->prepare("SELECT * FROM sellers WHERE id=? AND hash=?");
-$stmt->bind_param("ss", $seller_id, $hash);
+$stmt = $conn->prepare("SELECT * FROM sellers WHERE seller_number=?");
+$stmt->bind_param("s", $seller_number);
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -68,7 +67,7 @@ if ($result->num_rows > 0) {
     $checkout_id = $seller['checkout_id'];    
 }
 
-if ($seller['verified'] != 1) {
+if ($seller['seller_verified'] != 1) {
     echo "
         <!DOCTYPE html>
         <html lang='de'>
@@ -95,8 +94,8 @@ if ($seller['verified'] != 1) {
 }
 
 // Use prepared statement for fetching products
-$stmt = $conn->prepare("SELECT * FROM products WHERE seller_id=?");
-$stmt->bind_param("s", $seller_id);
+$stmt = $conn->prepare("SELECT * FROM products WHERE seller_number=? AND in_stock=0");
+$stmt->bind_param("s", $seller_number);
 $stmt->execute();
 $products_result = $stmt->get_result();
 
@@ -104,35 +103,25 @@ $total = 0.0;
 $total_brokerage = 0.0;
 $brokerage = 0.0;
 $current_date = date('Y-m-d');
+$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
 
-// Fetch the operation mode
-$operationMode = get_operation_mode($conn);
-
-if ($operationMode === 'online') {
-	// Use prepared statement for retrieving the current bazaar
-	$stmt = $conn->prepare("SELECT brokerage, price_stepping FROM bazaar WHERE startDate <= ? AND DATE_ADD(startDate, INTERVAL 30 DAY) >= ? LIMIT 1");
-	$stmt->bind_param("ss", $current_date, $current_date);
-
-} else {
-	// Use prepared statement for retrieving the current bazaar
-	$stmt = $conn->prepare("SELECT brokerage, price_stepping FROM bazaar");
-}
-
-$stmt->execute();
-$result = $stmt->get_result();
-
-if ($result->num_rows > 0) {
+// Use prepared statement for retrieving the current bazaar settings
+$stmt = $conn->prepare("SELECT brokerage, price_stepping FROM bazaar WHERE id = ?");
+$stmt->bind_param("s", $bazaar_id);
+	
+if (isset($bazaar_id) && $bazaar_id > 0 && $stmt->execute()) {
+	$result = $stmt->get_result();
     $row = $result->fetch_assoc();
     $brokerage = $row['brokerage'];
     $price_stepping = $row['price_stepping'];
 
     // Use prepared statement for updating seller checkout
-    $stmt = $conn->prepare("UPDATE sellers SET checkout=TRUE WHERE id=?");
-    $stmt->bind_param("s", $seller_id);
+    $stmt = $conn->prepare("UPDATE sellers SET checkout=TRUE WHERE seller_number=?");
+    $stmt->bind_param("s", $seller_number);
     if ($stmt->execute()) {
 		$message_type = 'success';
         $message = "Verkäufer erfolgreich ausgecheckt.";
-        debug_log("Seller checked out: ID=$seller_id");
+        debug_log("Seller checked out: ID=$seller_number");
     } else {
 		$message_type = 'danger';
         $message = "Fehler beim Auschecken des Verkäufers: " . $conn->error;
@@ -171,7 +160,7 @@ function round_to_nearest($value, $increment) {
 
 $conn->close();
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'notify_seller') !== null) {
     $total = 0;
     $total_brokerage = 0;
     $email_body = "<html><body>";
@@ -236,27 +225,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
 </head>
 <body>
 	<!-- Navbar -->
-	<nav class="navbar navbar-expand-lg navbar-light">
-            <a class="navbar-brand" href="admin_manage_sellers.php">Verkäufer verwalten</a>
-            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <hr class="d-lg-none d-block">
-                <ul class="navbar-nav">
-                    <li class="nav-item ml-lg-auto">
-                        <a class="navbar-user" href="#">
-                            <i class="fas fa-user"></i> <?php echo htmlspecialchars($username); ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link btn btn-danger text-white p-2" href="logout.php">Abmelden</a>
-                    </li>
-                </ul>
-            </div>
-	</nav>
+	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+	
     <div class="container">	
-        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['id']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?> {<?php echo htmlspecialchars($seller['checkout_id']); ?>}</h3>
+        <h3 class="mt-5">Checkout (Verk.Nr.: <?php echo htmlspecialchars($seller['seller_number']); ?>): <?php echo htmlspecialchars($seller['given_name']); ?> <?php echo htmlspecialchars($seller['family_name']); ?></h3>
 		<?php if ($message): ?>
             <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show no-print" role="alert">
                 <?php echo $message; ?>
@@ -265,7 +237,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['notify_seller'])) {
                 </button>
             </div>
         <?php endif; ?>
-        <form action="checkout.php?seller_id=<?php echo htmlspecialchars($seller_id); ?>&hash=<?php echo htmlspecialchars($hash); ?>" method="post">
+        <form action="checkout.php?seller_number=<?php echo htmlspecialchars($seller_number); ?>" method="post">
             <div class="table-responsive">
                 <table class="table table-bordered mt-3">
                     <thead>
