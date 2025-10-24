@@ -27,8 +27,8 @@ $user_counts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 // Fetch current, upcoming, or recent bazaar
 $sql = "SELECT * FROM bazaar 
-        WHERE startDate >= CURDATE() 
-        ORDER BY startDate ASC 
+        WHERE start_date >= CURDATE() 
+        ORDER BY start_date ASC 
         LIMIT 1";
 $stmt = $conn->prepare($sql);
 $stmt->execute();
@@ -36,8 +36,8 @@ $current_bazaar = $stmt->get_result()->fetch_assoc();
 
 if (!$current_bazaar) {
     $sql = "SELECT * FROM bazaar 
-            WHERE startDate < CURDATE() 
-            ORDER BY startDate DESC 
+            WHERE start_date < CURDATE() 
+            ORDER BY start_date DESC 
             LIMIT 1";
     $stmt = $conn->prepare($sql);
     $stmt->execute();
@@ -53,10 +53,16 @@ $stmt = $conn->prepare($sql);
 $stmt->execute();
 $seller_stats = $stmt->get_result()->fetch_assoc();
 
-$sql = "SELECT COUNT(*) AS total_products FROM products";
+$sql = "SELECT 
+            COUNT(*) AS total_products,
+            SUM(price) AS total_price
+        FROM products";
 $stmt = $conn->prepare($sql);
 $stmt->execute();
-$total_products = $stmt->get_result()->fetch_assoc()['total_products'];
+$row = $stmt->get_result()->fetch_assoc();
+
+$total_products = $row['total_products'];
+$total_price    = $row['total_price'];
 
 $conn->close();
 ?>
@@ -127,7 +133,7 @@ $conn->close();
                 </tr>
                 <tr>
                     <td>
-                        <a class="btn btn-success btn-lg" href="acceptance.php" role="button">Annehmen</a>
+                        <a class="btn btn-success btn-lg" href="acceptance.php" role="button">Korbannahme</a>
                     </td>
                     <td>
                         <a class="btn btn-warning btn-lg" href="cashier.php" role="button">Scannen</a>
@@ -163,9 +169,9 @@ $conn->close();
                 <?php if ($current_bazaar): ?>
                     <p><strong>Aktueller Basar:</strong></p>
                     <ul>
-                        <li>Startdatum: <?php echo htmlspecialchars($current_bazaar['startDate']); ?></li>
+                        <li>Startdatum: <?php echo htmlspecialchars($current_bazaar['start_date']); ?></li>
                         <li>Maximale Verkäufer: <?php echo htmlspecialchars($current_bazaar['max_sellers']); ?></li>
-                        <li>Maximale Artikel pro Verkäufer: <?php echo htmlspecialchars($current_bazaar['max_products_per_seller']); ?></li>
+                        <li>Maximale Artikel pro Verkäufer: <?php echo htmlspecialchars($current_bazaar['max_items_per_seller']); ?></li>
                     </ul>
                 <?php else: ?>
                     <p>Kein aktueller oder kommender Basar verfügbar.</p>
@@ -180,7 +186,8 @@ $conn->close();
             <div class="card-body">
                 <p>Gesamtanzahl der Verkäufer: <?php echo htmlspecialchars($seller_stats['total_sellers']); ?></p>
                 <p>Anzahl der freigeschalteten Verkäufer: <?php echo htmlspecialchars($seller_stats['verified_sellers']); ?></p>
-                <p>Gesamtanzahl der Produkte: <?php echo htmlspecialchars($total_products); ?></p>
+                <p>Gesamtanzahl der Artikel: <?php echo htmlspecialchars($total_products); ?></p>
+                <p>Warenwert der Artikel: <?php echo htmlspecialchars(number_format($total_price, 2, ',', '.')); ?> €</p>
                 <a href="admin_manage_sellers.php" class="btn btn-primary">Verkäufer verwalten</a>
             </div>
         </div>
@@ -201,7 +208,7 @@ $conn->close();
 	
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
-<script nonce="<?php echo $nonce; ?>">
+    <script nonce="<?php echo $nonce; ?>">
         $(document).ready(function() {
             // Function to toggle the visibility of the "Back to Top" button
             function toggleBackToTopButton() {

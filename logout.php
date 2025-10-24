@@ -15,17 +15,11 @@ $referer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '';
 $_SESSION = array();
 session_destroy();
 
-header("Location: index.php");
-/*
-// Determine redirect location
-if ((strpos($referer, 'seller_products.php') || 
-	strpos($referer, 'seller_dashboard.php') || 
-	strpos($referer, 'seller_edit.php') || 
-	strpos($referer, 'index.php') || 
-	strpos($referer, 'print_qrcodes.php')) !== false) {
-    
+// Handle both AJAX and normal requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    echo json_encode(['success' => true, 'message' => 'Abgemeldet']);
+    exit();
 } else {
-    header("Location: dashboard.php");
+    header("Location: login.php");
+    exit();
 }
-*/
-exit;

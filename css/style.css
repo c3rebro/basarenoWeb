@@ -53,6 +53,7 @@ body {
 /* Navbar Styles */
 .navbar {
     position: fixed;
+	font-weight: bold;
     top: 0;
     width: 100%;
     z-index: 1000; /* Ensure it is above other elements */
@@ -75,7 +76,7 @@ body {
     font-size: 1.25rem;
     line-height: inherit;
     white-space: nowrap;
-    font-size: 1.2rem;
+    font-size: 1.0rem;
     margin-right: 20px;
     color: rgba(0,0,0,.9);
     margin-right: 20px; /* Add margin to separate from nav items */
@@ -498,8 +499,8 @@ td p {
     .no-print {
         display: none !important; /* Buttons are always hidden during print */
     }
-    .no-print-brokerage .provision {
-        display: none !important; /* "Provision" elements are hidden during print when no-print-brokerage is applied */
+    .no-print-commission .provision {
+        display: none !important; /* "Provision" elements are hidden during print when no-print-commission is applied */
     }
 }
 

@@ -68,14 +68,18 @@ function refreshProductTable(sellerNumber) {
                 // Filter the products to include only those where in_stock = 0
                 const productsForSale = data.data.filter(product => product.in_stock === 0);
 
+                let totalPrice = 0; // Initialize total price
+
                 if (productsForSale.length > 0) {
                     productsForSale.forEach(product => {
-                        const formattedPrice = parseFloat(product.price).toFixed(2).replace('.', ',') + ' €';
+                        const formattedPrice = parseFloat(esc(product.price)).toFixed(2).replace('.', ',') + ' €';
+                        totalPrice += parseFloat(esc(product.price)); // Accumulate total price
+
                         const row = `
-                            <tr>
-                                <td>${product.name}</td>
-                                <td>${product.size}</td>
-                                <td>${formattedPrice}</td>
+                            <tr class="product-row">
+                                <td>${esc(product.name)}</td>
+                                <td>${esc(product.size)}</td>
+                                <td class="product-price" data-price="${esc(product.price)}">${formattedPrice}</td>
                                 <td class="text-center p-2">
                                     <select class="form-control action-dropdown" data-product-id="${product.id}">
                                         <option value="">Aktion wählen</option>
@@ -88,20 +92,32 @@ function refreshProductTable(sellerNumber) {
                             </tr>`;
                         tableBody.insertAdjacentHTML('beforeend', row);
                     });
+
+                    // Append the total price row at the bottom
+                    const totalRow = `
+                        <tr class="table-info total-price-row">
+                            <td colspan="2"><strong>Gesamtpreis:</strong></td>
+                            <td id="totalPrice" data-total="${totalPrice}"><strong>${totalPrice.toFixed(2).replace('.', ',')} €</strong></td>
+                            <td></td>
+                        </tr>`;
+                    tableBody.insertAdjacentHTML('beforeend', totalRow);
                 } else {
                     tableBody.innerHTML = `<tr><td colspan="5">Keine Artikel gefunden.</td></tr>`;
                 }
 
-                // Resolve the Promise to indicate success
-                return true;
+                // ✅ Fix: Update the header count WITHOUT the total row
+                const activeProductCount = document.querySelectorAll('#productTable tbody .product-row').length;
+                document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
+                document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
+                
+                return true; // Resolve promise on success
             } else {
-                // Reject the Promise with an error message
                 throw new Error('Fehler beim Aktualisieren der Tabelle.');
             }
         })
         .catch(error => {
             console.error('Error fetching table data:', error);
-            throw error; // Re-throw the error for the caller to handle
+            throw error; // Re-throw error for caller to handle
         });
 }
 
@@ -122,20 +138,20 @@ function refreshStockTable() {
 
                 if (stockProducts.length > 0) {
                     stockProducts.forEach(product => {
-                        const formattedPrice = parseFloat(product.price).toFixed(2).replace('.', ',') + ' €';
+                        const formattedPrice = parseFloat(esc(product.price)).toFixed(2).replace('.', ',') + ' €';
                         const row = `
                             <tr>
                                 <td>
                                     <input type="checkbox" class="bulk-select-stock" name="product_ids[]" value="${product.id}">
                                 </td>
-                                <td>${product.name}</td>
-                                <td>${product.size}</td>
+                                <td>${esc(product.name)}</td>
+                                <td>${esc(product.size)}</td>
                                 <td>${formattedPrice}</td>
                             </tr>`;
                         tableBody.insertAdjacentHTML('beforeend', row);
                     });
                 } else {
-                    tableBody.innerHTML = `<tr><td colspan="4">Keine Produkte im Lager.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="4">Keine Artikel im Lager.</td></tr>`;
                 }
 
                 // Update the stock products count dynamically
@@ -152,50 +168,71 @@ function refreshStockTable() {
         });
 }
 
-function refreshSellerData() {
-    fetch('fetch_seller_data.php')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const sellerDropdown = document.getElementById('sellerNumberSelect');
-                sellerDropdown.innerHTML = ''; // Clear existing options
-                
-                if (data.data.length === 0) {
-                    // No seller numbers available
-                    const defaultOption = document.createElement('option');
-                    defaultOption.value = '';
-                    defaultOption.disabled = true;
-                    defaultOption.selected = true;
-                    defaultOption.textContent = 'Nicht verfügbar';
-                    sellerDropdown.appendChild(defaultOption);
-                } else {
-                    // Populate seller numbers
-                    data.data.forEach((seller, index) => {
-                        const option = document.createElement('option');
-                        option.value = seller.seller_number;
-                        option.textContent = `Verkäufernummer: ${seller.seller_number} (${seller.seller_verified ? 'frei geschalten' : 'Nicht frei geschalten'})`;
-                        if (index === 0) option.selected = true;
-                        sellerDropdown.appendChild(option);
-                    });
-                }
-                
-                // Update seller sections
-                updatePerSellerOverview(data.data); // Per seller overview
-            } else {
-                console.error('Error fetching seller data:', data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Error during fetchSellerData:', error);
-        });
+// XSS mitigation: escape user-supplied text for HTML insertion
+function esc(s){
+  if (s === undefined || s === null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
+
+function refreshSellerData() {
+    return fetch('fetch_seller_data.php')
+    .then(response => response.json())
+    .then (data => {
+        if (data.success) {
+            const sellerDropdown = document.getElementById('sellerNumberSelect');
+            sellerDropdown.innerHTML = ''; // Clear existing options
+            
+            if (data.data.length === 0) {
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.disabled = true;
+                defaultOption.selected = true;
+                defaultOption.textContent = 'Nicht verfügbar';
+                sellerDropdown.appendChild(defaultOption);
+            } else {
+                data.data.forEach((seller, index) => {
+                    const option = document.createElement('option');
+                    option.value = seller.seller_number;
+                    option.textContent = `Verkäufernummer: ${seller.seller_number} (${seller.seller_verified ? 'frei geschalten' : 'Nicht frei geschalten'})`;
+                    if (index === 0) option.selected = true;
+                    sellerDropdown.appendChild(option);
+                });
+            }
+            
+            // Update seller sections
+            updatePerSellerOverview(data.data); // ✅ Ensure this still works
+            
+            return data; // ✅ Ensures `refreshSellerData()` returns a Promise
+        } else {
+            console.error('Error fetching seller data:', data.message);
+            throw new Error(data.message); // ✅ Ensure errors are properly thrown
+        }
+    }) .catch (error => {
+        console.error('Error during fetchSellerData:', error);
+        throw error; // ✅ Ensure calling code can catch the error
+    });
+}
+
 
 function updatePerSellerOverview() {
     const overviewContainer = document.getElementById('perSellerNumberOverview');
     overviewContainer.innerHTML = ''; // Clear existing content
 
     if (sellers.length === 0) {
-        overviewContainer.innerHTML = '<p>Keine Verkäufernummern vorhanden.</p>';
+        overviewContainer.innerHTML = `
+			<div class="card mb-4">
+				<div class="card-header">
+					An dieser Stelle kannst Du später den Status deiner verkauften Artikel einsehen.
+				</div>
+				<div class="card-body">
+					Es gibt noch keine verkauften Artikel.
+				</div>
+			</div>`;
         return;
     }
 
@@ -204,7 +241,10 @@ function updatePerSellerOverview() {
         const sellerProducts = products.filter(p => p.seller_number === seller.seller_number);
 
         // Calculate sold product count and total payout
-        const brokerage = upcomingBazaar.brokerage ?? 0; // Ensure brokerage is not undefined
+        const commission = (typeof upcomingBazaar.commission !== "undefined" && upcomingBazaar.commission !== null)
+            ? upcomingBazaar.commission 
+            : 0;
+        // Ensure commission is not undefined
         let soldProductCount = 0;
         let totalPayout = 0;
 
@@ -213,13 +253,13 @@ function updatePerSellerOverview() {
             .filter(product => product.in_stock === 0 && product.sold === 1) // Sold products only
             .map(product => {
                 soldProductCount++;
-                totalPayout += parseFloat(product.price) * (1 - brokerage); // Deduct brokerage per product
+                totalPayout += parseFloat(esc(product.price)) * (1 - commission); // Deduct commission per product
                 
                 return `
                     <tr>
-                        <td>${product.name}</td>
-                        <td>${product.size}</td>
-                        <td>${parseFloat(product.price).toFixed(2).replace('.', ',')} €</td>
+                        <td>${esc(product.name)}</td>
+                        <td>${esc(product.size)}</td>
+                        <td>${parseFloat(esc(product.price)).toFixed(2).replace('.', ',')} €</td>
                     </tr>`;
             })
             .join('');
@@ -230,9 +270,9 @@ function updatePerSellerOverview() {
             .map(product => {
                 return `
                     <tr>
-                        <td>${product.name}</td>
-                        <td>${product.size}</td>
-                        <td>${parseFloat(product.price).toFixed(2).replace('.', ',')} €</td>
+                        <td>${esc(product.name)}</td>
+                        <td>${esc(product.size)}</td>
+                        <td>${parseFloat(esc(product.price)).toFixed(2).replace('.', ',')} €</td>
                     </tr>`;
             })
             .join('');
@@ -246,19 +286,19 @@ function updatePerSellerOverview() {
                 </div>
                 <div class="card-body">
                     <p>Status: ${seller.seller_verified ? 'Verifiziert' : 'Nicht verifiziert'}</p>
-                    <p>Anzahl der Produkte (gesamt): ${activeProductsCount}</p>
+                    <p>Anzahl der Artikel (gesamt): ${activeProductsCount}</p>
                     <p>Davon verkauft: ${soldProductCount}</p>
                     <p>Gesamtauszahlung: ${totalPayout.toFixed(2).replace('.', ',')} €</p>
                     
 					<div class="row">
 						<div class="col-md-6 col-sm-12 mt-3">
 							<button class="btn btn-success w-100 mt-2" data-toggle="collapse" data-target="#products-sold-${seller.seller_number}">
-								Verkaufte Produkte anzeigen
+								Verkaufte Artikel anzeigen
 							</button>
 						</div>
 						<div class="col-md-6 col-sm-12 mt-3">
 							<button class="btn btn-warning w-100 mt-2" data-toggle="collapse" data-target="#products-unsold-${seller.seller_number}">
-								Nicht verkaufte Produkte anzeigen
+								Nicht verkaufte Artikel anzeigen
 							</button>
 						</div>						
 					</div>
@@ -274,7 +314,7 @@ function updatePerSellerOverview() {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${soldProductsHtml || '<tr><td colspan="3">Keine verkauften Produkte.</td></tr>'}
+                                ${soldProductsHtml || '<tr><td colspan="3">Keine verkauften Artikel.</td></tr>'}
                             </tbody>
                         </table>
                     </div>
@@ -291,7 +331,7 @@ function updatePerSellerOverview() {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${unsoldProductsHtml || '<tr><td colspan="3">Keine nicht verkauften Produkte.</td></tr>'}
+                                ${unsoldProductsHtml || '<tr><td colspan="3">Keine nicht verkauften Artikel.</td></tr>'}
                             </tbody>
                         </table>
                     </div>
@@ -303,7 +343,6 @@ function updatePerSellerOverview() {
     });
 }
 
-
 function updateRequestSellerSection(bazaar) {
     const requestForm = document.getElementById('requestSellerNumberForm');
     const requestButton = document.querySelector('#requestSellerNumberForm button[type="submit"]');
@@ -312,10 +351,10 @@ function updateRequestSellerSection(bazaar) {
 
     // Check if the registration is open
     const now = new Date();
-    const startReqDate = new Date(bazaar.startReqDate);
-    const startDate = new Date(bazaar.startDate);
+    const start_req_date = new Date(bazaar.start_req_date);
+    const start_date = new Date(bazaar.start_date);
 
-    if (now >= startReqDate && now < startDate) {
+    if (now >= start_req_date && now < start_date) {
         // Registration is open
         requestForm.classList.remove('hidden'); // Show form
         requestButton.disabled = false; // Enable button
@@ -328,4 +367,29 @@ function updateRequestSellerSection(bazaar) {
         actionDropdown.querySelector('option[value="validate"]').disabled = true; // Disable validate
         infoMessage.classList.remove('hidden'); // Show info message
     }
+}
+
+function setCookie(name, value, days) {
+    let expires = "";
+    if (days) {
+        let date = new Date();
+        date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+        expires = "; expires=" + date.toUTCString();
+    }
+    document.cookie = name + "=" + value + expires + "; path=/";
+}
+
+function getCookie(name) {
+    let nameEQ = name + "=";
+    let ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+    }
+    return null;
+}
+
+function removeCookie(name) {
+    document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
 }

@@ -263,14 +263,6 @@ $conn->close();
         </div>
 
         <div class="settings-group">
-            <form method="post">
-                <h3>Hashes neu berechnen</h3>
-                <button type="submit" name="recalculate_hashes" class="btn btn-primary">Hashes neu berechnen</button>
-                <?php if (isset($hash_message)) { echo "<p>$hash_message</p>"; } ?>
-            </form>
-        </div>
-
-        <div class="settings-group">
             <form method="post" enctype="multipart/form-data">
                 <h3>Datei entschlüsseln</h3>
                 <div class="form-group">

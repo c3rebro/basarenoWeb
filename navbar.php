@@ -28,7 +28,7 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                     <a class="nav-link" href="seller_products.php">Meine Artikel</a>
                 </li>
                 <li class="nav-item <?= ($currentPage == 'seller_edit.php') ? 'active' : '' ?>">
-                    <a class="nav-link" href="seller_edit.php">Mein Benutzerkonto</a>
+                    <a class="nav-link" href="seller_edit.php">Mein Konto</a>
                 </li>
             <?php endif; ?>
 
@@ -67,6 +67,10 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                     </div>
                 </li>
             <?php endif; ?>
+
+            <li class="nav-item <?= ($currentPage == 'support.php') ? 'active' : '' ?>">
+                <a class="nav-link" href="support.php">Support</a>
+            </li>
         </ul>
 
         <!-- Right-aligned User Authentication -->
@@ -89,3 +93,4 @@ $currentPage = basename($_SERVER['PHP_SELF']);
         </ul>
     </div>
 </nav>
+

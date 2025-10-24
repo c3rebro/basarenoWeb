@@ -8,8 +8,7 @@ session_start([
 
 $nonce = base64_encode(random_bytes(16));
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
-
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || !in_array($_SESSION['role'], ['admin'])) {
     header("location: login.php");
     exit;
 }
@@ -28,19 +27,46 @@ $username = $_SESSION['username'] ?? '';
 // Generate CSRF token for the form
 $csrf_token = generate_csrf_token();
 
-$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+//$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+$bazaar_id = get_active_or_registering_bazaar_id($conn);
+if ($bazaar_id === 0) {
+    $bazaar_id = get_bazaar_id_with_open_registration($conn);
+}
+
 $checkout_id = 0;
 
 // Handle setting session variables for product creation
-if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'set_session') !== null) {
-    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['set_session'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
         echo json_encode(['success' => false, 'error' => 'CSRF token validation failed.']);
         exit;
     }
 
-    $_SESSION['seller_number'] = intval($_POST['seller_number']);
+    $seller_number = intval($_POST['seller_number']);
 
-    echo json_encode(['success' => true]);
+    // Check if the seller exists
+    $stmt = $conn->prepare("SELECT user_id FROM sellers WHERE seller_number = ?");
+    $stmt->bind_param("i", $seller_number);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows === 0) {
+        echo json_encode(['success' => false, 'error' => 'Verkäufer nicht gefunden.']);
+        exit;
+    }
+
+    $seller = $result->fetch_assoc();
+    $seller_user_id = $seller['user_id'];
+
+    // Allow only admins to set the session
+    if ($_SESSION['role'] === 'admin') {
+        $_SESSION['seller_number'] = $seller_number;
+        $_SESSION['acting_as_admin'] = ($_SESSION['role'] === 'admin'); // Flag admin actions
+
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Nicht autorisiert.']);
+    }
     exit;
 }
 
@@ -221,41 +247,59 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
 }
 
 // Handle seller update
-if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'edit_seller') !== null) {
-    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
         log_action($conn, $user_id, "CSRF token validation failed for editing seller");
-		
         die("CSRF token validation failed.");
     }
-	
-	$seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
-	$family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
-	$given_name = htmlspecialchars($_POST['given_name'], ENT_QUOTES, 'UTF-8');
-	$email = htmlspecialchars($_POST['email'], ENT_QUOTES, 'UTF-8');
-	$phone = htmlspecialchars($_POST['phone'], ENT_QUOTES, 'UTF-8');
-	$street = htmlspecialchars($_POST['street'], ENT_QUOTES, 'UTF-8');
-	$house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
-	$zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
-	$city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
-	$verified = filter_input(INPUT_POST, 'verified') !== null ? 1 : 0;
 
-	if (empty($family_name) || empty($email)) {
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
+    $user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+    $family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
+    $given_name = htmlspecialchars($_POST['given_name'], ENT_QUOTES, 'UTF-8');
+    $email = htmlspecialchars($_POST['email'], ENT_QUOTES, 'UTF-8');
+    $phone = htmlspecialchars($_POST['phone'], ENT_QUOTES, 'UTF-8');
+    $street = htmlspecialchars($_POST['street'], ENT_QUOTES, 'UTF-8');
+    $house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
+    $zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
+    $city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
+    $verified = isset($_POST['verified']) ? 1 : 0;
+
+    if (empty($family_name) || empty($email) || empty($user_id)) {
+        $message_type = 'danger';
+        $message = "Erforderliche Felder fehlen.";
+    } else {
+        // Check if the user exists
+        $stmt = $conn->prepare("SELECT id FROM users WHERE id = ?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $userExists = $stmt->get_result()->num_rows > 0;
+
+        if (!$userExists) {
             $message_type = 'danger';
-            $message = "Erforderliche Felder fehlen.";
-	} else {
-		$stmt = $conn->prepare("UPDATE sellers SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?, verified=? WHERE id=?");
-		$stmt->bind_param("ssssssssii", $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $verified, $seller_number);
+            $message = "Benutzer nicht gefunden.";
+        } else {
+            // Update user_details table
+            $stmt = $conn->prepare("
+                UPDATE user_details 
+                SET family_name = ?, given_name = ?, email = ?, phone = ?, 
+                    street = ?, house_number = ?, zip = ?, city = ?, verified = ?
+                WHERE user_id = ?
+            ");
+            $stmt->bind_param("ssssssssii", $family_name, $given_name, $email, $phone, 
+                              $street, $house_number, $zip, $city, $verified, $user_id);
 
-		if ($stmt->execute()) {
-                    $message_type = 'success';
-                    $message = "Verkäufer erfolgreich aktualisiert.";
-			log_action($conn, $user_id, "Seller updated", "ID=$seller_number, Name=$family_name, Email=$email, Verified=$verified");
-		} else {
-                    $message_type = 'danger';
-                    $message = "Fehler beim Aktualisieren des Verkäufers: " . $conn->error;
-                    log_action($conn, $user_id, "Error updating seller", $conn->error);
-		}
-	}
+            if ($stmt->execute()) {
+                $message_type = 'success';
+                $message = "Verkäufer erfolgreich aktualisiert.";
+                log_action($conn, $user_id, "Seller updated", "UserID=$user_id, Name=$family_name, Email=$email, Verified=$verified");
+            } else {
+                $message_type = 'danger';
+                $message = "Fehler beim Aktualisieren der Verkäuferdaten: " . $conn->error;
+                log_action($conn, $user_id, "Error updating seller", $conn->error);
+            }
+        }
+    }
 }
 
 // Handle seller deletion
@@ -440,24 +484,37 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
 }
 
 // Default filter is "undone"
-$filter = isset($_COOKIE['filter']) ? $_COOKIE['filter'] : 'undone';
+$filter = isset($_COOKIE['filter']) ? $_COOKIE['filter'] : 'undone_paid';
 $sort_by = isset($_COOKIE['sort_by']) ? $_COOKIE['sort_by'] : 'id';
 $order = isset($_COOKIE['order']) ? $_COOKIE['order'] : 'ASC';
 
-// Validate sort_by to prevent SQL injection
+// Validate sorting column to prevent SQL injection
 $valid_columns = ['seller_number', 'checkout_id', 'family_name', 'checkout'];
 if (!in_array($sort_by, $valid_columns)) {
-    $sort_by = 'seller_number'; // Default to 'id' if invalid
+    $sort_by = 'seller_number';
 }
 
-// Get all sellers
-// Build the SQL query to retrieve user details and their associated seller information
+// Filter sellers based on selection
+$filter_condition = "";
+if ($filter == 'done') {
+    $filter_condition = "WHERE s.checkout = 1";
+} elseif ($filter == 'undone') {
+    $filter_condition = "WHERE s.checkout = 0";
+} elseif ($filter == 'paid') {
+    $filter_condition = "WHERE s.fee_payed = 1"; // Show only sellers who have paid
+} elseif ($filter == 'undone_paid') {
+    $filter_condition = "WHERE s.checkout = 0 AND s.fee_payed = 1"; // Show not completed, but paid sellers
+} elseif ($filter == 'filter_activated') {
+    $filter_condition = "WHERE s.checkout = 0 AND s.fee_payed = 1"; // Show not completed, but paid sellers
+}
+
+// Modify the SQL query to apply filtering and sorting
 $sql = "
     SELECT 
         u.id AS user_id,
         u.username,
         u.role,
-		u.user_verified,
+        u.user_verified,
         ud.family_name,
         ud.given_name,
         ud.email,
@@ -467,6 +524,7 @@ $sql = "
         ud.zip,
         ud.city,
         s.seller_number,
+        s.fee_payed,
         s.checkout,
         s.checkout_id
     FROM 
@@ -475,8 +533,9 @@ $sql = "
         user_details ud ON u.id = ud.user_id
     LEFT JOIN 
         sellers s ON u.id = s.user_id
+    $filter_condition
     ORDER BY 
-        ud.family_name ASC, ud.given_name ASC;
+        $sort_by $order;
 ";
 
 // Execute the query
@@ -545,7 +604,7 @@ $conn->close();
 					<!-- Checkbox to toggle between new user and existing user -->
 					<div class="form-group">
 						<label>
-							<input type="checkbox" id="createNewUser" name="createNewUser" checked>
+							<input type="checkbox" id="createNewUser" name="createNewUser" value="1" checked>
 							Neuen Benutzer anlegen
 						</label>
 					</div>
@@ -636,9 +695,11 @@ $conn->close();
             <div class="form-group col-md-12">
                 <label for="filter">Filter:</label>
                 <select class="form-control" id="filter" name="filter">
+                    <option value="paid" <?php echo $filter == 'paid' ? 'selected' : ''; ?>>Alle (Gebühr bezahlt)</option>
                     <option value="all" <?php echo $filter == 'all' ? 'selected' : ''; ?>>Alle</option>
                     <option value="done" <?php echo $filter == 'done' ? 'selected' : ''; ?>>Abgeschlossen</option>
                     <option value="undone" <?php echo $filter == 'undone' ? 'selected' : ''; ?>>Nicht abgeschlossen</option>
+                    <option value="undone_paid" <?php echo $filter == 'undone_paid' ? 'selected' : ''; ?>>Nicht abgeschlossen (Gebühr bezahlt)</option>
                 </select>
             </div>
         </div>
@@ -718,6 +779,7 @@ $conn->close();
                                                                         <th>Größe</th>
                                                                         <th>Preis</th>
                                                                         <th>Verkauft</th>
+																		<th>im Lag./ zu Verk.</th>
                                                                         <th>Aktionen</th>
                                                                     </tr>
                                                                 </thead>
@@ -826,6 +888,9 @@ $conn->close();
                 <form action="admin_manage_sellers.php" method="post">
                     <!-- CSRF Token -->
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+					<input type="hidden" name="seller_number" id="editSellerId">
+					<input type="hidden" name="user_id" id="editUserId"> <!-- New hidden field -->
+					
                     <div class="modal-header">
                         <h5 class="modal-title" id="editSellerModalLabel">Verkäufer bearbeiten</h5>
                         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -833,7 +898,6 @@ $conn->close();
                         </button>
                     </div>
                     <div class="modal-body">
-                        <input type="hidden" name="seller_number" id="editSellerId">
                         <div class="form-group">
                             <label for="editSellerIdDisplay">Verk.Nr.:</label>
                             <input type="text" class="form-control" id="editSellerIdDisplay" name="seller_number_display" disabled>
@@ -996,31 +1060,71 @@ $conn->close();
         }
 
 		//load the list of all products
-        function loadProducts(sellerNumber) {
-            $.ajax({
-                url: 'load_seller_products.php',
-                method: 'GET',
-                data: { seller_number: sellerNumber },
-                success: function(response) {
-                    const productsContainer = $(`#products-${sellerNumber}`);
-                    productsContainer.html(response);
+		function loadProducts(sellerNumber) {
+			$.ajax({
+				url: 'fetch_products.php',
+				method: 'GET',
+				data: { seller_number: sellerNumber },
+				dataType: 'json', // Ensure we handle JSON properly
+				success: function(response) {
+					const productsContainer = $(`#products-${sellerNumber}`);
 
-                    // Attach event listeners to the edit buttons
-                    productsContainer.find('.edit-product-btn').on('click', function() {
-                        const productId = $(this).data('id');
-                        const productName = $(this).data('name');
-                        const productSize = $(this).data('size');
-                        const productPrice = $(this).data('price');
-                        editProduct(productId, productName, productSize, productPrice);
-                    });
+					if (!response.success) {
+						productsContainer.html('<tr><td colspan="5">Fehler beim Laden der Produkte.</td></tr>');
+						return;
+					}
 
-                    // Optionally, attach event listeners to other elements like checkboxes here
-                },
-                error: function() {
-                    alert('Fehler beim Laden der Produkte.');
-                }
-            });
-        }
+					// Clear previous products
+					productsContainer.empty();
+
+					if (response.data.length === 0) {
+						productsContainer.html('<tr><td colspan="5">Keine Produkte gefunden.</td></tr>');
+						return;
+					}
+
+					// Loop through products and create rows dynamically
+					response.data.forEach(product => {
+						let soldText = product.sold ? "Ja" : "Nein";
+						let stockText = product.stock_status; // 'Lager' or 'Verkauf'
+						let productRow = `
+							<tr>
+								<td>${product.name}</td>
+								<td>${product.size || '-'}</td>
+								<td>${product.price.toFixed(2)} €</td>
+								<td>${soldText}</td>
+								<td>${stockText}</td>
+								<td>
+									<button class="btn btn-sm btn-primary edit-product-btn" 
+											data-id="${product.id}" 
+											data-name="${product.name}" 
+											data-size="${product.size}" 
+											data-price="${product.price}" 
+											data-sold="${product.sold}">
+										Bearbeiten
+									</button>
+								</td>
+							</tr>`;
+
+						productsContainer.append(productRow);
+					});
+
+					// Attach event listeners to edit buttons dynamically
+					productsContainer.find('.edit-product-btn').on('click', function() {
+						const productId = $(this).data('id');
+						const productName = $(this).data('name');
+						const productSize = $(this).data('size');
+						const productPrice = $(this).data('price');
+						const productSold = $(this).data('sold');
+
+						editProduct(productId, productName, productSize, productPrice, productSold);
+					});
+				},
+				error: function() {
+					const productsContainer = $(`#products-${sellerNumber}`);
+					productsContainer.html('<tr><td colspan="5">Fehler beim Laden der Produkte.</td></tr>');
+				}
+			});
+		}
 
         function editProduct(productId, name, size, price, sold) {
                 $('#editProductId').val(productId);
@@ -1065,7 +1169,7 @@ $conn->close();
 						}
 					}
 				}, 'json');
-						//Show current product
+                    //Show current product
 					} else if (action === 'show_products') {
 						toggleProducts(sellerId);
 						//Create product
@@ -1074,7 +1178,7 @@ $conn->close();
 						$.post('admin_manage_sellers.php', { 
 						set_session: true, seller_number: sellerId, csrf_token: csrfToken }, function(response) {
 							if (response.success) {
-								window.location.href = 'seller_products.php';
+								window.location.href = 'seller_products.php?seller_number=' + sellerId;
 							} else {
 								alert('Fehler beim Setzen der Sitzungsvariablen: ' + response.error);
 							}
@@ -1100,19 +1204,21 @@ $conn->close();
 			});
 		});
 
-        $('#filter').on('change', function() {
-            const filter = $(this).val();
-            document.cookie = `filter=${filter}; path=/`;
-            window.location.href = `admin_manage_sellers.php?filter=${filter}`;
-        });
+        $('#filter, #sort_by, #order').on('change', function() {
+			const filter = $('#filter').val();
+			const sort_by = $('#sort_by').val();
+			const order = $('#order').val();
 
-        $('#sort_by, #order').on('change', function() {
-            const sort_by = $('#sort_by').val();
-            const order = $('#order').val();
-            document.cookie = `sort_by=${sort_by}; path=/`;
-            document.cookie = `order=${order}; path=/`;
-            window.location.href = `admin_manage_sellers.php?sort_by=${sort_by}&order=${order}`;
-        });
+			document.cookie = `filter=${filter}; path=/`;
+			document.cookie = `sort_by=${sort_by}; path=/`;
+			document.cookie = `order=${order}; path=/`;
+
+			const url = new URL(window.location.href);
+			url.searchParams.set('filter', filter);
+			url.searchParams.set('sort_by', sort_by);
+			url.searchParams.set('order', order);
+			window.location.href = url.toString();
+		});
 
         $('#printVerifiedSellers').on('click', function() {
             $.ajax({

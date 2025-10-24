@@ -93,28 +93,31 @@ function get_db_connection() {
  * @return bool
  */
 function initialize_database($conn) {
+	if (!defined('DB_NAME')) {
+        die("Error creating database: " . $conn->error);
+    }
+	
     // Create the database if it doesn't exist
-    $sql = "CREATE DATABASE IF NOT EXISTS `bazaar_db`";
+    $sql = "CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "`";
     if ($conn->query($sql) !== TRUE) {
         die("Error creating database: " . $conn->error);
     }
 
     // Select the database
-    $conn->select_db('bazaar_db');
+    $conn->select_db(DB_NAME);
 
     // Define the desired table structures
     $tables = [
         "bazaar" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
-            "startDate DATE NOT NULL",
-            "startReqDate DATE NOT NULL",
+            "start_date DATE NOT NULL",
+            "start_req_date DATE NOT NULL",
             "max_sellers INT(11) NOT NULL",
-            "max_products_per_seller INT(11) NOT NULL DEFAULT 0",
-            "brokerage DOUBLE DEFAULT NULL",
-            "min_price DOUBLE DEFAULT NULL",
+            "max_items_per_seller INT(11) NOT NULL DEFAULT 0",
+            "commission DOUBLE DEFAULT NULL",
+            "min_item_price DOUBLE DEFAULT NULL",
             "price_stepping DOUBLE DEFAULT NULL",
-            "mailtxt_reqnewsellerid TEXT DEFAULT NULL",
-            "mailtxt_reqexistingsellerid TEXT DEFAULT NULL"
+            "mailtxt_reqnewsellerid TEXT DEFAULT NULL"
         ],
         "logs" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
@@ -122,38 +125,6 @@ function initialize_database($conn) {
             "action VARCHAR(255) NOT NULL",
             "details TEXT DEFAULT NULL",
             "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-        ],
-        "products" => [
-            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
-            "bazaar_id INT(10) DEFAULT 0",
-			"bucket_id INT(10) DEFAULT 0",
-            "name VARCHAR(255) NOT NULL",
-            "size VARCHAR(255) NOT NULL",
-            "price DOUBLE NOT NULL",
-			"product_id INT(10) DEFAULT NULL",
-            "barcode VARCHAR(255) NOT NULL UNIQUE",
-            "seller_number INT(11) DEFAULT NULL",
-            "sold TINYINT(1) DEFAULT 0",
-            "in_stock TINYINT(1) DEFAULT 1"
-        ],
-        "sellers" => [
-            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
-            "user_id INT(11) NOT NULL",
-            "bazaar_id INT(11) DEFAULT 0",
-            "checkout_id INT(11) NOT NULL",
-            "checkout TINYINT(1) DEFAULT 0",
-            "fee_payed TINYINT(1) DEFAULT 0",
-            "signature MEDIUMTEXT DEFAULT NULL",
-            "seller_number INT(11) DEFAULT 0",
-            "seller_verified TINYINT(4) DEFAULT 0",
-            "reserved TINYINT(1) DEFAULT 0",
-            "verification_token VARCHAR(255) DEFAULT NULL"
-        ],
-        "settings" => [
-            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
-            "operationMode VARCHAR(50) NOT NULL DEFAULT 'online'",
-            "wifi_ssid VARCHAR(255) DEFAULT ''",
-            "wifi_password VARCHAR(255) DEFAULT ''"
         ],
         "users" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
@@ -164,6 +135,44 @@ function initialize_database($conn) {
             "role ENUM('admin', 'cashier', 'assistant', 'seller') NOT NULL",
             "verification_token TEXT DEFAULT NULL",
             "user_verified TINYINT(1) NOT NULL DEFAULT 0"
+        ],
+        "sellers" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "user_id INT(11) NOT NULL",
+            "bazaar_id INT(11) DEFAULT 0",
+            "checkout_id INT(11) NOT NULL",
+            "checkout TINYINT(1) DEFAULT 0",
+            "fee_payed TINYINT(1) DEFAULT 0",
+            "signature MEDIUMTEXT DEFAULT NULL",
+            "seller_number INT(11) NOT NULL UNIQUE", // Ensure it can be referenced in archive_products
+            "seller_verified TINYINT(4) DEFAULT 0",
+            "reserved TINYINT(1) DEFAULT 0",
+            "verification_token VARCHAR(255) DEFAULT NULL",
+            "FOREIGN KEY (bazaar_id) REFERENCES bazaar(id) ON DELETE CASCADE"
+        ],
+        "products" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "bazaar_id INT(11) NOT NULL", // Ensure consistency with bazaar table
+            "bucket_id INT(10) DEFAULT 0",
+            "name VARCHAR(255) NOT NULL",
+            "size VARCHAR(255) NOT NULL",
+            "price DOUBLE NOT NULL",
+            "product_id INT(10) DEFAULT NULL",
+            "barcode VARCHAR(255) NOT NULL UNIQUE",
+            "seller_number INT(11) NOT NULL", // Ensure consistency with sellers table
+            "sold TINYINT(1) DEFAULT 0",
+            "in_stock TINYINT(1) DEFAULT 1",
+            "FOREIGN KEY (bazaar_id) REFERENCES bazaar(id) ON DELETE CASCADE",
+            "FOREIGN KEY (seller_number) REFERENCES sellers(seller_number) ON DELETE CASCADE"
+        ],
+        "settings" => [
+            "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
+            "operationMode VARCHAR(50) NOT NULL DEFAULT 'online'",
+            "wifi_ssid VARCHAR(255) DEFAULT ''",
+            "wifi_password VARCHAR(255) DEFAULT ''",
+            "gdpr_enabled TINYINT(1) NOT NULL DEFAULT 0",
+            "gdpr_email_subject TEXT DEFAULT NULL",
+            "gdpr_email_body    TEXT DEFAULT NULL"
         ],
         "user_details" => [
             "id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY",
@@ -180,9 +189,33 @@ function initialize_database($conn) {
             "zip VARCHAR(255) NOT NULL",
             "city VARCHAR(255) NOT NULL",
             "consent TINYINT(1) DEFAULT NULL",
-            "signature MEDIUMTEXT DEFAULT NULL"
+            "signature MEDIUMTEXT DEFAULT NULL",
+            "gdpr_pending_deletion_at DATETIME DEFAULT NULL",
+            "gdpr_last_notified_at DATETIME DEFAULT NULL"
+        ],
+        "bazaar_history" => [
+            "id INT AUTO_INCREMENT PRIMARY KEY",
+            "user_id INT NOT NULL",
+            "seller_number INT NOT NULL",
+            "bazaar_id INT NOT NULL",
+            "pdf_data TEXT DEFAULT NULL",
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "FOREIGN KEY (bazaar_id) REFERENCES bazaar(id) ON DELETE CASCADE",
+            "FOREIGN KEY (seller_number) REFERENCES sellers(seller_number) ON DELETE CASCADE"
+        ],
+        "archive_products" => [
+            "id INT(11) PRIMARY KEY",
+            "seller_number INT(11) NOT NULL",
+            "name VARCHAR(255) NOT NULL",
+            "size VARCHAR(255)",
+            "price DECIMAL(10,2) NOT NULL",
+            "sold_date DATETIME NOT NULL",
+            "bazaar_id INT(11) NOT NULL",
+            "FOREIGN KEY (bazaar_id) REFERENCES bazaar(id) ON DELETE CASCADE",
+            "FOREIGN KEY (seller_number) REFERENCES sellers(seller_number) ON DELETE CASCADE"
         ]
     ];
+
 
     foreach ($tables as $tableName => $columns) {
         // Check if the table exists
@@ -215,6 +248,27 @@ function initialize_database($conn) {
         }
     }
 
+    $settings = fetch_current_settings($conn);
+        if ($settings) {
+            if (empty($settings['gdpr_email_subject'])) {
+                $conn->query("UPDATE settings SET gdpr_email_subject =
+                    'Bitte bestätige deine Einwilligung vor dem nächsten Anmeldestart' WHERE id = 1");
+            }
+            if (empty($settings['gdpr_email_body'])) {
+                $body = "Hallo {{given_name}},\n\n".
+                        "du hast am Basar am {{finished_bazaar}} teilgenommen. Da du unsere ".
+                        "Einwilligung/Datenschutzhinweise bisher nicht bestätigt hast, löschen wir ".
+                        "deine personenbezogenen Daten am {{next_req_start}} – dem Start der Anmeldung ".
+                        "zum nächsten Basar – sofern du bis dahin nicht einwilligst.\n\n".
+                        "Wenn du dein Konto und deine Artikelhistorie behalten möchtest, logge dich ".
+                        "bitte ein und setze das Häkchen in deinen Kontoeinstellungen:\n{{login_url}}\n\n".
+                        "Wenn du die Löschung wünschst, ignoriere diese E-Mail.\n\nVielen Dank!";
+                $stmt = $conn->prepare("UPDATE settings SET gdpr_email_body = ? WHERE id = 1");
+                $stmt->bind_param('s', $body);
+                $stmt->execute();
+            }
+        }
+
     // Check if the users table is empty (first time setup)
     $sql = "SELECT COUNT(*) as count FROM users";
     $result = $conn->query($sql);
@@ -227,7 +281,7 @@ function initialize_database($conn) {
  * Check preconditions.
  *
  * @param mysqli $conn
- * @return bool
+ * @return array
  */
 function check_preconditions() {
     $preconditions = [
@@ -247,6 +301,48 @@ function check_preconditions() {
 // =========================
 // Security Functions
 // =========================
+
+/**
+ * Rate Limiting.
+ *
+ * @return bool
+ */
+function rate_limit($action, $limit = 5, $time_window = 60) {
+    // Ensure session is started
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+
+    // Allow unlimited access for privileged roles
+    $allowed_roles = ['admin', 'cashier', 'assistant'];
+    if (isset($_SESSION['role']) && in_array($_SESSION['role'], $allowed_roles)) {
+        return true; // Skip rate limiting
+    }
+
+    // Identify user by session ID (or fallback to IP)
+    $user_id = $_SESSION['user_id'] ?? null;
+    $identifier = $user_id ? "user_$user_id" : "ip_" . $_SERVER['REMOTE_ADDR'];
+
+    // Initialize rate-limit tracking
+    if (!isset($_SESSION['rate_limit'][$action])) {
+        $_SESSION['rate_limit'][$action] = [];
+    }
+
+    // Remove old entries
+    $_SESSION['rate_limit'][$action] = array_filter($_SESSION['rate_limit'][$action], function ($timestamp) use ($time_window) {
+        return ($timestamp > (time() - $time_window));
+    });
+
+    // Check request count
+    if (count($_SESSION['rate_limit'][$action]) >= $limit) {
+        return false; // Limit exceeded
+    }
+
+    // Store request timestamp
+    $_SESSION['rate_limit'][$action][] = time();
+    return true; // Request allowed
+}
+
 
 /**
  * Generate a CSRF token.
@@ -373,6 +469,59 @@ function send_email($to, $subject, $body) {
 // =========================
 
 /**
+ * Validate & sanitize a product name.
+ * Rules:
+ *  - no '<' or '>'
+ *  - length 1–120
+ *  - letters/digits/umlauts + common punctuation (see regex)
+ *
+ * @param string $nameRaw
+ * @return array [bool $ok, ?string $cleanName, ?string $error]
+ */
+function validate_product_name($nameRaw) {
+    $name = trim((string)$nameRaw);
+
+    if (preg_match('/[<>]/u', $name)) {
+        return [false, null, 'Der eingegebene Artikelname enthält unzulässige Zeichen.'];
+    }
+    if ($name === '' || preg_match('/^[\p{L}\p{N}\p{M}\s\.\-_,:;\/\(\)\+\#&@!%\'"]{1,120}$/u', $name) !== 1) {
+        return [false, null, 'Der Artikelname ist ungültig (1–120 Zeichen, nur erlaubte Zeichen).'];
+    }
+
+    // Final pass through your generic sanitizer (which should not allow < >)
+    $name = sanitize_input($name);
+    return [true, $name, null];
+}
+
+/**
+ * Validate & sanitize a product size (optional field).
+ * Rules:
+ *  - empty allowed
+ *  - no '<' or '>'
+ *  - length 0–40
+ *  - letters/digits/umlauts + .-_ , /
+ *
+ * @param string $sizeRaw
+ * @return array [bool $ok, ?string $cleanSize, ?string $error]
+ */
+function validate_product_size($sizeRaw) {
+    $size = trim((string)$sizeRaw);
+
+    if ($size === '') {
+        return [true, '', null];
+    }
+    if (preg_match('/[<>]/u', $size)) {
+        return [false, null, 'Die eingegebene Größe enthält unzulässige Zeichen.'];
+    }
+    if (preg_match('/^[\p{L}\p{N}\s\.\-_,\/]{0,40}$/u', $size) !== 1) {
+        return [false, null, 'Die Größe ist ungültig (max. 40 Zeichen, nur erlaubte Zeichen).'];
+    }
+
+    $size = sanitize_input($size);
+    return [true, $size, null];
+}
+
+/**
  * Sanitize input by allowing characters commonly found in URLs.
  *
  * @param string $input
@@ -420,7 +569,7 @@ function sanitize_email($email) {
  * @return string
  */
 function sanitize_input($input) {
-    $input = preg_replace('/[^a-zA-Z0-9 \-\(\)\._@<>]/', '', $input);
+    $input = preg_replace('/[^\p{L}\p{N} \-\(\)\._@<>]/u', '', $input);
     $input = trim($input);
     return $input;
 }
@@ -486,7 +635,7 @@ function process_footer_content($content) {
 
 
 /**
- * Check if a bazaar is running based on the current date and startDate.
+ * Check if a bazaar is running based on the current date and start_date.
  *
  * @param mysqli $conn Database connection.
  * @param int $bazaar_id The ID of the bazaar to check.
@@ -496,8 +645,8 @@ function is_bazaar_running($conn, $bazaar_id) {
     // Get the current date in 'YYYY-MM-DD' format
     $current_date = date('Y-m-d');
 
-    // Query the bazaar's startDate
-    $sql = "SELECT startDate FROM bazaar WHERE id = ?";
+    // Query the bazaar's start_date
+    $sql = "SELECT start_date FROM bazaar WHERE id = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $bazaar_id);
     $stmt->execute();
@@ -506,9 +655,9 @@ function is_bazaar_running($conn, $bazaar_id) {
     // Check if a result exists
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        $start_date = $row['startDate'];
+        $start_date = $row['start_date'];
 
-        // Compare the startDate with the current date
+        // Compare the start_date with the current date
         if ($start_date === $current_date) {
             return true; // Bazaar is running
         }
@@ -517,6 +666,50 @@ function is_bazaar_running($conn, $bazaar_id) {
     return false; // Bazaar is not running
 }
 
+function get_active_or_registering_bazaar_id($conn): int {
+    // 1. Currently registering (future bazaar, but reg already started)
+    $stmt = $conn->prepare("
+        SELECT id FROM bazaar
+        WHERE start_req_date <= CURDATE()
+          AND start_date > CURDATE()
+        ORDER BY start_req_date DESC
+        LIMIT 1
+    ");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result && $row = $result->fetch_assoc()) {
+        return (int)$row['id'];
+    }
+
+    // 2. Currently running (within grace period)
+    $stmt = $conn->prepare("
+        SELECT id FROM bazaar
+        WHERE start_date <= CURDATE()
+          AND CURDATE() <= DATE_ADD(start_date, INTERVAL 14 DAY)
+        ORDER BY start_date DESC
+        LIMIT 1
+    ");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result && $row = $result->fetch_assoc()) {
+        return (int)$row['id'];
+    }
+
+    // 3. Next upcoming (in case no active or registering exists)
+    $stmt = $conn->prepare("
+        SELECT id FROM bazaar
+        WHERE start_date > CURDATE()
+        ORDER BY start_date ASC
+        LIMIT 1
+    ");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result && $row = $result->fetch_assoc()) {
+        return (int)$row['id'];
+    }
+
+    return 0; // No bazaar at all
+}
 
 /**
  * Get the current bazaar ID.
@@ -528,20 +721,32 @@ function get_current_bazaar_id($conn) {
     $currentDateTime = date('Y-m-d H:i:s');
     
     // SQL Query:
-    // 1. Selects the latest bazaar whose startDate is in the past and within the 14-day grace period
+    // 1. Selects the latest bazaar whose start_date is in the past and within the 14-day grace period
     // 2. If no such bazaar exists, selects the next upcoming bazaar
+    /*
     $stmt = $conn->prepare("
         SELECT id 
         FROM bazaar
-        WHERE startDate <= DATE_ADD(?, INTERVAL 14 DAY)
+        WHERE start_date <= DATE_ADD(?, INTERVAL 14 DAY)
         ORDER BY 
-            CASE WHEN startDate <= ? THEN 1 ELSE 2 END, -- Prefer bazaars within the grace period
-            startDate ASC -- Otherwise, pick the next upcoming bazaar
+            CASE WHEN start_date <= ? THEN 1 ELSE 2 END, -- Prefer bazaars within the grace period
+            start_date ASC -- Otherwise, pick the next upcoming bazaar
         LIMIT 1
     ");
-    
+    */
+    $stmt = $conn->prepare("
+        SELECT id 
+        FROM bazaar
+        WHERE start_date <= DATE_ADD(?, INTERVAL 14 DAY)
+        ORDER BY 
+            CASE WHEN start_date <= ? THEN 1 ELSE 2 END,
+            CASE WHEN start_date <= ? THEN start_date END DESC,
+            CASE WHEN start_date  > ? THEN start_date END ASC
+        LIMIT 1
+    ");
+
     // Bind parameters
-    $stmt->bind_param("ss", $currentDateTime, $currentDateTime);
+    $stmt->bind_param("ssss", $currentDateTime, $currentDateTime, $currentDateTime, $currentDateTime);
     $stmt->execute();
     $result = $stmt->get_result();
     
@@ -555,37 +760,89 @@ function get_current_bazaar_id($conn) {
 }
 
 /**
- * Get the bazaar ID with open public registration.
+ * Get the upcoming bazaar. GDPR related
  *
  * @param mysqli $conn
  * @return int|null
  */
-function get_bazaar_id_with_open_registration($conn) {
-    $currentDateTime = date('Y-m-d H:i:s');
+function get_next_bazaar_by_req($conn) {
+    $stmt = $conn->prepare("SELECT * FROM bazaar WHERE start_req_date > CURDATE() ORDER BY start_req_date ASC LIMIT 1");
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
 
-    // SQL Query:
-    // 1. Selects the bazaar where current datetime is >= startReqDate AND < startDate
-    $stmt = $conn->prepare(" 
-        SELECT id 
-        FROM bazaar 
-        WHERE startReqDate <= ? 
-          AND startDate > ? 
-        ORDER BY startReqDate ASC 
+/**
+ * Get the upcoming bazaar. GDPR related
+ *
+ * @param mysqli $conn
+ * @return int|null
+ */
+function get_most_recent_finished_bazaar($conn): int {
+    $sql = "SELECT id
+              FROM bazaar
+             WHERE start_date < CURDATE()
+             ORDER BY start_date DESC
+             LIMIT 1";
+    $id = 0;
+    $res = $conn->query($sql);
+    
+    if ($res->num_rows > 0) {
+        $row = $res->fetch_assoc();
+        $id = isset($row['id']) ? (int)$row['id'] : 0;
+    }
+    return $id;
+}
+
+function find_nonconsenting_users(mysqli $conn): array {
+    $sql = "
+        SELECT u.id AS user_id, ud.email, ud.given_name, ud.family_name
+        FROM users u
+        JOIN user_details ud ON ud.user_id = u.id
+        WHERE u.role = 'seller'
+          AND COALESCE(ud.consent, 0) <> 1
+    ";
+    $res = $conn->query($sql);
+    return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+/**
+ * Get the bazaar currently accepting registrations.
+ *
+ * @param mysqli $conn
+ * @return int 0 if none found
+ */
+function get_bazaar_id_with_open_registration($conn): int {
+    $stmt = $conn->prepare("
+        SELECT id
+        FROM bazaar
+        WHERE start_req_date <= CURDATE()
+          AND start_date > CURDATE()
+        ORDER BY start_req_date DESC
         LIMIT 1
     ");
-
-    // Bind parameters
-    $stmt->bind_param("ss", $currentDateTime, $currentDateTime);
     $stmt->execute();
     $result = $stmt->get_result();
 
-    // Check if a bazaar was found
-    if ($result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        return $row['id']; // Return the bazaar ID
-    } else {
-        return null; // No bazaar found within the specified period
+    if ($result && $row = $result->fetch_assoc()) {
+        return (int)$row['id'];
     }
+
+    return 0;
+}
+/**
+ * Return the user's activated seller_number for a bazaar (seller_verified=1), or 0 if none.
+ */
+function get_activated_seller_number(mysqli $conn, int $user_id, int $bazaar_id): int {
+    $stmt = $conn->prepare("
+        SELECT seller_number
+        FROM sellers
+        WHERE user_id = ? AND bazaar_id = ? AND seller_verified = 1
+        LIMIT 1
+    ");
+    $stmt->bind_param("ii", $user_id, $bazaar_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    return isset($row['seller_number']) ? (int)$row['seller_number'] : 0;
 }
 
 /**
@@ -596,7 +853,7 @@ function get_bazaar_id_with_open_registration($conn) {
  */
 function has_active_bazaar($conn) {
     $current_date = date('Y-m-d');
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM bazaar WHERE startDate <= ?");
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM bazaar WHERE start_date <= ?");
     $stmt->bind_param("s", $current_date);
     $stmt->execute();
     $result = $stmt->get_result()->fetch_assoc();
@@ -611,7 +868,7 @@ function has_active_bazaar($conn) {
  * @return array|null
  */
 function get_bazaar_pricing_rules($conn, $bazaar_id) {
-    $stmt = $conn->prepare("SELECT min_price, price_stepping FROM bazaar WHERE id = ?");
+    $stmt = $conn->prepare("SELECT min_item_price, price_stepping FROM bazaar WHERE id = ?");
     $stmt->bind_param("i", $bazaar_id);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -625,36 +882,6 @@ function get_bazaar_pricing_rules($conn, $bazaar_id) {
 // =========================
 // Seller Management
 // =========================
-
-/**
- * Process an existing seller number.
- *
- * @param mysqli $conn
- * @param string $email
- * @param bool $consent
- * @param string $mailtxt_reqexistingsellerid
- */
-function process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid) {
-    $seller_id = filter_input(INPUT_POST, 'seller_id');
-    $stmt = $conn->prepare("SELECT id FROM sellers WHERE id = ? AND email = ?");
-    $stmt->bind_param("is", $seller_id, $email);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    if ($result->num_rows > 0) {
-        //$hash = generate_hash($email, $seller_id);
-        //$bazaarId = get_current_bazaar_id($conn);
-        $verification_token = generate_verification_token();
-
-        $stmt = $conn->prepare("UPDATE sellers SET verification_token = ?, verified = 0, consent = ?, bazaar_id = ? WHERE id = ?");
-        $stmt->bind_param("siii", $verification_token, $consent, $bazaarId, $seller_id);
-        $stmt->execute();
-        execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verification_token, $mailtxt_reqexistingsellerid);
-    } else {
-        global $alertMessage;
-        $alertMessage = "Ungültige Verkäufer-ID oder E-Mail.";
-    }
-}
 
 /**
  * Process a new seller registration.
@@ -705,8 +932,8 @@ function process_new_seller($conn, $email, $family_name, $given_name, $phone, $s
                 );
 
                 if ($stmt->execute()) {
-                        log_action($conn, 0, "New unverified user account created", "Email: $email");
-                        return(execute_sql_and_send_email($conn, $email, "", "", $verification_token, $mailtxt_reqnewsellerid, $nonce));
+                        log_action($conn, 0, "Ein neues Benutzerkonto wurde erstellt:", "Email: $email");
+                        return(execute_sql_and_send_email($conn, $email, 0, "", $verification_token, $mailtxt_reqnewsellerid, $nonce));
                 } else {
                         show_modal($nonce, 
                             "Ein Fehler ist aufgetreten. Der Admin wurde automatisch informiert. Bitte versuchen Sie es später erneut.", 
@@ -717,6 +944,7 @@ function process_new_seller($conn, $email, $family_name, $given_name, $phone, $s
     }
     
     } catch (Exception $e) {
+        log_action($conn, 0, "Fehler beim Erstellen des Benutzerkontos:", "Email: $email");
         show_modal($nonce, 
             "An error occurred. The admin has been informed. Please try again later." . $e->getMessage(), 
             "danger", 
@@ -793,6 +1021,115 @@ function send_reset_password_email($email, $verification_token) {
 }
 
 /**
+ * Send one email to each affected seller immediately after a new bazaar is created.
+ * Sets gdpr_pending_deletion_at to the next bazaar's start_req_date (00:00:00) for the *last finished* bazaar scope.
+ */
+// utilities.php
+function send_gdpr_emails_for_new_bazaar(mysqli $conn, int $newBazaarId, int $adminUserId = 0): int {
+    
+    // New bazaar must exist and have a start_req_date in the future
+    $stmt = $conn->prepare("SELECT id, start_req_date FROM bazaar WHERE id = ?");
+    $stmt->bind_param('i', $newBazaarId);
+    $stmt->execute();
+    $next = $stmt->get_result()->fetch_assoc();
+    if (!$next) 
+    {
+        return 0;
+    }
+
+    // We only notify if the request window is still in the future
+    if (strtotime($next['start_req_date']) <= strtotime('today')) {
+        return 0;
+    }
+
+    $users = find_nonconsenting_users($conn);
+    if (!$users) {
+        return 0;
+    }
+
+    $reqDate  = (new DateTime($next['start_req_date']))->format('Y-m-d');
+    $loginUrl = rtrim(BASE_URI ?? '', '/') . '/login.php';
+
+    $subjectTpl = 'Achtung: Deine Basardaten werden bald gelöscht.';
+    $bodyTpl = <<<HTML
+<html>
+<head>
+    <title>Einwilligung bestätigen</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px; }
+        .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .email-header { text-align: center; margin-bottom: 20px; }
+        .email-content { line-height: 1.6; color: #333333; }
+        .email-footer { margin-top: 20px; font-size: 12px; color: #777777; text-align: center; }
+        .reset-button { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px; }
+        a.reset-button:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="email-header">
+            <h2>Bitte Einwilligung bestätigen</h2>
+        </div>
+        <div class="email-content">
+            <p>Hallo {{given_name}} {{family_name}},</p>
+            <p>Bald ist es wieder soweit und der nächste Basar startet. Du hast bei Deiner letzten Teilnahme angegeben, das Deine Daten nicht gespeichert werden sollen. Wir löschen deine personenbezogenen Daten daher am <strong>{{next_req_start}}</strong>,sofern du nicht vorher auf unserer Homepage einwilligst. Wenn dies von dir beabsichtigt ist, brauchst Du nichts weiter zu Unternehmen. Anderenfalls logge dich Bitte ein und setze unter &quot;Meine Daten&quot; deine Einwilligung.</p>
+            <p><a href="{{login_url}}" class="reset-button">Jetzt einwilligen &amp; einloggen</a></p>
+            <p>Viele liebe Grüße</br>Das Basarteam</p>
+        </div>
+        <div class="email-footer">
+            <p>&copy; Basareno<i>Web</i>. Die kostenlose Basarlösung.</p>
+        </div>
+    </div>
+</body>
+</html>
+HTML;
+
+    // We store a single cutoff on the single user_details row
+    $upd = $conn->prepare("
+        UPDATE user_details
+           SET gdpr_last_notified_at = NOW(),
+               gdpr_pending_deletion_at = ?
+         WHERE user_id = ?
+    ");
+
+    $sent = 0;
+    foreach ($users as $u) {
+        if (empty($u['email'])) {
+            continue;
+        }
+
+        $map = [
+            '{{given_name}}'     => $u['given_name'] ?? '',
+            '{{family_name}}'    => $u['family_name'] ?? '',
+            '{{next_req_start}}' => $reqDate,
+            '{{login_url}}'      => $loginUrl,
+        ];
+
+        $subject = strtr($subjectTpl, $map);
+        $body    = strtr($bodyTpl, $map);
+
+        // your send_email() already sends HTML
+        send_email($u['email'], $subject, $body);
+
+        $cutoff = $reqDate . ' 00:00:00';
+        $upd->bind_param('si', $cutoff, $u['user_id']);
+        $upd->execute();
+
+        log_action($conn, $adminUserId, 'gdpr_notify_created_bazaar', json_encode([
+            'new_bazaar_id'  => (int)$newBazaarId,
+            'user_id'        => (int)$u['user_id'],
+            'start_req_date' => $reqDate
+        ]));
+        $sent++;
+    }
+
+    return $sent;
+}
+
+
+
+/**
  * Execute SQL and send email.
  *
  * @param mysqli $conn
@@ -825,23 +1162,6 @@ function execute_sql_and_send_email($conn, $email, $seller_id, $hash, $verificat
     }
     
     return false;
-}
-
-/**
- * Generate a unique seller ID.
- *
- * @param mysqli $conn
- * @return int
- */
-function generate_unique_seller_id($conn) {
-    do {
-        $seller_id = rand(1, 10000);
-        $stmt = $conn->prepare("SELECT id FROM sellers WHERE id = ?");
-        $stmt->bind_param("i", $seller_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-    } while ($result->num_rows > 0);
-    return $seller_id;
 }
 
 /**
@@ -925,11 +1245,6 @@ function show_toast($nonce, $message, $title = '', $message_type = "info", $toas
     echo '</script>';
 }
 
-
-
-
-
-
 // =========================
 // Seller Management (Admin)
 // =========================
@@ -980,7 +1295,7 @@ function is_checkout_id_unique($conn, $checkout_id, $seller_id = null) {
  * @return bool
  */
 function seller_has_products($conn, $seller_id) {
-    $stmt = $conn->prepare("SELECT COUNT(*) as product_count FROM products WHERE seller_id = ?");
+    $stmt = $conn->prepare("SELECT COUNT(*) as product_count FROM products WHERE seller_number = ?");
     $stmt->bind_param("i", $seller_id);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -1026,7 +1341,7 @@ function normalize_price($price) {
     return is_numeric($price) ? (float)$price : 0;
 }
 
-function can_move_to_sale($conn, $user_id, $max_products_per_seller) {
+function can_move_to_sale($conn, $user_id, $max_items_per_seller) {
     $sql = "SELECT COUNT(*) AS count 
             FROM products 
             WHERE seller_number IN (SELECT seller_number FROM sellers WHERE user_id = ?) 
@@ -1035,7 +1350,7 @@ function can_move_to_sale($conn, $user_id, $max_products_per_seller) {
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $count = $stmt->get_result()->fetch_assoc()['count'];
-    return $count < $max_products_per_seller;
+    return $count < $max_items_per_seller;
 }
 
 /**
@@ -1068,7 +1383,7 @@ function calculateCheckDigit($barcode) {
  */
 function get_expected_columns($conn, $table_name) {
     // Define a whitelist of allowed table names
-    $allowed_tables = ['bazaar', 'sellers', 'settings', 'products', 'users'];
+    $allowed_tables = ['bazaar', 'bazaar_history', 'users', 'user_details', 'sellers', 'products'];
 
     // Check if the provided table name is in the whitelist
     if (!in_array($table_name, $allowed_tables)) {

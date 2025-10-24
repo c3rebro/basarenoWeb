@@ -30,9 +30,9 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
         exit;
     }
 
-    $user_id = $_SESSION['user_id'];
-    $seller_number = $_POST['selected_seller_number'] ?? null;
-    $bazaar_id = $_POST['bazaar_id'] ?? null;
+    $user_id      = (int)$_SESSION['user_id'];
+    $seller_number= (int)($_POST['selected_seller_number'] ?? 0);
+    $bazaar_id    = (int)($_POST['bazaar_id'] ?? 0);
 
     if (!$seller_number || !$bazaar_id) {
         echo json_encode(['success' => false, 'message' => 'Verkäufernummer oder aktuellen Basar nicht gefunden.']);
@@ -41,30 +41,67 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 
     $conn = get_db_connection();
 
-    // Check if seller number is already verified
-    $sql = "SELECT seller_verified FROM sellers WHERE seller_number = ? AND user_id = ?";
+    // Check current state (verified + which bazaar it's associated with)
+    $sql  = "SELECT seller_verified, COALESCE(bazaar_id,0) AS current_bazaar
+             FROM sellers
+             WHERE seller_number = ? AND user_id = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ii", $seller_number, $user_id);
     $stmt->execute();
-    $is_verified = $stmt->get_result()->fetch_assoc()['seller_verified'] ?? 0;
+    $row = $stmt->get_result()->fetch_assoc();
 
-    if ($is_verified) {
-        echo json_encode(['success' => false, 'info' => true, 'message' => 'Verkäufernummer ist bereits freigeschalten. Weiter gehts im Menü "Meine Artikel".']);
+    if (!$row) {
+        echo json_encode(['success' => false, 'message' => 'Verkäufernummer gehört nicht zu deinem Konto.']);
         exit;
     }
 
-    // Validate the seller number
-    $sql = "UPDATE sellers SET bazaar_id = ?, seller_verified = 1 WHERE seller_number = ? AND user_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("iii", $bazaar_id, $seller_number, $user_id);
-    $stmt->execute();
+    $alreadyVerified = (int)($row['seller_verified'] ?? 0) === 1;
+    $currentBazaar   = (int)($row['current_bazaar'] ?? 0);
 
-    if ($stmt->affected_rows > 0) {
-        echo json_encode(['success' => true, 'message' => 'Verkäufernummer erfolgreich freigeschalten. Du kannst Jetzt Deine Artikel anlegen.']);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Fehler beim Validieren der Verkäufernummer.']);
+    // Always make the two writes (verify + move products) in a single tx
+    $conn->begin_transaction();
+    try {
+        // 1) Verify/activate this seller for the requested bazaar (idempotent)
+        //    If it was verified for another bazaar, move it to the new one.
+        $sql = "UPDATE sellers
+                SET bazaar_id = ?, seller_verified = 1
+                WHERE seller_number = ? AND user_id = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iii", $bazaar_id, $seller_number, $user_id);
+        $stmt->execute();
+
+        // 2) Move ALL UNSOLD products for this seller number to the new bazaar,
+        //    regardless of in_stock; keep sold items historical.
+        $sql = "UPDATE products
+                SET bazaar_id = ?
+                WHERE seller_number = ?
+                  AND sold = 0
+                  AND bazaar_id <> ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iii", $bazaar_id, $seller_number, $bazaar_id);
+        $stmt->execute();
+        $moved = $stmt->affected_rows; // how many rows we actually moved
+
+        $conn->commit();
+
+        // Friendly messaging
+        if ($alreadyVerified && $currentBazaar === $bazaar_id) {
+            echo json_encode([
+                'success' => true,
+                'info'    => true,
+                'message' => "Verkäufernummer war bereits freigeschalten. $moved Artikel wurden dem aktuellen Basar zugeordnet."
+            ]);
+        } else {
+            echo json_encode([
+                'success' => true,
+                'message' => "Verkäufernummer erfolgreich freigeschalten. $moved Artikel wurden zum aktuellen Basar übernommen."
+            ]);
+        }
+    } catch (Throwable $e) {
+        $conn->rollback();
+        echo json_encode(['success' => false, 'message' => 'Fehler beim Freischalten/Übernehmen der Artikel.']);
+    } finally {
+        $conn->close();
     }
-
-    $conn->close();
 }
 ?>

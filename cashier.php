@@ -25,7 +25,25 @@ $scanned_products = [];
 $sum_of_prices = $_SESSION['sum_of_prices'] ?? 0.0;
 $groups = $_SESSION['groups'] ?? [];
 $buyer_index = $_SESSION['buyer_index'] ?? 1;
-$current_bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+$bazaar_id = 0;
+
+if (!isset($_SESSION['bazaar_id']) || $_SESSION['bazaar_id'] === 0) {
+
+	$bazaar_id = get_current_bazaar_id($conn);
+	if ($bazaar_id === 0) {
+		$bazaar_id = get_bazaar_id_with_open_registration($conn);
+	}
+	
+	$_SESSION['bazaar_id'] = $bazaar_id; // Fetch bazaar ID only once per session
+	
+	if (!$_SESSION['bazaar_id'] || $_SESSION['bazaar_id'] === 0) {
+		header("location: login.php");
+		$conn->close();
+		exit();
+    }
+}
+
+$bazaar_id = $_SESSION['bazaar_id'];
 
 if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {	
 	if (filter_input(INPUT_POST, 'barcode') !== null || filter_input(INPUT_POST, 'isManualInput') !== null) {
@@ -36,7 +54,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 			$product_id = filter_input(INPUT_POST, 'manual-product-id', FILTER_SANITIZE_NUMBER_INT);
 
 
-			if ($current_bazaar_id === null) {
+			if ($bazaar_id === null) {
 				echo json_encode([
 					"status" => "error",
 					"message" => "No active bazaar found."
@@ -46,7 +64,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 
 			// Retrieve user_id using seller_number and bazaar_id
 			$stmt = $conn->prepare("SELECT user_id FROM sellers WHERE bazaar_id = ? AND seller_number = ?");
-			$stmt->bind_param("ii", $current_bazaar_id, $seller_number);
+			$stmt->bind_param("ii", $bazaar_id, $seller_number);
 			$stmt->execute();
 			$result = $stmt->get_result();
 
@@ -79,7 +97,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 				SELECT 1 
 				FROM sellers 
 				WHERE user_id = ? AND seller_number = ? AND bazaar_id = ?");
-			$stmt->bind_param("iii", $user_id_fromQR, $seller_number, $current_bazaar_id);
+			$stmt->bind_param("iii", $user_id_fromQR, $seller_number, $bazaar_id);
 			$stmt->execute();
 			$result = $stmt->get_result();
 
@@ -111,7 +129,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 			$row = $result->fetch_assoc();
 	
             $stmt = $conn->prepare("SELECT id, name, price, sold, seller_number FROM products WHERE barcode=? AND bazaar_id=? AND seller_number=?");
-            $stmt->bind_param("sii", $barcode, $current_bazaar_id, $seller_number);
+            $stmt->bind_param("sii", $barcode, $bazaar_id, $seller_number);
             $stmt->execute();
             $result = $stmt->get_result();
 
@@ -249,12 +267,34 @@ $conn->close();
 		const html5QrCode = new Html5Qrcode("scanner-container");
 		const exactPaymentButton = document.getElementById("exact-payment");
 		const beepAudio = new Audio("assets/beep.wav"); // Path to beep sound
-		let currentGroup = JSON.parse(localStorage.getItem("currentGroup")) || [];
-		let groups = JSON.parse(localStorage.getItem("groups")) || [];
+		const bazaarId = <?php echo (int) $bazaar_id; ?>;
+                const sessionKey = `bazaar_cashier_state_${bazaarId}`;
+                const saved = JSON.parse(localStorage.getItem(sessionKey));
+                const now = Date.now();
+                const maxAgeMs = 1000 * 60 * 60 * 6; // 6 hours
+                
+                let currentGroup = [];
+                let groups = [];
 		let scanCooldown = false;
 		let lastScannedCode = null;
 		let isScannerRunning = true;
 		
+                if (
+                        saved &&
+                        Array.isArray(saved.currentGroup) &&
+                        now - (saved.timestamp || 0) < maxAgeMs
+                ) {
+                        currentGroup = saved.currentGroup;
+                        groups = saved.groups || [];
+
+                        if (currentGroup.length > 0 || groups.length > 0) {
+                                showToast("Wiederhergestellt 🔄", "Vorherige Sitzung geladen.", "info", 3000);
+                        }
+                } else {
+                        // Clean up stale or invalid data
+                        localStorage.removeItem(sessionKey);
+                }
+
 		function stopScanner() {
 			if (isScannerRunning) {
 				html5QrCode.stop().then(() => {
@@ -333,6 +373,11 @@ $conn->close();
 						currentGroup.push(product);
 						renderCurrentGroup();
 						updateGroupSumPreview();
+                                                localStorage.setItem(sessionKey, JSON.stringify({
+                                                        timestamp: Date.now(),
+                                                        currentGroup,
+                                                        groups
+                                                }));
 						showToast("Erfolgreich ✔️", "Produkt erfolgreich hinzugefügt.", "success", 2000);
 					} else {
 						// Handle errors
@@ -352,14 +397,12 @@ $conn->close();
 		}
 
 		function initializeScanner() {
-			const qrBoxSize = {width: 125, height: 250};
 
 			html5QrCode.start(
 				{ facingMode: "environment" }, // Rear camera
 				{
 					fps: 3,
-					qrbox: qrBoxSize,
-					aspectRatio: 1,
+					aspectRatio: 1
 				},
 				(decodedText, decodedResult) => {
 					if (!scanCooldown && decodedText !== lastScannedCode) {
@@ -410,7 +453,11 @@ $conn->close();
 								// Add product to current group
 								currentGroup.push(product);
 								localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
-
+                                                                localStorage.setItem(sessionKey, JSON.stringify({
+                                                                        timestamp: Date.now(),
+                                                                        currentGroup,
+                                                                        groups
+                                                                }));
 								// Update the table
 								renderScannedProducts();
 								updateGroupSumPreview();
@@ -546,7 +593,11 @@ $conn->close();
 
 			// Update localStorage before re-rendering
 			localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
-
+                        localStorage.setItem(sessionKey, JSON.stringify({
+                                timestamp: Date.now(),
+                                currentGroup,
+                                groups
+                        }));
 			// Send AJAX request to unsell the product
 			const xhr = new XMLHttpRequest();
 			xhr.open("POST", "cashier.php", true); // PHP handler
@@ -585,18 +636,6 @@ $conn->close();
 
 			// Update the table
 			renderScannedProducts();
-		}
-		
-		function forceQrBoxRedraw() {
-			const qrBoxSize = getQrBoxSize();
-			html5QrCode.applyVideoConstraints({
-				width: qrBoxSize,
-				height: qrBoxSize
-			}).then(() => {
-				console.log("QR box size updated.");
-			}).catch(err => {
-				console.error("Error updating QR box size:", err);
-			});
 		}
 
 		function reinitializeScanner() {
@@ -637,12 +676,14 @@ $conn->close();
 			if (currentGroup.length > 0) {
 				// Add currentGroup to groups
 				groups.unshift({ products: [...currentGroup] });
-				localStorage.setItem("groups", JSON.stringify(groups));
+                                localStorage.setItem(sessionKey, JSON.stringify({
+                                        timestamp: Date.now(),
+                                        currentGroup,
+                                        groups
+                                }));
 
-				// Clear currentGroup and update localStorage
+				// Clear currentGroup after update localStorage
 				currentGroup = [];
-				localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
-
 				// Update the table
 				renderScannedProducts();
 			}
@@ -718,6 +759,7 @@ $conn->close();
         </div>
         <div class="button-container text-center">
             <button id="toggle-scanner" class="btn btn-danger btn-full-width">Scanner stoppen</button>
+            <button id="clear-all" class="btn btn-outline-secondary btn-full-width mt-2">Alle Daten löschen 🗑️</button>
         </div>
         <form id="scan-form" action="cashier.php?nocache=<?php echo time(); ?>" method="post">
             <input type="hidden" id="barcode" name="barcode">
@@ -750,7 +792,7 @@ $conn->close();
         <form action="cashier.php?nocache=<?php echo time(); ?>" method="post">
             <button type="submit" name="reset_sum" class="btn btn-success btn-full-width mb-2">Abschluss</button>
         </form>
-        <h3 class="mt-2 sumPrice">Summe: €<?php echo number_format($sum_of_prices, 2, ',', '.'); ?></h3>
+        <h3 class="mt-2 sumPrice">Summe: €0.00</h3>
         <hr>
         <h3 class="mt-1">Erfolgreich gescannte Artikel</h3>
 		<div class="table-container">
@@ -851,6 +893,18 @@ $conn->close();
 		// Show the HTML element once the DOM is fully loaded
 		document.addEventListener("DOMContentLoaded", function () {
 			document.documentElement.style.visibility = "visible";
+                        
+                        document.getElementById("clear-all").addEventListener("click", function () {
+                                if (confirm("Möchten Sie wirklich alle gespeicherten Artikeldaten löschen?")) {
+                                        localStorage.removeItem(sessionKey);
+                                        currentGroup = [];
+                                        groups = [];
+                                        renderScannedProducts();
+                                        updateGroupSumPreview();
+                                        showToast("Gelöscht 🗑️", "Alle gespeicherten Daten wurden entfernt.", "warning", 3000);
+                                }
+                        });
+
 		});
 	</script>
 </body>

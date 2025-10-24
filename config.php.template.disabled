@@ -1,0 +1,24 @@
+<?php
+// Debug configuration
+define('DEBUG', false); // Set to false to disable debug outputs
+define('LANGUAGE', '<?php echo $language; ?>'); 
+
+// Initialization flag
+define('DB_INITIALIZED', false);
+
+define('BASE_URI', '<?php echo $base_uri; ?>');
+
+define('DB_SERVER', '<?php echo $db_host; ?>');
+define('DB_USERNAME', '<?php echo $db_username; ?>');
+define('DB_PASSWORD', '<?php echo $db_password; ?>');
+define('DB_NAME', '<?php echo $db_name; ?>');
+
+define('SECRET', '<?php echo $secret; ?>');
+
+// SMTP configuration
+define('SMTP_FROM', '<?php echo $smtp_from; ?>');
+define('SMTP_FROM_NAME', '<?php echo $smtp_from_name; ?>');
+
+// Footer content
+define('FOOTER', 'Wir verwenden "Basareno<i>Web</i>" die kostenlose Software für unseren Nummernbasar. Mehr dazu auf <a href="https://github.com/c3rebro/bazaar">GitHub</a>.');
+?>
