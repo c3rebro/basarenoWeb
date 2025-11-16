@@ -8,8 +8,7 @@ session_start([
 
 $nonce = base64_encode(random_bytes(16));
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
-
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'admin') {
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || !in_array($_SESSION['role'], ['admin'])) {
     header("location: login.php");
     exit;
 }
@@ -28,19 +27,49 @@ $username = $_SESSION['username'] ?? '';
 // Generate CSRF token for the form
 $csrf_token = generate_csrf_token();
 
-$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+//$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+$active_bazaar_id = get_active_or_registering_bazaar_id($conn);
+$open_registration_bazaar_id = get_bazaar_id_with_open_registration($conn);
+$bazaar_id = $active_bazaar_id !== 0 ? $active_bazaar_id : $open_registration_bazaar_id;
+$bazaar_filter_ids = array_values(array_unique(array_filter([
+    $active_bazaar_id,
+    $open_registration_bazaar_id
+])));
+
 $checkout_id = 0;
 
 // Handle setting session variables for product creation
-if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'set_session') !== null) {
-    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['set_session'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
         echo json_encode(['success' => false, 'error' => 'CSRF token validation failed.']);
         exit;
     }
 
-    $_SESSION['seller_number'] = intval($_POST['seller_number']);
+    $seller_number = intval($_POST['seller_number']);
 
-    echo json_encode(['success' => true]);
+    // Check if the seller exists
+    $stmt = $conn->prepare("SELECT user_id FROM sellers WHERE seller_number = ?");
+    $stmt->bind_param("i", $seller_number);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows === 0) {
+        echo json_encode(['success' => false, 'error' => 'Verkäufer nicht gefunden.']);
+        exit;
+    }
+
+    $seller = $result->fetch_assoc();
+    $seller_user_id = $seller['user_id'];
+
+    // Allow only admins to set the session
+    if ($_SESSION['role'] === 'admin') {
+        $_SESSION['seller_number'] = $seller_number;
+        $_SESSION['acting_as_admin'] = ($_SESSION['role'] === 'admin'); // Flag admin actions
+
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Nicht autorisiert.']);
+    }
     exit;
 }
 
@@ -119,26 +148,27 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
         $city = sanitize_input($_POST['city']);
         $consent = filter_input(INPUT_POST, 'consent') !== null ? 1 : 0;
 
-        // Validate email duplication
-        $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        if ($result->num_rows > 0) {
-            die("Ein Benutzer mit dieser E-Mail existiert bereits.");
-        }
-
-        // Validate password complexity
-        if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
-            die("Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Groß- und Kleinbuchstaben enthalten.");
-        }
-
-        // Hash the password
-        $password_hash = password_hash($password, PASSWORD_BCRYPT);
-
-        // Begin transaction
-        $conn->begin_transaction();
         try {
+			// Validate email duplication
+			$stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
+			$stmt->bind_param("s", $email);
+			$stmt->execute();
+			$result = $stmt->get_result();
+			if ($result->num_rows > 0) {
+				$errors[] = "Ein Benutzer mit dieser E-Mail existiert bereits.";
+			}
+
+			// Validate password complexity
+			if (strlen($password) < 6 || !preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password)) {
+				$errors[] = "Das Passwort muss mindestens 6 Zeichen lang sein und mindestens einen Groß- und Kleinbuchstaben enthalten.";
+			}
+
+			// Hash the password
+			$password_hash = password_hash($password, PASSWORD_BCRYPT);
+
+			// Begin transaction
+			$conn->begin_transaction();
+
             // Insert into users table
             $stmt = $conn->prepare("INSERT INTO users (username, password_hash, role, user_verified) VALUES (?, ?, 'seller', 1)");
             $stmt->bind_param("ss", $email, $password_hash);
@@ -151,9 +181,15 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
             $stmt->execute();
 
             // Proceed to seller number assignment
+			if (!empty($errors)) {
+				throw new Exception(implode(' ', $errors));
+			}
+
+			 $conn->commit();
         } catch (Exception $e) {
             $conn->rollback();
-            die("Fehler beim Erstellen des Benutzers: " . $e->getMessage());
+			$message_type = 'danger';
+			$message = htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
         }
     } elseif ($selected_user_id) {
         // Add a seller number to an existing user
@@ -221,41 +257,59 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
 }
 
 // Handle seller update
-if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'edit_seller') !== null) {
-    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
+    if (!validate_csrf_token($_POST['csrf_token'])) {
         log_action($conn, $user_id, "CSRF token validation failed for editing seller");
-		
         die("CSRF token validation failed.");
     }
-	
-	$seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
-	$family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
-	$given_name = htmlspecialchars($_POST['given_name'], ENT_QUOTES, 'UTF-8');
-	$email = htmlspecialchars($_POST['email'], ENT_QUOTES, 'UTF-8');
-	$phone = htmlspecialchars($_POST['phone'], ENT_QUOTES, 'UTF-8');
-	$street = htmlspecialchars($_POST['street'], ENT_QUOTES, 'UTF-8');
-	$house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
-	$zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
-	$city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
-	$verified = filter_input(INPUT_POST, 'verified') !== null ? 1 : 0;
 
-	if (empty($family_name) || empty($email)) {
+    $seller_number = filter_input(INPUT_POST, 'seller_number', FILTER_VALIDATE_INT);
+    $user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+    $family_name = htmlspecialchars($_POST['family_name'], ENT_QUOTES, 'UTF-8');
+    $given_name = htmlspecialchars($_POST['given_name'], ENT_QUOTES, 'UTF-8');
+    $email = htmlspecialchars($_POST['email'], ENT_QUOTES, 'UTF-8');
+    $phone = htmlspecialchars($_POST['phone'], ENT_QUOTES, 'UTF-8');
+    $street = htmlspecialchars($_POST['street'], ENT_QUOTES, 'UTF-8');
+    $house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
+    $zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
+    $city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
+    $verified = isset($_POST['verified']) ? 1 : 0;
+
+    if (empty($family_name) || empty($email) || empty($user_id)) {
+        $message_type = 'danger';
+        $message = "Erforderliche Felder fehlen.";
+    } else {
+        // Check if the user exists
+        $stmt = $conn->prepare("SELECT id FROM users WHERE id = ?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $userExists = $stmt->get_result()->num_rows > 0;
+
+        if (!$userExists) {
             $message_type = 'danger';
-            $message = "Erforderliche Felder fehlen.";
-	} else {
-		$stmt = $conn->prepare("UPDATE sellers SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?, verified=? WHERE id=?");
-		$stmt->bind_param("ssssssssii", $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $verified, $seller_number);
+            $message = "Benutzer nicht gefunden.";
+        } else {
+            // Update user_details table
+            $stmt = $conn->prepare("
+                UPDATE user_details 
+                SET family_name = ?, given_name = ?, email = ?, phone = ?, 
+                    street = ?, house_number = ?, zip = ?, city = ?, verified = ?
+                WHERE user_id = ?
+            ");
+            $stmt->bind_param("ssssssssii", $family_name, $given_name, $email, $phone, 
+                              $street, $house_number, $zip, $city, $verified, $user_id);
 
-		if ($stmt->execute()) {
-                    $message_type = 'success';
-                    $message = "Verkäufer erfolgreich aktualisiert.";
-			log_action($conn, $user_id, "Seller updated", "ID=$seller_number, Name=$family_name, Email=$email, Verified=$verified");
-		} else {
-                    $message_type = 'danger';
-                    $message = "Fehler beim Aktualisieren des Verkäufers: " . $conn->error;
-                    log_action($conn, $user_id, "Error updating seller", $conn->error);
-		}
-	}
+            if ($stmt->execute()) {
+                $message_type = 'success';
+                $message = "Verkäufer erfolgreich aktualisiert.";
+                log_action($conn, $user_id, "Seller updated", "UserID=$user_id, Name=$family_name, Email=$email, Verified=$verified");
+            } else {
+                $message_type = 'danger';
+                $message = "Fehler beim Aktualisieren der Verkäuferdaten: " . $conn->error;
+                log_action($conn, $user_id, "Error updating seller", $conn->error);
+            }
+        }
+    }
 }
 
 // Handle seller deletion
@@ -295,7 +349,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
 
     // Proceed to delete the seller if products were deleted successfully or there were no products
     if ($deletion_successful) {
-        $stmt = $conn->prepare("DELETE FROM sellers WHERE id=?");
+        $stmt = $conn->prepare("DELETE FROM sellers WHERE seller_number=?");
         $stmt->bind_param("i", $seller_number);
         if ($stmt->execute()) {
             $message_type = 'success';
@@ -356,11 +410,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && filter_input(INPUT_POST, 'confirm_im
             $verification_token = NULL;
             $verified = 0;
 
-            $stmt = $conn->prepare("INSERT INTO sellers (id, email, reserved, verification_token, family_name, given_name, phone, street, house_number, zip, city, verified, consent) 
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    ON DUPLICATE KEY UPDATE 
-                                    email=VALUES(email), reserved=VALUES(reserved), verification_token=VALUES(verification_token), family_name=VALUES(family_name), given_name=VALUES(given_name), phone=VALUES(phone), street=VALUES(street), house_number=VALUES(house_number), zip=VALUES(zip), city=VALUES(city), verified=VALUES(verified), consent=VALUES(consent)");
-            $stmt->bind_param("isssssssssssii", $seller_number, $email, $reserved, $verification_token, $family_name, $given_name, $phone, $street, $house_number, $zip, $city, $verified, $consent);
+			$stmt = $conn->prepare("
+				INSERT INTO sellers (
+					seller_number, email, reserved, verification_token,
+					family_name, given_name, phone, street, house_number, zip, city,
+					verified, consent
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON DUPLICATE KEY UPDATE
+					email = VALUES(email),
+					reserved = VALUES(reserved),
+					verification_token = VALUES(verification_token),
+					family_name = VALUES(family_name),
+					given_name = VALUES(given_name),
+					phone = VALUES(phone),
+					street = VALUES(street),
+					house_number = VALUES(house_number),
+					zip = VALUES(zip),
+					city = VALUES(city),
+					verified = VALUES(verified),
+					consent = VALUES(consent)
+			");
+			$stmt->bind_param(
+				"isissssssssii",
+				$seller_number,   // i
+				$email,           // s
+				$reserved,        // i
+				$verification_token, // s (NULL allowed)
+				$family_name,     // s
+				$given_name,      // s
+				$phone,           // s
+				$street,          // s
+				$house_number,    // s
+				$zip,             // s
+				$city,            // s
+				$verified,        // i
+				$consent          // i
+			);
+
             if (!$stmt->execute()) {
                 log_action($conn, $user_id, "Error importing seller", "Email=$email, Error=" . $conn->error);
             }
@@ -440,24 +527,42 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
 }
 
 // Default filter is "undone"
-$filter = isset($_COOKIE['filter']) ? $_COOKIE['filter'] : 'undone';
-$sort_by = isset($_COOKIE['sort_by']) ? $_COOKIE['sort_by'] : 'id';
+$filter = isset($_COOKIE['filter']) ? $_COOKIE['filter'] : 'undone_paid';
+$sort_by = isset($_COOKIE['sort_by']) ? $_COOKIE['sort_by'] : 'seller_number';
 $order = isset($_COOKIE['order']) ? $_COOKIE['order'] : 'ASC';
 
-// Validate sort_by to prevent SQL injection
+// Validate sorting column to prevent SQL injection
 $valid_columns = ['seller_number', 'checkout_id', 'family_name', 'checkout'];
 if (!in_array($sort_by, $valid_columns)) {
-    $sort_by = 'seller_number'; // Default to 'id' if invalid
+    $sort_by = 'seller_number';
 }
 
-// Get all sellers
-// Build the SQL query to retrieve user details and their associated seller information
+// Filter sellers based on selection
+$filter_condition = "";
+if ($filter == 'done') {
+    $filter_condition = "WHERE s.checkout = 1";
+} elseif ($filter == 'undone') {
+    $filter_condition = "WHERE s.checkout = 0";
+} elseif ($filter == 'paid') {
+    $filter_condition = "WHERE s.fee_payed = 1"; // Show only sellers who have paid
+} elseif ($filter == 'undone_paid') {
+    $filter_condition = "WHERE s.checkout = 0 AND s.fee_payed = 1"; // Show not completed, but paid sellers
+} elseif ($filter == 'current_bazaar') {
+    if (!empty($bazaar_filter_ids)) {
+        $id_list = implode(',', array_map('intval', $bazaar_filter_ids));
+        $filter_condition = "WHERE s.bazaar_id IN ($id_list)";
+    } else {
+        $filter_condition = "WHERE 1 = 0"; // No bazaar context available, show nothing
+    }
+}
+
+// Modify the SQL query to apply filtering and sorting
 $sql = "
     SELECT 
         u.id AS user_id,
         u.username,
         u.role,
-		u.user_verified,
+        u.user_verified,
         ud.family_name,
         ud.given_name,
         ud.email,
@@ -467,6 +572,7 @@ $sql = "
         ud.zip,
         ud.city,
         s.seller_number,
+        s.fee_payed,
         s.checkout,
         s.checkout_id
     FROM 
@@ -475,8 +581,9 @@ $sql = "
         user_details ud ON u.id = ud.user_id
     LEFT JOIN 
         sellers s ON u.id = s.user_id
+    $filter_condition
     ORDER BY 
-        ud.family_name ASC, ud.given_name ASC;
+        $sort_by $order;
 ";
 
 // Execute the query
@@ -545,7 +652,7 @@ $conn->close();
 					<!-- Checkbox to toggle between new user and existing user -->
 					<div class="form-group">
 						<label>
-							<input type="checkbox" id="createNewUser" name="createNewUser" checked>
+							<input type="checkbox" id="createNewUser" name="createNewUser" value="1" checked>
 							Neuen Benutzer anlegen
 						</label>
 					</div>
@@ -632,22 +739,48 @@ $conn->close();
 		<button type="button" class="btn btn-secondary btn-block" id="printVerifiedSellers">Verkäuferliste drucken</button>
 		
         <h3 class="mt-5">Verkäuferliste</h3>
+
         <div class="form-row">
             <div class="form-group col-md-12">
                 <label for="filter">Filter:</label>
                 <select class="form-control" id="filter" name="filter">
+                    <option value="paid" <?php echo $filter == 'paid' ? 'selected' : ''; ?>>Alle (Gebühr bezahlt)</option>
                     <option value="all" <?php echo $filter == 'all' ? 'selected' : ''; ?>>Alle</option>
                     <option value="done" <?php echo $filter == 'done' ? 'selected' : ''; ?>>Abgeschlossen</option>
                     <option value="undone" <?php echo $filter == 'undone' ? 'selected' : ''; ?>>Nicht abgeschlossen</option>
+					<option value="current_bazaar" <?php echo $filter == 'current_bazaar' ? 'selected' : ''; ?>>Aktive Verkäufernummer aktueller Basar</option>
+                    <option value="undone_paid" <?php echo $filter == 'undone_paid' ? 'selected' : ''; ?>>Nicht abgeschlossen (Gebühr bezahlt)</option>
                 </select>
             </div>
         </div>
 
+		<!-- NEW: Table search -->
+		<div class="form-row">
+		<div class="col-md-12">
+		  <label for="sellerTableSearch" class="sr-only">In der Tabelle suchen</label>
+		  <div class="input-group">
+			<input
+			  type="text"
+			  class="form-control"
+			  id="sellerTableSearch"
+			  placeholder="In der Liste suchen (Nr., Nachname, Vorname, E-Mail, Verifiziert)…"
+			  autocomplete="off"
+			/>
+			<div class="input-group-append">
+			  <button class="btn btn-outline-secondary" type="button" id="clearSellerTableSearch">Löschen</button>
+			</div>
+		  </div>
+		  <small class="form-text text-muted">
+			Die Suche wirkt nur auf die aktuell gefilterte Liste.
+		  </small>
+		  </div>
+		</div>
+		
         <div class="form-row">
             <div class="form-group col-md-6">
                 <label for="sort_by">Sortieren nach:</label>
                 <select class="form-control" id="sort_by" name="sort_by">
-                    <option value="id" <?php echo $sort_by == 'id' ? 'selected' : ''; ?>>VerkäuferNr.</option>
+                    <option value="seller_number" <?php echo $sort_by == 'seller_number' ? 'selected' : ''; ?>>VerkäuferNr.</option>
                     <option value="checkout_id" <?php echo $sort_by == 'checkout_id' ? 'selected' : ''; ?>>AbrNr.</option>
                     <option value="family_name" <?php echo $sort_by == 'family_name' ? 'selected' : ''; ?>>Nachname</option>
                     <option value="checkout" <?php echo $sort_by == 'checkout' ? 'selected' : ''; ?>>Abgerechnet</option>
@@ -718,6 +851,7 @@ $conn->close();
                                                                         <th>Größe</th>
                                                                         <th>Preis</th>
                                                                         <th>Verkauft</th>
+																		<th>im Lag./ zu Verk.</th>
                                                                         <th>Aktionen</th>
                                                                     </tr>
                                                                 </thead>
@@ -826,6 +960,9 @@ $conn->close();
                 <form action="admin_manage_sellers.php" method="post">
                     <!-- CSRF Token -->
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+					<input type="hidden" name="seller_number" id="editSellerId">
+					<input type="hidden" name="user_id" id="editUserId"> <!-- New hidden field -->
+					
                     <div class="modal-header">
                         <h5 class="modal-title" id="editSellerModalLabel">Verkäufer bearbeiten</h5>
                         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -833,7 +970,6 @@ $conn->close();
                         </button>
                     </div>
                     <div class="modal-body">
-                        <input type="hidden" name="seller_number" id="editSellerId">
                         <div class="form-group">
                             <label for="editSellerIdDisplay">Verk.Nr.:</label>
                             <input type="text" class="form-control" id="editSellerIdDisplay" name="seller_number_display" disabled>
@@ -967,6 +1103,87 @@ $conn->close();
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+	<script nonce="<?php echo $nonce; ?>">
+  $(document).ready(function () {
+    // --- Seller table client-side search (applies on the already server-filtered rows) ---
+    const $search = $('#sellerTableSearch');
+    const $clear  = $('#clearSellerTableSearch');
+    const $tbody  = $('table.table tbody');
+    const $noRes  = $('#no-seller-search-results');
+
+    // Helper: debounce
+    function debounce(fn, ms) {
+      let t; return function() { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); };
+    }
+
+    function normalize(s) { return (s || '').toString().toLowerCase(); }
+
+    // Filter only the primary seller rows (exclude the hidden product-detail rows)
+    function filterSellerTable(query) {
+      const q = normalize(query);
+      let anyVisible = false;
+
+      // primary rows are those NOT having id that starts with 'seller-products-'
+      const $rows = $tbody.find('tr').filter(function () {
+        const id = this.id || '';
+        return !/^seller-products-/.test(id);
+      });
+
+      $rows.each(function () {
+        const $tr = $(this);
+        // cells we consider searchable: seller no, family, given, email, verified
+        const tds = $tr.children('td');
+        const sellerNo  = normalize($(tds[0]).text());
+        const family    = normalize($(tds[1]).text());
+        const given     = normalize($(tds[2]).text());
+        const email     = normalize($(tds[3]).text());
+        const verified  = normalize($(tds[4]).text()); // "ja" / "nein"
+
+        const haystack = [sellerNo, family, given, email, verified].join(' ');
+        const match = q === '' || haystack.indexOf(q) !== -1;
+
+        // Also ensure we never toggle the special "no results" row
+        if ($tr.attr('id') !== 'no-seller-search-results') {
+          $tr.toggle(match);
+          if (match) anyVisible = true;
+        }
+      });
+
+      // Hide any expanded product-rows for sellers that were hidden
+      $tbody.find('tr[id^="seller-products-"]').each(function () {
+        const $detail = $(this);
+        const sellerNumber = ($detail.attr('id') || '').replace('seller-products-', '');
+        const $main = $rows.filter(function () {
+          const firstCell = $(this).children('td').eq(0).text().trim();
+          return firstCell === sellerNumber;
+        });
+        // Hide detail row if its main row is hidden
+        if ($main.length && !$main.is(':visible')) {
+          $detail.addClass('hidden');
+        }
+      });
+
+      // Toggle "no results"
+      if ($noRes.length) $noRes.toggle(!anyVisible);
+    }
+
+    const debouncedFilter = debounce(function () {
+      filterSellerTable($search.val());
+    }, 200);
+
+    $search.on('input', debouncedFilter);
+
+    $clear.on('click', function () {
+      $search.val('');
+      filterSellerTable('');
+      $search.trigger('focus');
+    });
+
+    // If the page loads with a saved value (e.g., browser autocomplete), apply it
+    filterSellerTable($search.val() || '');
+  });
+</script>
+
     <script nonce="<?php echo $nonce; ?>">
 		//function to edit the seller will open a modal
         function editSeller(id, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
@@ -996,31 +1213,71 @@ $conn->close();
         }
 
 		//load the list of all products
-        function loadProducts(sellerNumber) {
-            $.ajax({
-                url: 'load_seller_products.php',
-                method: 'GET',
-                data: { seller_number: sellerNumber },
-                success: function(response) {
-                    const productsContainer = $(`#products-${sellerNumber}`);
-                    productsContainer.html(response);
+		function loadProducts(sellerNumber) {
+			$.ajax({
+				url: 'fetch_products.php',
+				method: 'GET',
+				data: { seller_number: sellerNumber },
+				dataType: 'json', // Ensure we handle JSON properly
+				success: function(response) {
+					const productsContainer = $(`#products-${sellerNumber}`);
 
-                    // Attach event listeners to the edit buttons
-                    productsContainer.find('.edit-product-btn').on('click', function() {
-                        const productId = $(this).data('id');
-                        const productName = $(this).data('name');
-                        const productSize = $(this).data('size');
-                        const productPrice = $(this).data('price');
-                        editProduct(productId, productName, productSize, productPrice);
-                    });
+					if (!response.success) {
+						productsContainer.html('<tr><td colspan="5">Fehler beim Laden der Produkte.</td></tr>');
+						return;
+					}
 
-                    // Optionally, attach event listeners to other elements like checkboxes here
-                },
-                error: function() {
-                    alert('Fehler beim Laden der Produkte.');
-                }
-            });
-        }
+					// Clear previous products
+					productsContainer.empty();
+
+					if (response.data.length === 0) {
+						productsContainer.html('<tr><td colspan="5">Keine Produkte gefunden.</td></tr>');
+						return;
+					}
+
+					// Loop through products and create rows dynamically
+					response.data.forEach(product => {
+						let soldText = product.sold ? "Ja" : "Nein";
+						let stockText = product.stock_status; // 'Lager' or 'Verkauf'
+						let productRow = `
+							<tr>
+								<td>${product.name}</td>
+								<td>${product.size || '-'}</td>
+								<td>${product.price.toFixed(2)} €</td>
+								<td>${soldText}</td>
+								<td>${stockText}</td>
+								<td>
+									<button class="btn btn-sm btn-primary edit-product-btn" 
+											data-id="${product.id}" 
+											data-name="${product.name}" 
+											data-size="${product.size}" 
+											data-price="${product.price}" 
+											data-sold="${product.sold}">
+										Bearbeiten
+									</button>
+								</td>
+							</tr>`;
+
+						productsContainer.append(productRow);
+					});
+
+					// Attach event listeners to edit buttons dynamically
+					productsContainer.find('.edit-product-btn').on('click', function() {
+						const productId = $(this).data('id');
+						const productName = $(this).data('name');
+						const productSize = $(this).data('size');
+						const productPrice = $(this).data('price');
+						const productSold = $(this).data('sold');
+
+						editProduct(productId, productName, productSize, productPrice, productSold);
+					});
+				},
+				error: function() {
+					const productsContainer = $(`#products-${sellerNumber}`);
+					productsContainer.html('<tr><td colspan="5">Fehler beim Laden der Produkte.</td></tr>');
+				}
+			});
+		}
 
         function editProduct(productId, name, size, price, sold) {
                 $('#editProductId').val(productId);
@@ -1065,7 +1322,7 @@ $conn->close();
 						}
 					}
 				}, 'json');
-						//Show current product
+                    //Show current product
 					} else if (action === 'show_products') {
 						toggleProducts(sellerId);
 						//Create product
@@ -1074,7 +1331,7 @@ $conn->close();
 						$.post('admin_manage_sellers.php', { 
 						set_session: true, seller_number: sellerId, csrf_token: csrfToken }, function(response) {
 							if (response.success) {
-								window.location.href = 'seller_products.php';
+								window.location.href = 'seller_products.php?seller_number=' + sellerId;
 							} else {
 								alert('Fehler beim Setzen der Sitzungsvariablen: ' + response.error);
 							}
@@ -1100,39 +1357,50 @@ $conn->close();
 			});
 		});
 
-        $('#filter').on('change', function() {
-            const filter = $(this).val();
-            document.cookie = `filter=${filter}; path=/`;
-            window.location.href = `admin_manage_sellers.php?filter=${filter}`;
-        });
+        $('#filter, #sort_by, #order').on('change', function() {
+			const filter = $('#filter').val();
+			const sort_by = $('#sort_by').val();
+			const order = $('#order').val();
 
-        $('#sort_by, #order').on('change', function() {
-            const sort_by = $('#sort_by').val();
-            const order = $('#order').val();
-            document.cookie = `sort_by=${sort_by}; path=/`;
-            document.cookie = `order=${order}; path=/`;
-            window.location.href = `admin_manage_sellers.php?sort_by=${sort_by}&order=${order}`;
-        });
+			document.cookie = `filter=${filter}; path=/`;
+			document.cookie = `sort_by=${sort_by}; path=/`;
+			document.cookie = `order=${order}; path=/`;
 
-        $('#printVerifiedSellers').on('click', function() {
-            $.ajax({
-                url: 'print_verified_sellers.php',
-                method: 'GET',
-                success: function(response) {
-                    const printWindow = window.open('', '', 'height=600,width=800');
-                    printWindow.document.write('<html><head><title>Verifizierte Verkäufer</title>');
-                    printWindow.document.write('<link href="css/bootstrap.min.css" rel="stylesheet">');
-                    printWindow.document.write('</head><body>');
-                    printWindow.document.write(response);
-                    printWindow.document.write('</body></html>');
-                    printWindow.document.close();
-                    printWindow.print();
-                },
-                error: function() {
-                    alert('Fehler beim Laden der verifizierten Verkäufer.');
-                }
-            });
-        });
+			const url = new URL(window.location.href);
+			url.searchParams.set('filter', filter);
+			url.searchParams.set('sort_by', sort_by);
+			url.searchParams.set('order', order);
+			window.location.href = url.toString();
+		});
+
+		$('#printVerifiedSellers').on('click', function () {
+		  // Read the current UI selections (these are also what you write to cookies)
+		  const filter   = $('#filter').val();
+		  const sort_by  = $('#sort_by').val();
+		  const order    = $('#order').val();
+
+		  $.ajax({
+			url: 'print_verified_sellers.php',
+			method: 'GET',
+			data: { filter, sort_by, order },      // << pass them along
+			dataType: 'html',
+			success: function (response) {
+			  const printWindow = window.open('', '', 'height=600,width=800');
+			  printWindow.document.write('<html><head><title>Verifizierte Verkäufer</title>');
+			  printWindow.document.write('<link href="css/bootstrap.min.css" rel="stylesheet">');
+			  printWindow.document.write('</head><body>');
+			  printWindow.document.write(response);
+			  printWindow.document.write('</body></html>');
+			  printWindow.document.close();
+			  printWindow.focus();
+			  printWindow.print();
+			},
+			error: function () {
+			  alert('Fehler beim Laden der verifizierten Verkäufer.');
+			}
+		  });
+		});
+
     </script>
     <script nonce="<?php echo $nonce; ?>">
 	//function to show a preview for import

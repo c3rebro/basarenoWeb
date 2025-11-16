@@ -19,13 +19,18 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSIO
 $message = '';
 $message_type = 'danger'; // Default message type for errors
 // Assume $user_id is available from the session or another source
+$acting_as_admin = isset($_SESSION['acting_as_admin']) && $_SESSION['acting_as_admin'] === true;
 $user_id = $_SESSION['user_id'] ?? 0;
 $username = $_SESSION['username'] ?? '';
+$role = $_SESSION['role'] ?? '';
+$bazaar_id = $_SESSION['bazaar_id'] ?? 0;
 
 $conn = get_db_connection();
 
 // Fetch seller numbers associated with the logged-in user
-$sql = "SELECT id, seller_number, bazaar_id FROM sellers WHERE user_id = ?";
+$sql = "SELECT id, seller_number, bazaar_id
+        FROM sellers
+        WHERE user_id = ? AND seller_verified = 1";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
@@ -39,24 +44,24 @@ while ($row = $sellers_result->fetch_assoc()) {
 
 // Check if this is a POST request for setting the seller_number
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'set_seller_number') !== null && $_POST['set_seller_number'] == 'true') {
-	if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'message' => 'CSRF token validation failed.']);
         exit;
     }
-	
-	// Validate and update the session variable
-    if (filter_input(INPUT_POST, 'seller_number') !== null) {
-		$selected_seller_number = filter_input(INPUT_POST, 'seller_number');
-		
-		// Convert sellers array into an array of seller numbers only
-		$seller_numbers_array = array_column($sellers, 'seller_number');
 
-		if (in_array($selected_seller_number, $seller_numbers_array)) {
-			$_SESSION['seller_number'] = $selected_seller_number;
-			echo json_encode(['success' => 'Seller number updated']);
-		} else {
-			echo json_encode(['error' => 'Unauthorized seller number']);
-		}
+    // Validate and update the session variable
+    if (filter_input(INPUT_POST, 'seller_number') !== null) {
+        $selected_seller_number = filter_input(INPUT_POST, 'seller_number');
+
+        // Convert sellers array into an array of seller numbers only
+        $seller_numbers_array = array_column($sellers, 'seller_number');
+
+        if (in_array($selected_seller_number, $seller_numbers_array)) {
+            $_SESSION['seller_number'] = $selected_seller_number;
+            echo json_encode(['success' => 'Seller number updated']);
+        } else {
+            echo json_encode(['error' => 'Unauthorized seller number']);
+        }
     } else {
         echo json_encode(['success' => false, 'error' => 'Invalid request']);
     }
@@ -80,20 +85,77 @@ if (isset($_SESSION['seller_number']) && $_SESSION['seller_number']) {
     $_SESSION['seller_number'] = $seller_number;
 }
 
-$bazaar_id = get_current_bazaar_id($conn) === 0 ? get_bazaar_id_with_open_registration($conn) : null;
+if (!isset($_SESSION['bazaar_id']) || $_SESSION['bazaar_id'] === 0) {
+    // If a future bazaar (by req date) exists, pick that to enforce “lockout unless activated”.
+    $nextReqBazaar = get_next_bazaar_by_req($conn);
+    if ($nextReqBazaar) {
+        $_SESSION['bazaar_id'] = $nextReqBazaar;   // lockout target
+    } else {
+        // No future bazaar: keep access open per grace logic
+        $bazaar_id = get_current_bazaar_id($conn); // last finished (<= now + 14d) or next within 14d
+        if ($bazaar_id === 0) {
+            $bazaar_id = get_bazaar_id_with_open_registration($conn); // if reg is open
+        }
+        $_SESSION['bazaar_id'] = $bazaar_id;
+    }
 
-if (!$bazaar_id) {
-    // Redirect if no bazaar available
-    header("Location: seller_dashboard.php?error=bazaarNotFound");
-    exit;
+    /*
+    if (!$_SESSION['bazaar_id']) {
+        header("location: seller_dashboard.php?error=bazaarNotFound");
+        $conn->close();
+        exit();
+    }
+    */
 }
 
 if (!$seller_number) {
-    header("location: seller_dashboard.php?error=notFound");
+    header("location: seller_dashboard.php?error=sellerNotFound");
     exit();
 }
 
+/*
+if ($role !== 'admin') {
+    // only sellers must have an activated (verified) seller number for this bazaar
+    $seller_number = get_activated_seller_number($conn, (int)$_SESSION['user_id'], (int)$_SESSION['bazaar_id']);
+    if ($seller_number === 0) {
+        header("location: seller_dashboard.php?error=sellerNotActivated");
+        $conn->close();
+        exit();
+    }
+    // cache for convenience
+    $_SESSION['seller_number'] = $seller_number;
+}
+*/
 
+if ($role !== 'admin') {
+    $sessionSeller = (int)($_SESSION['seller_number'] ?? 0);
+
+    // Validate: does this seller_number belong to the user, is it verified, and for this bazaar?
+    $sql = "SELECT 1
+            FROM sellers
+            WHERE user_id = ?
+              AND seller_number = ?
+              AND bazaar_id = ?
+              AND COALESCE(seller_verified,0) = 1";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("iii", $user_id, $sessionSeller, $bazaar_id);
+    $stmt->execute();
+    $valid = (bool)$stmt->get_result()->fetch_row();
+
+    if ($valid) {
+        $seller_number = $sessionSeller; // keep user’s selection
+    } else {
+        // fall back to a valid activated number (or block)
+        $seller_number = get_activated_seller_number($conn, (int)$user_id, (int)$bazaar_id);
+        if ($seller_number === 0) {
+            header("location: seller_dashboard.php?error=sellerNotActivated");
+            $conn->close();
+            exit();
+        }
+        $_SESSION['seller_number'] = $seller_number; // cache fallback
+    }
+}
+  
 // Validate the selected seller_number belongs to the user
 $sql = "SELECT * FROM sellers WHERE seller_number = ? AND user_id = ?";
 $stmt = $conn->prepare($sql);
@@ -101,28 +163,62 @@ $stmt->bind_param("ii", $seller_number, $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
-if ($result->num_rows === 0) {
+if ($result->num_rows === 0 && !$acting_as_admin) {
     header("location: seller_dashboard.php?error=notAllowed"); // Redirect to a safe page if validation fails
     exit;
 }
 
 // Fetch max products per seller from the bazaar
-$sql = "SELECT max_products_per_seller, price_stepping, min_price, startDate, startDate > NOW() AS is_upcoming FROM bazaar WHERE id=?";
+$sql = "SELECT max_items_per_seller, price_stepping, min_item_price, start_date, start_date > NOW() AS is_upcoming FROM bazaar WHERE id=?";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $bazaar_id);
 $stmt->execute();
 $result = $stmt->get_result();
+
 $bazaar_settings = null;
-$max_products_per_seller = 200;
-$min_price = 100;
+$bazaar_start_date = date('Y-m-d');
+$current_date = date('Y-m-d');
+$max_items_per_seller = 200;
+$min_item_price = 100;
 $price_stepping = 0.01;
 
 if ($result->num_rows > 0) {
     $bazaar_settings = $result->fetch_assoc();
-    $max_products_per_seller = $bazaar_settings['max_products_per_seller'];
-	$min_price = $bazaar_settings['min_price'];
-	$price_stepping = $bazaar_settings['price_stepping'];
+    $max_items_per_seller = $bazaar_settings['max_items_per_seller'];
+    $min_item_price = $bazaar_settings['min_item_price'];
+    $bazaar_start_date = $bazaar_settings['start_date'];
+    $price_stepping = $bazaar_settings['price_stepping'];
 }
+
+// Handle "move all active products to stock"
+// Handle "move all active products to stock"
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'move_all_to_stock') !== null) {
+    header('Content-Type: application/json');
+
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+        echo json_encode(['success' => false, 'message' => 'Ungültiges CSRF-Token.']);
+        exit;
+    }
+
+    // Prevent state changes on bazaar start date
+    if ($bazaar_start_date === $current_date) {
+        echo json_encode(['success' => false, 'message' => 'Verschieben nicht möglich: Der Basar läuft bereits.']);
+        exit;
+    }
+
+    // Only move items that are currently aktiv (in_stock = 0) for this seller
+    $sql = "UPDATE products SET in_stock = 1 WHERE seller_number = ? AND in_stock = 0";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $seller_number);
+
+    if ($stmt->execute()) {
+        echo json_encode(['success' => true, 'message' => 'Alle aktiven Artikel wurden ins Lager verschoben.']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Fehler beim Verschieben der Artikel.']);
+    }
+    exit;
+}
+
 
 // Fetch all products for the seller in sale
 $sql = "SELECT * FROM products WHERE seller_number=? AND in_stock = 0";
@@ -142,11 +238,11 @@ $stock_products_count = $stock_products->num_rows;
 
 // Handle bulk actions for Stock
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_action') !== null) {
-	if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'message' => 'CSRF token validation failed.']);
         exit;
     }
-	
+
     $action = filter_input(INPUT_POST, 'bulk_action');
     $product_ids = $_POST['product_ids'] ?? [];
     $seller_number = $_SESSION['seller_number'];
@@ -155,11 +251,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_acti
     if ($action === 'move_to_sale' && $seller_number) {
         $total_products_to_move = count($product_ids);
 
+        // Prevent deletion on bazaar start date
+        if ($bazaar_start_date === $current_date) {
+            echo json_encode(['success' => false, 'message' => 'Verschieben nicht möglich: Der Basar läuft bereits.']);
+            exit;
+        }
+
         // Check if moving these products exceeds the max allowed
-        if (($active_products_count + $total_products_to_move) > $max_products_per_seller) {
+        if (($active_products_count + $total_products_to_move) > $max_items_per_seller) {
             echo json_encode([
                 'success' => false,
-                'message' => "Korb voll: Du kannst maximal $max_products_per_seller Artikel im Verkauf haben. Du hast bereits $active_products_count."
+                'message' => "Korb voll: Du kannst maximal $max_items_per_seller Artikel im Verkauf haben. Du hast bereits $active_products_count."
             ]);
             exit;
         }
@@ -168,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_acti
         $ids = implode(',', array_map('intval', $product_ids));
         $sql = "UPDATE products SET in_stock = 0 WHERE id IN ($ids)";
         $conn->query($sql);
-    }  elseif ($action === 'delete') {
+    } elseif ($action === 'delete') {
         $ids = implode(',', array_map('intval', $product_ids));
         $sql = "DELETE FROM products WHERE id IN ($ids)";
         $conn->query($sql);
@@ -181,30 +283,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_acti
 // Handle product creation form submission
 if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'create_product') !== null) {
     header('Content-Type: application/json'); // Set JSON response type
-    
-	$sale_is_full = false;
-	
+
+    $sale_is_full = false;
+
     if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'message' => 'CSRF token validation failed.']);
         exit;
     }
 
-    if ($active_products_count >= $max_products_per_seller) {
-		$sale_is_full = true;
-        //echo json_encode(['success' => false, 'message' => 'Du hast die maximale Anzahl an Artikeln erreicht, die Du erstellen kannst.']);
-        //exit;
-    } 
+    if ($active_products_count >= $max_items_per_seller) {
+        $sale_is_full = true;
+    }
+
+    if (!$bazaar_id || $bazaar_id === 0) {
+        echo json_encode(['success' => false, 'message' => 'Kein gültiger Basar gefunden.']);
+        exit;
+    }
+
+    // Prevent deletion on bazaar start date
+    if ($bazaar_start_date === $current_date) {
+        echo json_encode(['success' => false, 'message' => 'Erstellen nicht möglich: Der Basar läuft bereits.']);
+        exit;
+    }
 
     $name = filter_input(INPUT_POST, 'name');
     $size = filter_input(INPUT_POST, 'size');
     $price = normalize_price($_POST['price'] ?? '0');
 
     $rules = get_bazaar_pricing_rules($conn, $bazaar_id);
-    $min_price = $rules['min_price'];
+    $min_item_price = $rules['min_item_price'];
     $price_stepping = $rules['price_stepping'];
 
-    if ($price < $min_price) {
-        echo json_encode(['success' => false, 'message' => "Der eingegebene Preis ist niedriger als der Mindestpreis von $min_price €."]);
+    if ($price < $min_item_price) {
+        echo json_encode(['success' => false, 'message' => "Der eingegebene Preis ist niedriger als der Mindestpreis von $min_item_price €."]);
         exit;
     }
 
@@ -213,51 +324,57 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
         exit;
     }
 
+    list($okName, $name, $nameErr) = validate_product_name($name);
+    if (!$okName) {
+        echo json_encode(['success' => false, 'message' => $nameErr]); exit; 
+    }
+
+    list($okSize, $size, $sizeErr) = validate_product_size($size);
+    if (!$okSize) {
+        echo json_encode(['success' => false, 'message' => $sizeErr]); exit; 
+    }
+
     // Generate and insert unique barcode
     $barcode = null;
     $max_attempts = 10;
     $product_id = rand(1, 999);
     for ($attempt = 0; $attempt < $max_attempts; $attempt++) {
         $barcode = sprintf("U%04dV%04dA%03d", $user_id, $seller_number, $product_id);
-		if($sale_is_full) {
-			$sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, product_id, seller_number, in_stock) VALUES (?, ?, ?, ?, ?, ?, ?, 1)";
-		} else {
-			$sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, product_id, seller_number, in_stock) VALUES (?, ?, ?, ?, ?, ?, ?, 0)";
-		}
-        
+
+        if ($sale_is_full) {
+            // Return success response with new product details
+            echo json_encode([
+                'success' => false,
+                'message' => 'Fehler: Die maximale Anzahl Artikel wurde erreicht.',
+                'product' => [
+                    'id' => $conn->insert_id,
+                    'name' => $name,
+                    'size' => $size,
+                    'price' => $price . ' €',
+                ],
+            ]);
+            exit;
+        } else {
+            $sql = "INSERT INTO products (name, size, price, barcode, bazaar_id, product_id, seller_number, in_stock) VALUES (?, ?, ?, ?, ?, ?, ?, 0)";
+        }
+
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("ssdssii", $name, $size, $price, $barcode, $bazaar_id, $product_id, $seller_number);
 
         if ($stmt->execute()) {
-			
-			if($sale_is_full) {
-				// Return success response with new product details
-				echo json_encode([
-					'success' => false,
-					'message' => 'Fehler: Die maximale Anzahl Artikel wurde erreicht. Artikel ins Lager verschoben.',
-					'product' => [
-						'id' => $conn->insert_id,
-						'name' => $name,
-						'size' => $size,
-						'price' => $price . ' €',
-					],
-				]);
-            exit;
-			} else {
-				// Return success response with new product details
-				echo json_encode([
-					'success' => true,
-					'message' => 'Artikel erfolgreich erstellt.',
-					'product' => [
-						'id' => $conn->insert_id,
-						'name' => $name,
-						'size' => $size,
-						'price' => $price . ' €',
-					],
-				]);
-				exit;
-			}
 
+            // Return success response with new product details
+            echo json_encode([
+                'success' => true,
+                'message' => 'Artikel erfolgreich erstellt.',
+                'product' => [
+                    'id' => $conn->insert_id,
+                    'name' => $name,
+                    'size' => $size,
+                    'price' => $price . ' €',
+                ],
+            ]);
+            exit;
         } elseif ($conn->errno === 1062) {
             continue; // Try again for a unique barcode
         } else {
@@ -266,7 +383,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
         }
     }
 
-    echo json_encode(['success' => false, 'message' => 'Fehler beim Generieren eines eindeutigen Barcodes.']);
+    echo json_encode(['success' => false, 'message' => 'Fehler beim Generieren eines eindeutigen Barcodes. Bitte nochmal versuchen.']);
     exit;
 }
 
@@ -279,10 +396,30 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && filter_input(INPUT_POST, 'update_pr
         exit;
     }
 
-    $bazaar_id = get_current_bazaar_id($conn);
+    // Prevent deletion on bazaar start date
+    if ($bazaar_start_date === $current_date) {
+        echo json_encode(['success' => false, 'message' => 'Änderung nicht möglich: Der Basar läuft bereits.']);
+        exit;
+    }
+
+    if (!$bazaar_id || $bazaar_id === 0) {
+        echo json_encode(['success' => false, 'message' => 'Kein gültiger Basar gefunden.']);
+        exit;
+    }
+
     $product_id = $conn->real_escape_string($_POST['product_id']);
     $name = $conn->real_escape_string($_POST['name']);
     $size = $conn->real_escape_string($_POST['size']);
+    
+    list($okName, $name, $nameErr) = validate_product_name($name);
+    if (!$okName) {
+        echo json_encode(['success' => false, 'message' => $nameErr]); exit; 
+    }
+
+    list($okSize, $size, $sizeErr) = validate_product_size($size);
+    if (!$okSize) {
+        echo json_encode(['success' => false, 'message' => $sizeErr]); exit; 
+    }
 
     $sql = "UPDATE products SET name = ?, size = ?, bazaar_id = ? WHERE id = ? AND seller_number = ?";
     $stmt = $conn->prepare($sql);
@@ -300,6 +437,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && filter_input(INPUT_POST, 'update_pr
 if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'delete_product') !== null) {
     if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         die("CSRF token validation failed.");
+    }
+
+    // Prevent deletion on bazaar start date
+    if ($bazaar_start_date === $current_date) {
+        echo json_encode(['success' => false, 'message' => 'Löschen nicht möglich: Der Basar läuft bereits.']);
+        exit;
     }
 
     $product_id = $conn->real_escape_string($_POST['product_id']);
@@ -328,6 +471,12 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
         die("CSRF token validation failed.");
     }
 
+    // Prevent deletion on bazaar start date
+    if ($bazaar_start_date === $current_date) {
+        echo json_encode(['success' => false, 'message' => 'Löschen nicht möglich: Der Basar läuft bereits.']);
+        exit;
+    }
+
     $sql = "DELETE FROM products WHERE seller_number=?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $seller_number);
@@ -343,6 +492,12 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'move_to_stock') !== null) {
     if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'message' => 'Ungültiges CSRF-Token.']);
+        exit;
+    }
+
+    // Prevent deletion on bazaar start date
+    if ($bazaar_start_date === $current_date) {
+        echo json_encode(['success' => false, 'message' => 'Verschieben nicht möglich: Der Basar läuft bereits.']);
         exit;
     }
 
@@ -364,22 +519,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'move_to_s
     exit;
 }
 
+// Handle import products
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file']) && filter_input(INPUT_POST, 'confirm_import') !== null) {
-	if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
+    if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'message' => 'CSRF token validation failed.']);
         exit;
     }
-	
-	$encoding = $_POST['encoding'] ?? 'utf-8'; // Default to UTF-8
-	
-	// Read csv_file content
+
+    $encoding = $_POST['encoding'] ?? 'utf-8'; // Default to UTF-8
+    $current_active_count = 0;
+    $skippedRows = 0;
+
+    // Read csv_file content
     $csv_content = file_get_contents($_FILES['csv_file']['tmp_name']);
-	
-	    // Convert encoding if necessary
+
+    // Convert encoding if necessary
     if ($encoding === 'ansi') {
         $csv_content = mb_convert_encoding($csv_content, 'UTF-8', 'Windows-1252');
     }
-	
+
     // Create a temporary file with UTF-8 content
     $temp_file = tmpfile();
     fwrite($temp_file, $csv_content);
@@ -388,10 +546,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file']) && filte
     // Get the actual filename from tmpfile()
     $temp_meta = stream_get_meta_data($temp_file);
     $filename = $temp_meta['uri'];
-	
+
     $delimiter = $_POST['delimiter'] ?? ',';
     $max_attempts = 10; // Retry limit for unique barcodes
-	
+
     if (($handle = fopen($filename, 'r')) === false) {
         echo json_encode(['success' => false, 'message' => 'Fehler beim Öffnen der Datei.']);
         exit;
@@ -405,31 +563,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file']) && filte
         }
 
         // Ensure each row has at least 3 columns (name, size, price)
-		if (count($data) < 3 || empty($data[0]) || empty($data[2])) {
-			continue; // Skip rows with missing essential data
-		}
+        if (count($data) < 3 || empty($data[0]) || empty($data[2])) {
+            continue; // Skip rows with missing essential data
+        }
 
-		// Sanitize and validate fields
-		$name = clean_csv_value($data[0]); // Restore original names
+        // Sanitize and validate fields
+        $name = clean_csv_value($data[0]); // Restore original names
         $size = !empty($data[1]) ? $data[1] : '.'; // Clean size column
-		$price = (float) normalize_price(trim($data[2]) ?? '0'); // Convert price to float, ensure it's numeric
-		
-		// Validate price against rules
-		$scaled_price = (int)round($price * 100);
-		$scaled_stepping = (int)round($price_stepping * 100);
+        $price = (float) normalize_price(trim($data[2]) ?? '0'); // Convert price to float, ensure it's numeric
 
-		if ($scaled_price < ($min_price * 100) || $scaled_price % $scaled_stepping !== 0) {
-			$skippedRows++;
-			continue; // Skip invalid rows
-		}
+        // Validate price against rules
+        $scaled_price = (int)round($price * 100);
+        $scaled_stepping = (int)round($price_stepping * 100);
+
+        if ($scaled_price < ($min_item_price * 100) || $scaled_price % $scaled_stepping !== 0) {
+            $skippedRows++;
+            continue; // Skip invalid rows
+        }
 
         // Generate unique barcode and product ID
         $barcode = null;
         $product_id = null;
 
         for ($attempt = 0; $attempt < $max_attempts; $attempt++) {
-			
-			$remaining_slots = $max_products_per_seller - $current_active_count;
+
+            $remaining_slots = $max_items_per_seller - $current_active_count;
 
             $product_id = rand(1, 999);
             $barcode = sprintf("U%04dV%04dA%03d", $user_id, $seller_number, $product_id);
@@ -459,6 +617,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file']) && filte
 
     fclose($handle);
 
+    if ($rowCount === 0) {
+        echo json_encode(['success' => false, 'message' => "Keine Artikel importiert. Bitte das &quot;Trennzeichen&quot; und die &quot;Kodierung&quot; prüfen. Ist die Vorschautabelle leer, prüfe bitte deine Importdatei."]);
+        exit;
+    }
+
     echo json_encode(['success' => true, 'message' => "$rowCount Artikel erfolgreich importiert."]);
     exit;
 }
@@ -467,608 +630,642 @@ $conn->close();
 ?>
 <!DOCTYPE html>
 <html lang="de">
-    <head>
-        <style nonce="<?php echo $nonce; ?>">
-            html {
-                visibility: hidden;
-            }
-        </style>
-        <meta charset="UTF-8">
-        <link rel="icon" type="image/x-icon" href="favicon.ico">
-        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-        <title>Artikel erstellen - Verkäufernummer: <?php echo $seller_number; ?></title>
-        <!-- Preload and link CSS files -->
-        <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
-        <link rel="preload" href="css/all.min.css" as="style" id="all-css">
-        <link rel="preload" href="css/style.css" as="style" id="style-css">
-        <noscript>
+
+<head>
+    <style nonce="<?php echo $nonce; ?>">
+        html {
+            visibility: hidden;
+        }
+    </style>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Artikel erstellen - Verkäufernummer: <?php echo $seller_number; ?></title>
+    <!-- Preload and link CSS files -->
+    <link rel="preload" href="css/bootstrap.min.css" as="style" id="bootstrap-css">
+    <link rel="preload" href="css/all.min.css" as="style" id="all-css">
+    <link rel="preload" href="css/style.css" as="style" id="style-css">
+    <noscript>
         <link href="css/bootstrap.min.css" rel="stylesheet">
         <link href="css/all.min.css" rel="stylesheet">
         <link href="css/style.css" rel="stylesheet">
-        </noscript>
-        <script nonce="<?php echo $nonce; ?>">
-            document.getElementById('bootstrap-css').rel = 'stylesheet';
-            document.getElementById('all-css').rel = 'stylesheet';
-            document.getElementById('style-css').rel = 'stylesheet';
-        </script>
-        <script nonce="<?php echo $nonce; ?>">
-            // Make `seller_number` available globally in JavaScript
-            const sellerNumber = <?php echo json_encode($seller_number); ?>;
-            const bazaarId = <?php echo json_encode($bazaar_id); ?>;
-            const maxProdPerSellers = <?php echo json_encode($max_products_per_seller); ?>;
-        </script>
-    </head>
-    <body>
-        <!-- Navbar -->
-		<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
+    </noscript>
+    <script nonce="<?php echo $nonce; ?>">
+        document.getElementById('bootstrap-css').rel = 'stylesheet';
+        document.getElementById('all-css').rel = 'stylesheet';
+        document.getElementById('style-css').rel = 'stylesheet';
+    </script>
+    <script nonce="<?php echo $nonce; ?>">
+        // Make `seller_number` available globally in JavaScript
+        const sellerNumber = <?php echo json_encode($seller_number); ?>;
+        const bazaarId = <?php echo json_encode($bazaar_id); ?>;
+        const maxProdPerSellers = <?php echo json_encode($max_items_per_seller); ?>;
+    </script>
+</head>
 
-        <div class="container">
-            <h1>Artikel Verwaltung</h1>
-            <hr/>
-            <h4>Basardatum: <?php echo DateTime::createFromFormat('Y-m-d', $bazaar_settings['startDate'])->format('d.m.Y'); ?></h4>
-            <h4>Verkäufernummer: <?php echo $seller_number; ?></h4>
-            <h2 class="mt-5"></h2>
-            <div class="card mb-4 mt-4">
-                <div class="card-header card-header-remaining">Neuen Artikel erstellen (max. <?php echo htmlspecialchars($max_products_per_seller); ?> noch: <?php echo htmlspecialchars($max_products_per_seller - $active_products_count); ?> möglich)</div>
-                <div class="card-body">
-                    <!-- Seller Number Selection -->
-                    <form method="post" action="seller_products.php" id="sellerForm">
-                        <label for="seller_number">Wähle Deine Verkäufernummer:</label>
-                        <select id="seller_number_select" name="seller_number" class="form-control mb-2">
-                            <?php foreach ($sellers as $s): ?>
-                                <option value="<?php echo $s['seller_number']; ?>" <?php if ($s['seller_number'] == $seller_number) echo 'selected'; ?>>
-                                    <?php echo htmlspecialchars($s['seller_number']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </form>
+<body>
+    <!-- Navbar -->
+    <?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
 
-                    <?php if ($message): ?>
-                        <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade mt-4 show" role="alert">
-                            <?php echo $message; ?>
-                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                                <span aria-hidden="true">&times;</span>
-                            </button>
-                        </div>
-                    <?php endif; ?>
-                    <div class="action-buttons">
-                        <form action="seller_products.php" method="post" class="w-100" id="createProductForm">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
-                            <input type="hidden" name="seller_number" id="hiddenSellerNumber" value="<?php echo htmlspecialchars($seller_number); ?>">
-                            <div class="form-row">
-                                <div class="form-group col-md-4">
-                                    <label for="name">Artikelbezeichnung:</label>
-                                    <input type="text" class="form-control" id="name" name="name" required tabindex="1">
-                                </div>
-                                <div class="form-group col-md-4">
-                                    <label for="size">Größe:</label>
-                                    <input type="text" class="form-control" id="size" name="size" tabindex="2">
-                                </div>
-                                <div class="form-group col-md-4">
-                                    <label for="price">Preis:</label>
-                                    <input type="number" class="form-control" id="price" name="price" step="0.01" required tabindex="3">
-                                </div>
-                            </div>
-							<div class="row">
-								<div class="col-md-6 col-sm-12 mt-3">
-									<button type="submit" class="btn btn-primary w-100" name="create_product" tabindex="4">Artikel erstellen</button>
-								</div>
-								<div class="col-md-6 col-sm-12 mt-3">
-									<button type="button" class="btn btn-info w-100" data-toggle="modal" data-target="#importProductsModal">Artikel importieren</button>
-								</div>
-							</div>
-                            
-                        </form>
+    <div class="container">
+        <h1>Artikel Verwaltung</h1>
+        <hr />
+        <h4>Basardatum: <?php echo DateTime::createFromFormat('Y-m-d', $bazaar_settings['start_date'])->format('d.m.Y'); ?></h4>
+        <h4>Verkäufernummer: <?php echo $seller_number; ?></h4>
+        <h2 class="mt-5"></h2>
+        <div class="card mb-4 mt-4">
+            <div class="card-header card-header-remaining">Neuen Artikel erstellen (max. <?php echo htmlspecialchars($max_items_per_seller); ?> noch: <?php echo htmlspecialchars($max_items_per_seller - $active_products_count); ?> möglich)</div>
+            <div class="card-body">
+                <!-- Seller Number Selection -->
+                <form method="post" action="seller_products.php" id="sellerForm">
+                    <label for="seller_number">Wähle Deine (freigeschaltene) Verkäufernummer:</label>
+                    <select id="seller_number_select" name="seller_number" class="form-control mb-2">
+                        <?php foreach ($sellers as $s): ?>
+                            <option value="<?php echo $s['seller_number']; ?>" <?php if ($s['seller_number'] == $seller_number) echo 'selected'; ?>>
+                                <?php echo htmlspecialchars($s['seller_number']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+
+                <?php if ($message): ?>
+                    <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade mt-4 show" role="alert">
+                        <?php echo $message; ?>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
-                    <form action="print_qrcodes.php" method="POST" target="_blank">
-                        <input type="hidden" name="seller_number" value="<?php echo htmlspecialchars($seller_number); ?>">
-                        <button type="submit" class="btn btn-secondary mt-3 w-100">Etiketten drucken</button>
+                <?php endif; ?>
+                <div class="action-buttons">
+                    <form action="seller_products.php" method="post" class="w-100" id="createProductForm">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+                        <input type="hidden" name="seller_number" id="hiddenSellerNumber" value="<?php echo htmlspecialchars($seller_number); ?>">
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="name">Artikelbezeichnung:</label>
+                                <input type="text" class="form-control" id="name" name="name" required tabindex="1">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="size">Größe:</label>
+                                <input type="text" class="form-control" id="size" name="size" tabindex="2">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="price">Preis:</label>
+                                <input type="number" class="form-control" id="price" name="price" step="0.01" required tabindex="3">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 col-sm-12 mt-3">
+                                <button type="submit" class="btn btn-primary w-100" name="create_product" tabindex="4">Artikel erstellen</button>
+                            </div>
+                            <div class="col-md-6 col-sm-12 mt-3">
+                                <button type="button" class="btn btn-info w-100" data-toggle="modal" data-target="#importProductsModal">Artikel importieren</button>
+                            </div>
+                        </div>
+
                     </form>
-
                 </div>
-            </div>
+                <form action="print_qrcodes.php" method="POST" target="_blank">
+                    <input type="hidden" name="seller_number" value="<?php echo htmlspecialchars($seller_number); ?>">
+                    <button type="submit" class="btn btn-secondary mt-3 w-100">Etiketten drucken</button>
+                </form>
 
-            <!-- Sale Section -->
-            <div class="card mb-4 mt-4">
-                <div class="card-header card-header-sale-products">Deine aktiven Artikel (Anzahl: <?php echo htmlspecialchars($active_products_count); ?>) </div>
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">
-                        Nur die aktiven Artikel dürfen zum Basar mitgebracht werden. 
-                    </h6>
-                    <div class="table-responsive">
-                        <table id="productTable" class="table table-bordered mt-3">
-                            <thead>
-                                <tr>
-                                    <th>Artikelname</th>
-                                    <th>Gr.</th>
-                                    <th>Preis</th>
-                                    <th>Aktionen</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                if ($products_result->num_rows > 0) {
-                                    while ($row = $products_result->fetch_assoc()) {
-                                        $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
-                                        $is_sold = $row['sold'] == 1 ? 'checked' : ''; // Determine if the product is sold
-                                        echo "<tr>
-											<td>{$row['name']}</td>
-											<td>{$row['size']}</td>
-											<td>{$formatted_price}</td>
-											<td class='text-center p-2'>
-												<select class='form-control action-dropdown' data-product-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>
-													<option value=''>Aktion wählen</option>
-													<option value='edit'>Bearbeiten</option>
-													<option value='stock'>Ins Lager verschieben</option>
-													<option value='delete'>Löschen</option>
-												</select>
-												<button class='btn btn-primary btn-sm execute-action' data-product-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
-											</td>
-										  </tr>";
-                                    }
-                                } else {
-                                    echo "<tr><td colspan='5'>Keine Artikel gefunden.</td></tr>";
+            </div>
+        </div>
+
+        <!-- Sale Section -->
+        <div class="card mb-4 mt-4">
+            <div class="card-header card-header-sale-products">Deine aktiven Artikel (Anzahl: <?php echo htmlspecialchars($active_products_count); ?>) </div>
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">
+                    Nur die aktiven Artikel dürfen zum Basar mitgebracht werden.
+                </h6>
+                <div class="table-responsive">
+                    <table id="productTable" class="table table-bordered mt-3">
+                        <thead>
+                            <tr>
+                                <th>Artikelname</th>
+                                <th>Gr.</th>
+                                <th>Preis</th>
+                                <th>Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $total_price = 0; // Initialize total price variable
+
+                            if ($products_result->num_rows > 0) {
+                                while ($row = $products_result->fetch_assoc()) {
+                                    $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
+                                    $total_price += $row['price']; // Accumulate total price
+                                    echo "<tr>
+                                            <td>{$row['name']}</td>
+                                            <td>{$row['size']}</td>
+                                            <td class='product-price' data-price='{$row['price']}'>{$formatted_price}</td>
+                                            <td class='text-center p-2'>
+                                                <select class='form-control action-dropdown' data-product-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>
+                                                    <option value=''>Aktion wählen</option>
+                                                    <option value='edit'>Bearbeiten</option>
+                                                    <option value='stock'>Ins Lager verschieben</option>
+                                                    <option value='delete'>Löschen</option>
+                                                </select>
+                                                <button class='btn btn-primary btn-sm execute-action' data-product-id='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
+                                            </td>
+                                        </tr>";
                                 }
-                                ?>
-                            </tbody>
-                        </table>
 
-                        <button class="btn btn-danger deleteAllProductsBtn" data-action="delete_all_products">Alle Artikel löschen</button>
+                                // Append the footer row
+                                echo "<tr class='table-info'>
+                                        <td colspan='2'><strong>Summe:</strong></td>
+                                        <td id='totalPrice' data-total='{$total_price}'><strong>" . number_format($total_price, 2, ',', '.') . " €</strong></td>
+                                        <td></td>
+                                    </tr>";
+                            } else {
+                                echo "<tr><td colspan='4'>Keine Artikel gefunden.</td></tr>";
+                            }
+                            ?>
+                        </tbody>
+                    </table>
 
-                    </div>
+                    <button class="btn btn-danger deleteAllProductsBtn" data-action="delete_all_products">Alle Artikel löschen</button>
+					<button class="btn btn-warning ml-2 moveAllToStockBtn" data-action="move_all_to_stock">Alle Artikel ins Lager verschieben</button>
                 </div>
             </div>
+        </div>
 
-            <!-- Stock Section -->
-            <div class="card mb-4">
-                <div class="card-header card-header-stock-products">Deine Aktikel im Lager (Anzahl: <?php echo htmlspecialchars($stock_products_count); ?>) </div>
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">
-                        Dein Lager nimmt nach Ende des Basars automatisch alle unverkauften Artikel auf. Beim nächsten Basar können diese Artikel dem neuen Basar wieder hinzugefügt werden.
-                    </h6>
+        <!-- Stock Section -->
+        <div class="card mb-4">
+            <div class="card-header card-header-stock-products">Deine Aktikel im Lager (Anzahl: <?php echo htmlspecialchars($stock_products_count); ?>) </div>
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">
+                    Dein Lager nimmt nach Ende des Basars automatisch alle unverkauften Artikel auf. Beim nächsten Basar können diese Artikel dem neuen Basar wieder hinzugefügt werden.
+                </h6>
 
-                    <?php if (!empty($stock_products)): ?>
-                        <!-- Expandable Table -->
-                        <div class="accordion" id="stockAccordion">
-                            <div class="accordion-item">
-                                <h2 class="accordion-header row" id="headingStock">
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-block collapsed" type="button" data-toggle="collapse" data-target="#collapseStock" aria-expanded="false" aria-controls="collapseStock">
-                                            Lagerartikel anzeigen
-                                        </button>
-                                    </div>
-                                </h2>
-                                <div id="collapseStock" class="accordion-collapse collapse" aria-labelledby="headingStock" data-bs-parent="#stockAccordion">
-                                    <div class="accordion-body table-responsive-sm">
-                                        <form method="POST" action="seller_products.php" id="stockForm">
-                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
-                                            <table class="table table-striped w-100" id="stockTable">
-                                                <thead>
+                <?php if (!empty($stock_products)): ?>
+                    <!-- Expandable Table -->
+                    <div class="accordion" id="stockAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header row" id="headingStock">
+                                <div class="col">
+                                    <button class="btn btn-primary btn-block collapsed" type="button" data-toggle="collapse" data-target="#collapseStock" aria-expanded="false" aria-controls="collapseStock">
+                                        Lagerartikel anzeigen
+                                    </button>
+                                </div>
+                            </h2>
+                            <div id="collapseStock" class="accordion-collapse collapse" aria-labelledby="headingStock" data-bs-parent="#stockAccordion">
+                                <div class="accordion-body table-responsive-sm">
+                                    <form method="POST" action="seller_products.php" id="stockForm">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+                                        <table class="table table-striped w-100" id="stockTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>
+                                                        <input type="checkbox" id="selectAllStock" title="Alle auswählen">
+                                                    </th>
+                                                    <th>Bezeichnung</th>
+                                                    <th>Größe</th>
+                                                    <th>Preis (€)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($stock_products as $product): ?>
                                                     <tr>
-                                                        <th>
-                                                            <input type="checkbox" id="selectAllStock" title="Alle auswählen">
-                                                        </th>
-                                                        <th>Bezeichnung</th>
-                                                        <th>Größe</th>
-                                                        <th>Preis (€)</th>
+                                                        <td>
+                                                            <input type="checkbox" class="bulk-select-stock" name="product_ids[]" value="<?php echo $product['id']; ?>">
+                                                        </td>
+                                                        <td><?php echo htmlspecialchars($product['name']); ?></td>
+                                                        <td><?php echo htmlspecialchars($product['size']); ?></td>
+                                                        <td><?php echo number_format($product['price'], 2); ?> €</td>
                                                     </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php foreach ($stock_products as $product): ?>
-                                                        <tr>
-                                                            <td>
-                                                                <input type="checkbox" class="bulk-select-stock" name="product_ids[]" value="<?php echo $product['id']; ?>">
-                                                            </td>
-                                                            <td><?php echo htmlspecialchars($product['name']); ?></td>
-                                                            <td><?php echo htmlspecialchars($product['size']); ?></td>
-                                                            <td><?php echo number_format($product['price'], 2); ?> €</td>
-                                                        </tr>
-                                                    <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
 
-                                            <!-- Bulk Actions -->
-                                            <div class="row">
-                                                <div class="col-sm-12 col-md-6 mt-3">
-                                                    <button type="button" class="btn btn-primary w-100 bulk-move-to-sale">Ausgewählte Artikel zum Verkauf stellen</button>
-                                                </div>
-                                                <div class="col-sm-12 col-md-6 mt-3">
-                                                    <button type="button" class="btn btn-danger w-100 bulk-delete-stock">Ausgewählte Artikel löschen</button>
-                                                </div>
+                                        <!-- Bulk Actions -->
+                                        <div class="row">
+                                            <div class="col-sm-12 col-md-6 mt-3">
+                                                <button type="button" class="btn btn-primary w-100 bulk-move-to-sale">Ausgewählte Artikel zum Verkauf stellen</button>
                                             </div>
-                                        </form>
-                                    </div>
+                                            <div class="col-sm-12 col-md-6 mt-3">
+                                                <button type="button" class="btn btn-danger w-100 bulk-delete-stock">Ausgewählte Artikel löschen</button>
+                                            </div>
+                                        </div>
+                                    </form>
                                 </div>
                             </div>
                         </div>
-                    <?php else: ?>
-                        <p>Keine Artikel im Lager.</p>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-
-
-            <!-- Edit Product Modal -->
-            <div class="modal fade" id="editProductModal" tabindex="-1" role="dialog" aria-labelledby="editProductModalLabel" aria-hidden="true">
-                <div class="modal-dialog" role="document">
-                    <div class="modal-content">
-                        <form action="seller_products.php" method="post">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
-                            <input type="hidden" name="seller_number" id="hiddenSellerNumber" value="<?php echo htmlspecialchars($seller_number); ?>">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="editProductModalLabel">Artikel bearbeiten</h5>
-                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                                    <span aria-hidden="true">&times;</span>
-                                </button>
-                            </div>
-                            <div class="modal-body">
-                                <input type="hidden" name="product_id" id="editProductId">
-                                <div class="form-group">
-                                    <label for="editProductName">Artikelname:</label>
-                                    <input type="text" class="form-control" id="editProductName" name="name" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="editProductSize">Größe:</label>
-                                    <input type="text" class="form-control" id="editProductSize" name="size">
-                                </div>
-                                <div class="form-group">
-                                    <label for="editProductPrice">Preis:</label>
-                                    <input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" disabled required>
-                                    <p class="text-secondary">Ein nachträgliches Ändern des Preises ist aus Sicherheitsgründen nicht möglich. Wenn Du den Preis ändern möchtest, lösche bitte den Artikel und legen ihn dann mit anderem Preis erneut an.<br>Vielen Dank für Dein Verständnis.</p>
-                                </div>
-                                <div id="editProductAlert" class="alert alert-danger d-none"></div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
-                                <button type="submit" class="btn btn-primary" name="update_product">Änderungen speichern</button>
-                            </div>
-                        </form>
                     </div>
-                </div>
+                <?php else: ?>
+                    <p>Keine Artikel im Lager.</p>
+                <?php endif; ?>
             </div>
+        </div>
 
-            <!-- Price Validation Modal -->
-            <div class="modal fade" id="priceValidationModal" tabindex="-1" role="dialog" aria-labelledby="priceValidationModalLabel" aria-hidden="true">
-                <div class="modal-dialog" role="document">
-                    <div class="modal-content">
+
+
+        <!-- Edit Product Modal -->
+        <div class="modal fade" id="editProductModal" tabindex="-1" role="dialog" aria-labelledby="editProductModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <form action="seller_products.php" method="post">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+                        <input type="hidden" name="seller_number" id="hiddenSellerNumber" value="<?php echo htmlspecialchars($seller_number); ?>">
                         <div class="modal-header">
-                            <h5 class="modal-title" id="priceValidationModalLabel">Preisvalidierung</h5>
+                            <h5 class="modal-title" id="editProductModalLabel">Artikel bearbeiten</h5>
                             <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                                 <span aria-hidden="true">&times;</span>
                             </button>
                         </div>
                         <div class="modal-body">
-                            <!-- The message will be set dynamically via JavaScript -->
+                            <input type="hidden" name="product_id" id="editProductId">
+                            <div class="form-group">
+                                <label for="editProductName">Artikelname:</label>
+                                <input type="text" class="form-control" id="editProductName" name="name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editProductSize">Größe:</label>
+                                <input type="text" class="form-control" id="editProductSize" name="size">
+                            </div>
+                            <div class="form-group">
+                                <label for="editProductPrice">Preis:</label>
+                                <input type="number" class="form-control" id="editProductPrice" name="price" step="0.01" disabled required>
+                                <p class="text-secondary">Ein nachträgliches Ändern des Preises ist aus Sicherheitsgründen nicht möglich. Wenn Du den Preis ändern möchtest, lösche bitte den Artikel und legen ihn dann mit anderem Preis erneut an.<br>Vielen Dank für Dein Verständnis.</p>
+                            </div>
+                            <div id="editProductAlert" class="alert alert-danger d-none"></div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
+                            <button type="submit" class="btn btn-primary" name="update_product">Änderungen speichern</button>
                         </div>
-                    </div>
+                    </form>
                 </div>
             </div>
-
-            <!-- Delete Signle Item Confirmation Modal -->
-            <div class="modal fade" id="deleteConfirmationModal" tabindex="-1" role="dialog" aria-labelledby="deleteConfirmationModalLabel" aria-hidden="true">
-                <div class="modal-dialog" role="document">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="deleteConfirmationModalLabel">Bestätigen</h5>
-                            <button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
-                                <span aria-hidden="true">&times;</span>
-                            </button>
-                        </div>
-                        <div class="modal-body">
-                            Möchtest Du diesen Artikel wirklich löschen?
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
-                            <button type="button" class="btn btn-danger" id="confirmDeleteButton">Löschen</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Confirm Delete All Modal -->
-            <div class="modal fade" id="deleteAllConfirmationModal" tabindex="-1" role="dialog" aria-labelledby="deleteAllConfirmationModalLabel" aria-hidden="true">
-                <div class="modal-dialog" role="document">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="deleteAllConfirmationModalLabel">Alle Artikel löschen</h5>
-                            <button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
-                                <span aria-hidden="true">&times;</span>
-                            </button>
-                        </div>
-                        <div class="modal-body">
-                            Möchtest Du wirklich alle Artikel löschen? Diese Aktion kann nicht rückgängig gemacht werden.
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
-                            <button type="button" class="btn btn-danger" id="confirmDeleteAllButton">Alle löschen</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-			<!-- Import Products Modal -->
-			<div class="modal fade" id="importProductsModal" tabindex="-1" role="dialog" aria-labelledby="importProductsModalLabel" aria-hidden="true">
-				<div class="modal-dialog modal-lg" role="document">
-					<div class="modal-content modal-xxl">
-						<div class="modal-header">
-							<h5 class="modal-title" id="importProductsModalLabel">Artikel importieren</h5>
-							<button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
-								<span aria-hidden="true">&times;</span>
-							</button>
-						</div>
-						<div class="modal-body">
-							<form enctype="multipart/form-data" method="post" action="" id="importProductsForm">
-								<!-- CSRF Token -->
-								<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-								<div class="form-group">
-									<label for="csv_file">CSV-Datei auswählen:</label>
-									<input type="file" class="form-control-file" name="csv_file" id="csv_file" accept=".csv" required>
-								</div>
-								<div class="form-group">
-									<label>Trennzeichen:</label>
-									<div class="form-check form-check-inline">
-										<input class="form-check-input" type="radio" name="delimiter" value="," checked>
-										<label class="form-check-label">Komma</label>
-									</div>
-									<div class="form-check form-check-inline">
-										<input class="form-check-input" type="radio" name="delimiter" value=";">
-										<label class="form-check-label">Semikolon</label>
-									</div>
-								</div>
-								<div class="form-group">
-									<label>Kodierung:</label>
-									<div class="form-check form-check-inline">
-										<input class="form-check-input" type="radio" name="encoding" value="utf-8" checked>
-										<label class="form-check-label">UTF-8</label>
-									</div>
-									<div class="form-check form-check-inline">
-										<input class="form-check-input" type="radio" name="encoding" value="ansi">
-										<label class="form-check-label">ANSI</label>
-									</div>
-								</div>
-								<div id="preview" class="mt-3"></div>
-								<!-- Loading Spinner -->
-								<div id="importLoadingSpinner" class="text-center mt-3 d-none">
-									<div class="spinner-border text-primary" role="status">
-										<span class="sr-only">Import läuft...</span>
-									</div>
-									<p>Import läuft... Bitte warten.</p>
-								</div>
-								<button type="submit" class="btn btn-primary mt-3 mb-3 hidden" name="confirm_import" id="confirm_import">Bestätigen und Importieren</button>
-									<h6 class="mb-2 text-muted">Importierte Artikel landen automatisch zuerst im Lager und können dann zu den aktiven Artikeln verschoben werden.
-									</h6>
-							</form>
-
-							<div class="alert alert-info mt-4">
-								<strong>Hinweis:</strong> Es wird empfohlen, den Import auf einem Desktop-PC oder Tablet durchzuführen.
-							</div>
-
-							<h2 class="mt-4">Erwartete CSV-Dateistruktur</h2>
-							<p>Die importierte CSV-Datei darf keine Spaltenüberschriften enthalten.</p>
-							<table class="table table-striped table-bordered">
-								<thead class="thead-dark">
-									<tr>
-										<th>Bezeichnung</th>
-										<th>Größe</th>
-										<th>Preis (€)</th>
-									</tr>
-								</thead>
-								<tbody>
-									<tr>
-										<td>Winterjacke</td>
-										<td>146</td>
-										<td>5.00</td>
-									</tr>
-									<tr>
-										<td>Sportschuhe</td>
-										<td>24</td>
-										<td>3.50</td>
-									</tr>
-								</tbody>
-							</table>
-						</div>
-					</div>
-				</div>
-			</div>
-
-            <!-- Toast Container -->
-            <div aria-live="polite" aria-atomic="true">
-                <!-- Toasts will be dynamically added here -->
-                <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3">
-                    <!-- Toasts will be dynamically added here -->
-                </div>
-            </div>
-
         </div>
 
-		<!-- Back to Top Button -->
-		<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
-	
-        <?php if (!empty(FOOTER)): ?>
-            <footer class="p-2 bg-light text-center fixed-bottom">
-                <div class="row justify-content-center">
-                    <div class="col-lg-6 col-md-12">
-                        <p class="m-0">
-                            <?php echo process_footer_content(FOOTER); ?>
-                        </p>
+        <!-- Price Validation Modal -->
+        <div class="modal fade" id="priceValidationModal" tabindex="-1" role="dialog" aria-labelledby="priceValidationModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="priceValidationModalLabel">Preisvalidierung</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- The message will be set dynamically via JavaScript -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Schließen</button>
                     </div>
                 </div>
-            </footer>
-        <?php endif; ?>
+            </div>
+        </div>
 
-        <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
-        <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
-        <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
-        <script src="js/utilities.js" nonce="<?php echo $nonce; ?>"></script>
-		<script nonce="<?php echo $nonce; ?>">
-			(function () {
-				let selectedFile = null;
+        <!-- Delete Signle Item Confirmation Modal -->
+        <div class="modal fade" id="deleteConfirmationModal" tabindex="-1" role="dialog" aria-labelledby="deleteConfirmationModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="deleteConfirmationModalLabel">Bestätigen</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        Möchtest Du diesen Artikel wirklich löschen?
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteButton">Löschen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-				function previewCSV() {
-					if (!selectedFile) return;
+        <!-- Confirm Delete All Modal -->
+        <div class="modal fade" id="deleteAllConfirmationModal" tabindex="-1" role="dialog" aria-labelledby="deleteAllConfirmationModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="deleteAllConfirmationModalLabel">Alle Artikel löschen</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        Möchtest Du wirklich alle Artikel löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteAllButton">Alle löschen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-					const delimiter = document.querySelector('input[name="delimiter"]:checked').value;
-					const encoding = document.querySelector('input[name="encoding"]:checked').value;
+		<!-- Confirm Move All to Stock Modal -->
+		<div class="modal fade" id="moveAllConfirmationModal" tabindex="-1" role="dialog" aria-labelledby="moveAllConfirmationModalLabel" aria-hidden="true">
+		  <div class="modal-dialog" role="document">
+			<div class="modal-content">
+			  <div class="modal-header">
+				<h5 class="modal-title" id="moveAllConfirmationModalLabel">Alle aktiven Artikel ins Lager verschieben</h5>
+				<button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
+				  <span aria-hidden="true">&times;</span>
+				</button>
+			  </div>
+			  <div class="modal-body">
+				Möchtest Du <strong>alle aktiven Artikel</strong> ins Lager verschieben?).
+			  </div>
+			  <div class="modal-footer">
+				<button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+				<button type="button" class="btn btn-warning" id="confirmMoveAllButton">Alles ins Lager</button>
+			  </div>
+			</div>
+		  </div>
+		</div>
 
-					const reader = new FileReader();
-					reader.onload = function (e) {
-						let contents = e.target.result;
-						if (encoding === 'ansi') {
-							contents = new TextDecoder('windows-1252').decode(new Uint8Array(contents));
-						}
-						const rows = contents.split('\n');
-						let html = '<table class="table table-striped table-bordered"><thead class="thead-dark"><tr><th>Bezeichnung</th><th>Größe</th><th>Preis (€)</th></tr></thead><tbody>';
-						for (let i = 0; i < rows.length; i++) {
-							const cells = rows[i].split(delimiter).map(cell => cell.trim());
-							if (cells.length >= 3 && cells[0] && cells[1]) {
-								html += '<tr>';
-								html += `<td>${cells[0]}</td>`;
-								html += `<td>${cells[1] || "k/A"}</td>`;
-								html += `<td>${cells[2]}</td>`;
-								html += '</tr>';
-							}
-						}
-						html += '</tbody></table>';
-						document.getElementById('preview').innerHTML = html;
-						document.getElementById('confirm_import').style.display = 'block';
-					};
-					if (encoding === 'ansi') {
-						reader.readAsArrayBuffer(selectedFile);
-					} else {
-						reader.readAsText(selectedFile, 'UTF-8');
-					}
-				}
+        <!-- Import Products Modal -->
+        <div class="modal fade" id="importProductsModal" tabindex="-1" role="dialog" aria-labelledby="importProductsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content modal-xxl">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="importProductsModalLabel">Artikel importieren</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Schließen">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form enctype="multipart/form-data" method="post" action="" id="importProductsForm">
+                            <!-- CSRF Token -->
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                            <div class="form-group">
+                                <label for="csv_file">CSV-Datei auswählen:</label>
+                                <input type="file" class="form-control-file" name="csv_file" id="csv_file" accept=".csv" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Trennzeichen:</label>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="delimiter" value="," checked>
+                                    <label class="form-check-label">Komma</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="delimiter" value=";">
+                                    <label class="form-check-label">Semikolon</label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Kodierung:</label>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="encoding" value="utf-8" checked>
+                                    <label class="form-check-label">UTF-8</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="encoding" value="ansi">
+                                    <label class="form-check-label">ANSI</label>
+                                </div>
+                            </div>
+                            <div id="preview" class="mt-3"></div>
+                            <!-- Loading Spinner -->
+                            <div id="importLoadingSpinner" class="text-center mt-3 d-none">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="sr-only">Import läuft...</span>
+                                </div>
+                                <p>Import läuft... Bitte warten.</p>
+                            </div>
+                            <button type="submit" class="btn btn-primary mt-3 mb-3 hidden" name="confirm_import" id="confirm_import">Bestätigen und Importieren</button>
+                            <h6 class="mb-2 text-muted">Importierte Artikel landen automatisch zuerst im Lager und können dann zu den aktiven Artikeln verschoben werden.
+                            </h6>
+                        </form>
 
-				function handleFileSelect(event) {
-					selectedFile = event.target.files[0];
-					previewCSV();
-				}
+                        <div class="alert alert-info mt-4">
+                            <strong>Hinweis:</strong> Es wird empfohlen, den Import auf einem Desktop-PC oder Tablet durchzuführen.
+                        </div>
 
-				function handleOptionChange() {
-					previewCSV();
-				}
+                        <h2 class="mt-4">Erwartete CSV-Dateistruktur</h2>
+                        <p>Die importierte CSV-Datei darf keine Spaltenüberschriften enthalten.</p>
+                        <table class="table table-striped table-bordered">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>Bezeichnung</th>
+                                    <th>Größe</th>
+                                    <th>Preis (€)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Winterjacke</td>
+                                    <td>146</td>
+                                    <td>5.00</td>
+                                </tr>
+                                <tr>
+                                    <td>Sportschuhe</td>
+                                    <td>24</td>
+                                    <td>3.50</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-				document.addEventListener('DOMContentLoaded', function () {
-					document.querySelector('#csv_file').addEventListener('change', handleFileSelect);
-					document.querySelectorAll('input[name="delimiter"]').forEach(function (elem) {
-						elem.addEventListener('change', handleOptionChange);
-					});
-					document.querySelectorAll('input[name="encoding"]').forEach(function (elem) {
-						elem.addEventListener('change', handleOptionChange);
-					});
-				});
-			})();
-		</script>
+        <!-- Toast Container -->
+        <div aria-live="polite" aria-atomic="true">
+            <!-- Toasts will be dynamically added here -->
+            <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3">
+                <!-- Toasts will be dynamically added here -->
+            </div>
+        </div>
 
-        <script nonce="<?php echo $nonce; ?>">
-            document.addEventListener('DOMContentLoaded', function () {
-                const sellerSelect = document.getElementById('seller_number_select');
+    </div>
 
-                // Handle dropdown change and update session using AJAX
-                sellerSelect.addEventListener('change', function () {
-                    const selectedValue = sellerSelect.value;
+    <!-- Back to Top Button -->
+    <div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
 
-                    // Send the new seller_number to the server via AJAX or
-                    // Send a POST request with jQuery
-                    $.post('seller_products.php', {
-                        set_seller_number: true,
-						csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>',
-                        seller_number: selectedValue
-                    })
-                            .done(function (response) {
-                                const data = JSON.parse(response);
-                                if (data.success) {
-                                    location.reload();
-                                } else {
-                                    console.error('Error updating seller number:', data.error);
-                                }
-                            })
-                            .fail(function (xhr, status, error) {
-                                console.error('AJAX request failed:', error);
-                            });
+    <?php if (!empty(FOOTER)): ?>
+        <footer class="p-2 bg-light text-center fixed-bottom">
+            <div class="row justify-content-center">
+                <div class="col-lg-6 col-md-12">
+                    <p class="m-0">
+                        <?php echo process_footer_content(FOOTER); ?>
+                    </p>
+                </div>
+            </div>
+        </footer>
+    <?php endif; ?>
+
+    <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/popper.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/utilities.js" nonce="<?php echo $nonce; ?>"></script>
+    <script nonce="<?php echo $nonce; ?>">
+        (function() {
+            let selectedFile = null;
+
+            function previewCSV() {
+                if (!selectedFile) return;
+
+                const delimiter = document.querySelector('input[name="delimiter"]:checked').value;
+                const encoding = document.querySelector('input[name="encoding"]:checked').value;
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    let contents = e.target.result;
+                    if (encoding === 'ansi') {
+                        contents = new TextDecoder('windows-1252').decode(new Uint8Array(contents));
+                    }
+                    const rows = contents.split('\n');
+                    let html = '<div class="alert alert-warning mt-4">Sollte nach dem Auswählen der Datei hier keine Vorschau zu sehen sein oder eine leere Tabelle, bitte mal oben bei "Trennzeichen" umschalten. Bitte Kontrolliere auch die Umlaute und passe ggf. die "Kodierung" an.</div><table class="table table-striped table-bordered"><thead class="thead-dark"><tr><th>Bezeichnung</th><th>Größe</th><th>Preis (€)</th></tr></thead><tbody>';
+                    for (let i = 0; i < rows.length; i++) {
+                        const cells = rows[i].split(delimiter).map(cell => cell.trim());
+                        if (cells.length >= 3 && cells[0] && cells[1]) {
+                            html += '<tr>';
+                            html += `<td>${cells[0]}</td>`;
+                            html += `<td>${cells[1] || "k/A"}</td>`;
+                            html += `<td>${cells[2]}</td>`;
+                            html += '</tr>';
+                        }
+                    }
+                    html += '</tbody></table>';
+                    document.getElementById('preview').innerHTML = html;
+                    document.getElementById('confirm_import').style.display = 'block';
+                };
+                if (encoding === 'ansi') {
+                    reader.readAsArrayBuffer(selectedFile);
+                } else {
+                    reader.readAsText(selectedFile, 'UTF-8');
+                }
+            }
+
+            function handleFileSelect(event) {
+                selectedFile = event.target.files[0];
+                previewCSV();
+            }
+
+            function handleOptionChange() {
+                previewCSV();
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelector('#csv_file').addEventListener('change', handleFileSelect);
+                document.querySelectorAll('input[name="delimiter"]').forEach(function(elem) {
+                    elem.addEventListener('change', handleOptionChange);
                 });
-                
-                
-                document.getElementById('selectAllStock').addEventListener('change', function () {
-                    const isChecked = this.checked; // Get the state of the "Select All" checkbox
-                    document.querySelectorAll('.bulk-select-stock').forEach(checkbox => {
-                        checkbox.checked = isChecked; // Set all checkboxes below to match the "Select All" state
-                    });
+                document.querySelectorAll('input[name="encoding"]').forEach(function(elem) {
+                    elem.addEventListener('change', handleOptionChange);
                 });
             });
-        </script>
-        <script nonce="<?php echo $nonce; ?>">
-            $(document).on('click', '.execute-action', function () {
-                const productId = $(this).data('product-id');
-                const action = $(`.action-dropdown[data-product-id="${productId}"]`).val();
+        })();
+    </script>
 
-                if (action === 'edit') {
-                    // Open the edit modal with pre-filled data
-                    const row = $(this).closest('tr');
-                    const name = row.find('td:nth-child(1)').text();
-                    const size = row.find('td:nth-child(2)').text();
-                    const price = parseFloat(row.find('td:nth-child(3)').text().replace(',', '.'));
-                    editProduct(productId, name, size, price);
-                } 
-                else if (action === 'delete') {
-                    // Show the Bootstrap modal
-                    $('#deleteConfirmationModal').modal('show');
+    <script nonce="<?php echo $nonce; ?>">
+        document.addEventListener('DOMContentLoaded', function() {
+            const sellerSelect = document.getElementById('seller_number_select');
 
-                    // Handle the confirm delete button click
-                    $('#confirmDeleteButton').off('click').on('click', function () {
-                        // Send the delete request via AJAX
-                        $.post('seller_products.php', {
-                            delete_product: true,
-                            product_id: productId,
-                            seller_number: sellerNumber,
-                            csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>'
-                        }, function (response) {
-                            const data = JSON.parse(response);
-                            if (data.success) {
-                                // Refresh the table and update the card header
-                                refreshProductTable(sellerNumber)
-                                    .then(() => {const products = Array.isArray(data.data) ? data.data : [];
-                                        const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
-                                        const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
+            // Handle dropdown change and update session using AJAX
+            sellerSelect.addEventListener('change', function() {
+                const selectedValue = sellerSelect.value;
 
-                                        // Update the active products count dynamically
-                                        document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
-                                        document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
-                                        // Show success notification
-                                        showToast('Erfolgreich', 'Artikel wurde erfolgreich gelöscht.', 'success');
-                                    })
-                                    .catch(() => {
-                                        showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
-                                    });
-                            } else {
-                                // Show error notification
-                                showToast('Fehler', data.message, 'error');
-                            }
-                        }).fail(function () {
-                            showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'error');
-                        });
-
-                        // Hide the modal after the action
-                        $('#deleteConfirmationModal').modal('hide');
+                // Send the new seller_number to the server via AJAX or
+                // Send a POST request with jQuery
+                $.post('seller_products.php', {
+                        set_seller_number: true,
+                        csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>',
+                        seller_number: selectedValue
+                    })
+                    .done(function(response) {
+                        const data = JSON.parse(response);
+                        if (data.success) {
+                            location.reload();
+                        } else {
+                            console.error('Error updating seller number:', data.error);
+                        }
+                    })
+                    .fail(function(xhr, status, error) {
+                        console.error('AJAX request failed:', error);
                     });
-                }
-                else if (action === 'stock') {
-                    // Handle "move to stock" action
+            });
+
+
+            document.getElementById('selectAllStock').addEventListener('change', function() {
+                const isChecked = this.checked; // Get the state of the "Select All" checkbox
+                document.querySelectorAll('.bulk-select-stock').forEach(checkbox => {
+                    checkbox.checked = isChecked; // Set all checkboxes below to match the "Select All" state
+                });
+            });
+        });
+    </script>
+
+    <script nonce="<?php echo $nonce; ?>">
+        $(document).on('click', '.execute-action', function() {
+            const productId = $(this).data('product-id');
+            const action = $(`.action-dropdown[data-product-id="${productId}"]`).val();
+
+            if (action === 'edit') {
+                // Open the edit modal with pre-filled data
+                const row = $(this).closest('tr');
+                const name = row.find('td:nth-child(1)').text();
+                const size = row.find('td:nth-child(2)').text();
+                const price = parseFloat(row.find('td:nth-child(3)').text().replace(',', '.'));
+                editProduct(productId, name, size, price);
+            } else if (action === 'delete') {
+                // Show the Bootstrap modal
+                $('#deleteConfirmationModal').modal('show');
+
+                // Handle the confirm delete button click
+                $('#confirmDeleteButton').off('click').on('click', function() {
+                    // Send the delete request via AJAX
                     $.post('seller_products.php', {
+                        delete_product: true,
+                        product_id: productId,
+                        seller_number: sellerNumber,
+                        csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>'
+                    }, function(response) {
+                        const data = JSON.parse(response);
+                        if (data.success) {
+                            // Refresh the table and update the card header
+                            refreshProductTable(sellerNumber)
+                                .then(() => updateTotalPrice()) // Update total price after refresh
+                                .then(() => {
+                                    const products = Array.isArray(data.data) ? data.data : [];
+                                    const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
+                                    const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
+
+                                    // Update the active products count dynamically
+                                    // document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
+                                    // document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
+                                    // Show success notification
+                                    showToast('Erfolgreich', 'Artikel wurde erfolgreich gelöscht.', 'success');
+                                })
+                                .catch(() => {
+                                    showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
+                                });
+                        } else {
+                            // Show error notification
+                            showToast('Fehler', data.message, 'error');
+                        }
+                    }).fail(function() {
+                        showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'error');
+                    });
+
+                    // Hide the modal after the action
+                    $('#deleteConfirmationModal').modal('hide');
+                });
+            } else if (action === 'stock') {
+                // Handle "move to stock" action
+                $.post('seller_products.php', {
                         move_to_stock: true,
                         product_id: productId,
                         seller_number: sellerNumber,
                         csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>'
                     })
-                    .done(function (response) {
+                    .done(function(response) {
                         const data = JSON.parse(response);
                         if (data.success) {
                             // Start by refreshing the product table
                             refreshProductTable(sellerNumber)
+                                .then(() => updateTotalPrice()) // Update total price after refresh
                                 .then(() => {
                                     // Once the product table is updated, refresh the stock table
                                     return refreshStockTable();
@@ -1076,10 +1273,10 @@ $conn->close();
                                 .then(() => {
                                     const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
                                     const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
-                                    
+
                                     // Update the active products count dynamically
-                                    document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
-                                    document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
+                                    //document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
+                                    //document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
                                     document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
                                     // Show success toast after both tables are updated
                                     showToast('Erfolgreich', 'Artikel wurde ins Lager gelegt.', 'success');
@@ -1093,82 +1290,116 @@ $conn->close();
                             showToast('Fehler', data.message, 'error');
                         }
                     })
-                    .fail(function () {
+                    .fail(function() {
                         // Handle AJAX failure
                         showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'error');
                     });
-                } 
-            });
+            }
+        });
 
-            $(document).on('click', '.deleteAllProductsBtn', function () {
-                if ($(this).data('action') === 'delete_all_products') {
-                    // Show the Bootstrap modal
-                    $('#deleteAllConfirmationModal').modal('show');
+		// Show "move all" modal (same style as deletion)
+		$(document).on('click', '.moveAllToStockBtn', function () {
+		  $('#moveAllConfirmationModal').modal('show');
+		});
 
-                    // Handle the confirm delete button click
-                    $('#confirmDeleteAllButton').off('click').on('click', function () {
+		// Confirm button -> perform action
+		$('#confirmMoveAllButton').off('click').on('click', function () {
+		  $.post('seller_products.php', {
+			  move_all_to_stock: 1,
+			  seller_number: sellerNumber,
+			  csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>'
+			})
+			.done(function (response) {
+			  const data = typeof response === 'string' ? JSON.parse(response) : response;
+			  if (data.success) {
+				refreshProductTable(sellerNumber)
+				  .then(() => updateTotalPrice())
+				  .then(() => refreshStockTable())
+				  .then(() => {
+					const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
+					document.querySelector('.card-header-stock-products').textContent =
+					  `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
+					showToast('Erfolgreich', data.message || 'Alle aktiven Artikel wurden ins Lager verschoben.', 'success');
+					$('#moveAllConfirmationModal').modal('hide');
+				  })
+				  .catch(() => showToast('Fehler', 'Fehler beim Aktualisieren der Tabellen.', 'danger'));
+			  } else {
+				showToast('Fehler', data.message || 'Fehler beim Verschieben.', 'danger');
+			  }
+			})
+			.fail(() => showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger'));
+		});
 
-                        // Send the delete request via AJAX
-                        // Send delete request
-                        // Create form data
-                        const formData = new FormData();
-                        formData.append('csrf_token', '<?php echo htmlspecialchars(generate_csrf_token()); ?>');
-                        formData.append('delete_all_products', '1'); // To match the backend check
-                        formData.append('seller_number', sellerNumber);
+        $(document).on('click', '.deleteAllProductsBtn', function() {
+            if ($(this).data('action') === 'delete_all_products') {
+                // Show the Bootstrap modal
+                $('#deleteAllConfirmationModal').modal('show');
 
-                        // Send delete request
-                        fetch('seller_products.php', {
+                // Handle the confirm delete button click
+                $('#confirmDeleteAllButton').off('click').on('click', function() {
+
+                    // Send the delete request via AJAX
+                    // Send delete request
+                    // Create form data
+                    const formData = new FormData();
+                    formData.append('csrf_token', '<?php echo htmlspecialchars(generate_csrf_token()); ?>');
+                    formData.append('delete_all_products', '1'); // To match the backend check
+                    formData.append('seller_number', sellerNumber);
+
+                    // Send delete request
+                    fetch('seller_products.php', {
                             method: 'POST',
                             body: formData,
                         })
-                            .then(response => {
-                                if (!response.ok) {
-                                    throw new Error('Network response was not ok');
-                                }
-                                return response.json(); // Parse JSON
-                            })
-                            .then(data => {
-                                if (data.success) {
-                                    // Refresh the table using the reusable function
-                                    refreshProductTable(sellerNumber)
-                                        .then(data => {
-                                            // Safely handle cases where data.data is undefined or empty
-                                            const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
-                                            const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.json(); // Parse JSON
+                        })
+                        .then(data => {
+                            if (data.success) {
+                                // Refresh the table using the reusable function
+                                refreshProductTable(sellerNumber)
+                                    .then(() => updateTotalPrice()) // Update total price after refresh
+                                    .then(data => {
+                                        // Safely handle cases where data.data is undefined or empty
+                                        const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
+                                        const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
 
-                                            // Update the active products count dynamically
-                                            document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
-                                            document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
-                                            document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
-                                            // Show success notification
-                                            showToast('Erfolgreich', 'Alle Artikel wurden erfolgreich gelöscht.', 'success');
+                                        // Update the active products count dynamically
+                                        // document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
+                                        // document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
+                                        document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
+                                        // Show success notification
+                                        showToast('Erfolgreich', 'Alle Artikel wurden erfolgreich gelöscht.', 'success');
 
-                                            // Hide the confirmation modal
-                                            $('#deleteAllConfirmationModal').modal('hide');
-                                        })
-                                        .catch(() => {
-                                            showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
-                                        });
-                                } else {
-                                    // Show error notification
-                                    showToast('Fehler', 'Fehler beim Löschen der Artikel.', 'danger');
-                                }
-                            })
-                            .catch(error => {
-                                console.error('Error:', error);
-                                showToast('Fehler', 'Es gab ein Problem beim Löschen der Artikel.', 'danger');
-                            });
-                    });
-                }
-            });
+                                        // Hide the confirmation modal
+                                        $('#deleteAllConfirmationModal').modal('hide');
+                                    })
+                                    .catch(() => {
+                                        showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
+                                    });
+                            } else {
+                                // Show error notification
+                                showToast('Fehler', 'Fehler beim Löschen der Artikel.', 'danger');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            showToast('Fehler', 'Es gab ein Problem beim Löschen der Artikel.', 'danger');
+                        });
+                });
+            }
+        });
 
-            $('#createProductForm').on('submit', function (e) {
-                e.preventDefault(); // Prevent default form submission
+        $('#createProductForm').on('submit', function(e) {
+            e.preventDefault(); // Prevent default form submission
 
-                const formData = $(this).serialize(); // Serialize form data
+            const formData = $(this).serialize(); // Serialize form data
 
-                $.post('seller_products.php', formData + '&create_product=true')
-                .done(function (response) {
+            $.post('seller_products.php', formData + '&create_product=true')
+                .done(function(response) {
                     let data;
 
                     // Ensure the response is a JavaScript object
@@ -1179,10 +1410,11 @@ $conn->close();
                         console.error('JSON Parsing Error:', e, response);
                         return;
                     }
-                    
+
                     if (data.success) {
                         // Refresh the product table
                         refreshProductTable(sellerNumber)
+                            .then(() => updateTotalPrice()) // Update total price after refresh
                             .then(() => {
                                 // Fetch the updated product list to calculate counts
                                 return fetch(`fetch_products.php?seller_number=${sellerNumber}`);
@@ -1194,18 +1426,18 @@ $conn->close();
 
                                     const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
                                     const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
-                                    
+
                                     // Update the card headers dynamically
-                                    document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount ?? '0'})`;
-                                    document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${Math.max(0, maxProdPerSellers - activeProductCount)} möglich)`;
-                                    document.querySelector('.card-header-stock-products').textContent = `Deine Artikel im Lager (Anzahl: ${stockProductCount ?? '0'})`;
+                                    // document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount ?? '0'})`;
+                                    // document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${Math.max(0, maxProdPerSellers - activeProductCount)} möglich)`;
+                                    document.querySelector('.card-header-stock-products').textContent = `Deine Artikel im Lager (Anzahl: ${stockProductCount})`;
 
                                     if (defaultElement) {
                                         defaultElement.focus();
                                     }
-                                    
+
                                     showToast('Erfolgreich', 'Artikel erfolgreich erstellt.', 'success');
-                                    
+
                                 } else {
                                     showToast('Fehler', 'Fehler beim Aktualisieren der Artikelanzahl.', 'danger');
                                 }
@@ -1220,269 +1452,291 @@ $conn->close();
                         showToast('Fehler', data.message || 'Fehler beim Erstellen des Artikels.', 'danger');
                     }
                 })
-                .fail(function () {
+                .fail(function() {
                     showToast('Fehler', 'Fehler beim Senden des Formulars.', 'danger');
                 });
-            });
+        });
 
-            $('#editProductModal form').on('submit', function (e) {
-                e.preventDefault(); // Prevent the form from submitting normally
+        $('#editProductModal form').on('submit', function(e) {
+            e.preventDefault(); // Prevent the form from submitting normally
 
-                const formData = $(this).serialize(); // Serialize form data
+            const formData = $(this).serialize(); // Serialize form data
 
-                // Send the AJAX request
-                $.post('seller_products.php', formData + '&update_product=true')
-                    .done(function (response) {
-                        if (response.success) {
-                            // Close the modal
-                            $('#editProductModal').modal('hide');
+            // Send the AJAX request
+            $.post('seller_products.php', formData + '&update_product=true')
+                .done(function(response) {
+                    if (response.success) {
+                        // Close the modal
+                        $('#editProductModal').modal('hide');
 
-                            // Refresh the table
-                            refreshProductTable($('#hiddenSellerNumber').val())
-                                .then(() => {
-                                    showToast('Erfolgreich', response.message, 'success');
-                                })
-                                .catch(() => {
-                                    showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
-                                });
-                        } else {
-                            // Show error in the modal
-                            $('#editProductAlert')
-                                .removeClass('d-none')
-                                .text(response.message);
-                        }
-                    })
-                    .fail(function () {
-                        // Show generic error message
+                        // Refresh the table
+                        refreshProductTable($('#hiddenSellerNumber').val())
+                            .then(() => updateTotalPrice()) // Update total price after refresh
+                            .then(() => {
+                                showToast('Erfolgreich', response.message, 'success');
+                            })
+                            .catch(() => {
+                                showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
+                            });
+                    } else {
+                        // Show error in the modal
                         $('#editProductAlert')
                             .removeClass('d-none')
-                            .text('Fehler beim Senden des Formulars.');
-                    });
-            });
-            
-            $('.bulk-move-to-sale').on('click', function () {
-                const selectedProducts = Array.from(document.querySelectorAll('.bulk-select-stock:checked'))
-                    .map(checkbox => checkbox.value);
+                            .text(response.message);
+                    }
+                })
+                .fail(function() {
+                    // Show generic error message
+                    $('#editProductAlert')
+                        .removeClass('d-none')
+                        .text('Fehler beim Senden des Formulars.');
+                });
+        });
 
-                if (selectedProducts.length === 0) {
-                    showToast('Hinweis', 'Bitte wähle mindestens einen Artikel aus.', 'warning');
-                    return;
-                }
+        $('.bulk-move-to-sale').on('click', function() {
+            const selectedProducts = Array.from(document.querySelectorAll('.bulk-select-stock:checked'))
+                .map(checkbox => checkbox.value);
 
-                $.post('seller_products.php', {
+            if (selectedProducts.length === 0) {
+                showToast('Hinweis', 'Bitte wähle mindestens einen Artikel aus.', 'warning');
+                return;
+            }
+
+            $.post('seller_products.php', {
                     bulk_action: 'move_to_sale',
                     product_ids: selectedProducts,
                     seller_number: sellerNumber,
                     csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>',
                 })
-                    .done(function (response) {
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            // Start by refreshing the stock table
-                            refreshStockTable()
-                                .then(() => {
-                                    // Once the stock table is updated, refresh the product table
-                                    return refreshProductTable(sellerNumber);
-                                })
-                                .then(() => {
-                                    // Safely handle cases where data.data is undefined or empty
-                                    const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
-                                    const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
-                                    
-                                    // Update the active products count dynamically
-                                    document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
-                                    document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
-                                    document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
-                                    // Show a single success toast after both tables are refreshed
-                                    showToast('Erfolgreich', 'Die ausgewählten Artikel wurden zum Verkauf gestellt.', 'success');
-                                })
-                                .catch(() => {
-                                    // Handle any failure during the table refresh process
-                                    showToast('Fehler', 'Fehler beim Aktualisieren der Tabellen.', 'danger');
-                                });
-                        } else {
-						// Handle error returned from backend (e.g., exceeding product limit)
-						showToast('Fehler', data.message, 'danger');
-					}
-                    })
-                    .fail(function () {
-                        showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger');
-                    });
-            });
-            
-            $('.bulk-delete-stock').on('click', function () {
-                const selectedProducts = Array.from(document.querySelectorAll('.bulk-select-stock:checked'))
-                    .map(checkbox => checkbox.value);
+                .done(function(response) {
+                    const data = JSON.parse(response);
+                    if (data.success) {
+                        // Start by refreshing the stock table
+                        refreshStockTable()
+                            .then(() => updateTotalPrice()) // Update total price after refresh
+                            .then(() => {
+                                // Once the stock table is updated, refresh the product table
+                                return refreshProductTable(sellerNumber);
+                            })
+                            .then(() => {
+                                // Safely handle cases where data.data is undefined or empty
+                                const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
+                                const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
 
-                if (selectedProducts.length === 0) {
-                    showToast('Hinweis', 'Bitte wähle mindestens einen Artikel aus.', 'warning');
-                    return;
-                }
+                                // Update the active products count dynamically
+                                // document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
+                                // document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
+                                document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
+                                // Show a single success toast after both tables are refreshed
+                                showToast('Erfolgreich', 'Die ausgewählten Artikel wurden zum Verkauf gestellt.', 'success');
+                            })
+                            .catch(() => {
+                                // Handle any failure during the table refresh process
+                                showToast('Fehler', 'Fehler beim Aktualisieren der Tabellen.', 'danger');
+                            });
+                    } else {
+                        // Handle error returned from backend (e.g., exceeding product limit)
+                        showToast('Fehler', data.message, 'danger');
+                    }
+                })
+                .fail(function() {
+                    showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger');
+                });
+        });
 
-                $.post('seller_products.php', {
+        $('.bulk-delete-stock').on('click', function() {
+            const selectedProducts = Array.from(document.querySelectorAll('.bulk-select-stock:checked'))
+                .map(checkbox => checkbox.value);
+
+            if (selectedProducts.length === 0) {
+                showToast('Hinweis', 'Bitte wähle mindestens einen Artikel aus.', 'warning');
+                return;
+            }
+
+            $.post('seller_products.php', {
                     bulk_action: 'delete',
                     product_ids: selectedProducts,
                     seller_number: sellerNumber,
                     csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>',
                 })
-                    .done(function (response) {
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            // Refresh the stock table and header
-                            refreshStockTable()
-                                .then(() => {
-                                    // Safely handle cases where data.data is undefined or empty
-                                    const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
-                                    const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
-                                    
-                                    // Update the active products count dynamically
-                                    document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
-                                    // Show success toast
-                                    showToast('Erfolgreich', 'Die ausgewählten Artikel wurden gelöscht.', 'success');
-                                })
-                                .catch(() => {
-                                    showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
-                                });
-                        } else {
-                            // Show error toast
-                            showToast('Fehler', 'Die Artikel konnten nicht gelöscht werden.', 'danger');
-                        }
-                    })
-                    .fail(function () {
-                        showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger');
-                    });
-            });
-        
-			$('#importProductsModal').on('submit', function (e) {
-				e.preventDefault(); // Prevent the default form submission
+                .done(function(response) {
+                    const data = JSON.parse(response);
+                    if (data.success) {
+                        // Refresh the stock table and header
+                        refreshStockTable()
+                            .then(() => updateTotalPrice()) // Update total price after refresh
+                            .then(() => {
+                                // Safely handle cases where data.data is undefined or empty
+                                const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
+                                const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
 
-				// Show loading spinner and disable the import button
-				$('#importLoadingSpinner').removeClass('d-none');
-				$('#confirm_import').prop('disabled', true);
-	
-				const form = document.getElementById('importProductsForm'); // If this returns null
-				const formData = new FormData(form); // Collect form data
-
-				// Manually add the `confirm_import` marker to FormData
-				formData.append('confirm_import', '1');
-				formData.append('csrf_token','<?php echo htmlspecialchars(generate_csrf_token()); ?>');
-				formData.append("encoding", document.querySelector('input[name="encoding"]:checked').value);
-				
-				// Send the data via AJAX
-				$.ajax({
-					url: 'seller_products.php', // Replace with your backend URL
-					type: 'POST',
-					data: formData,
-					processData: false, // Required for FormData
-					contentType: false, // Required for FormData
-					success: function (response) {
-						// Parse JSON response if needed
-						const data = typeof response === 'string' ? JSON.parse(response) : response;
-
-						if (data.success) {
-							// Handle success, e.g., refresh tables or show a success toast
-							showToast('Erfolgreich', 'Artikel wurden erfolgreich importiert.', 'success');
-						} else {
-							// Handle error, e.g., show an error toast
-							showToast('Fehler', data.message, 'danger');
-						}
-					},
-					error: function () {
-						// Handle AJAX errors
-						showToast('Fehler', 'Es gab ein Problem beim Import.', 'danger');
-					},
-					complete: function () {
-						// Hide spinner and re-enable button
-						$('#importLoadingSpinner').addClass('d-none');
-						$('#confirm_import').prop('disabled', false);
-					}
-				});
-			});
-		
-			// Attach an event listener to the modal
-			$('#importProductsModal').on('hidden.bs.modal', function () {
-				// Refresh the page when the modal is closed
-				location.reload();
-			});
-		</script>
-        <script nonce="<?php echo $nonce; ?>">
-            document.addEventListener('DOMContentLoaded', function () {
-                // Attach event listeners to the edit buttons
-                document.querySelectorAll('.edit-product-btn').forEach(button => {
-                    button.addEventListener('click', function () {
-                        const productId = this.getAttribute('data-id');
-                        const productName = this.getAttribute('data-name');
-                        const productSize = this.getAttribute('data-size');
-                        const productPrice = this.getAttribute('data-price');
-                        editProduct(productId, productName, productSize, parseFloat(productPrice));
-                    });
-                });
-            });
-
-            function editProduct(id, name, size, price) {
-                document.getElementById('editProductId').value = id;
-                document.getElementById('editProductName').value = name;
-                document.getElementById('editProductSize').value = size;
-                document.getElementById('editProductPrice').value = price.toFixed(2);
-                $('#editProductModal').modal('show');
-            }
-        </script>
-        <?php if (isset($validation_message)) { ?>
-            <script nonce="<?php echo $nonce; ?>">
-                $(document).ready(function () {
-                    $('#priceValidationModal .modal-body').text('<?php echo $validation_message; ?>');
-                    $('#priceValidationModal').modal('show');
-                });
-            </script>
-        <?php } ?>
-        <?php if (isset($update_validation_message)) { ?>
-            <script nonce="<?php echo $nonce; ?>">
-                $(document).ready(function () {
-                    $('#editProductAlert').text('<?php echo $update_validation_message; ?>').removeClass('d-none');
-                    $('#editProductModal').modal('show');
-                });
-            </script>
-        <?php } ?>
-        <script nonce="<?php echo $nonce; ?>">
-            // Show the HTML element once the DOM is fully loaded
-            document.addEventListener("DOMContentLoaded", function () {			
-                document.documentElement.style.visibility = "visible";
-                document.addEventListener('DOMContentLoaded', function () {
-                    const defaultElement = document.getElementById('name'); // Replace 'name' with the ID of your target element
-                    if (defaultElement) {
-                        defaultElement.focus();
+                                // Update the active products count dynamically
+                                document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
+                                // Show success toast
+                                showToast('Erfolgreich', 'Die ausgewählten Artikel wurden gelöscht.', 'success');
+                            })
+                            .catch(() => {
+                                showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
+                            });
+                    } else {
+                        // Show error toast
+                        showToast('Fehler', 'Die Artikel konnten nicht gelöscht werden.', 'danger');
                     }
+                })
+                .fail(function() {
+                    showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger');
+                });
+        });
+
+        $('#importProductsModal').on('submit', function(e) {
+            e.preventDefault(); // Prevent the default form submission
+
+            // Show loading spinner and disable the import button
+            $('#importLoadingSpinner').removeClass('d-none');
+            $('#confirm_import').prop('disabled', true);
+
+            const form = document.getElementById('importProductsForm'); // If this returns null
+            const formData = new FormData(form); // Collect form data
+
+            // Manually add the `confirm_import` marker to FormData
+            formData.append('confirm_import', '1');
+            formData.append('csrf_token', '<?php echo htmlspecialchars(generate_csrf_token()); ?>');
+            formData.append("encoding", document.querySelector('input[name="encoding"]:checked').value);
+
+            // Send the data via AJAX
+            $.ajax({
+                url: 'seller_products.php', // Replace with your backend URL
+                type: 'POST',
+                data: formData,
+                processData: false, // Required for FormData
+                contentType: false, // Required for FormData
+                success: function(response) {
+                    // Parse JSON response if needed
+                    const data = typeof response === 'string' ? JSON.parse(response) : response;
+
+                    if (data.success) {
+                        // Handle success, e.g., refresh tables or show a success toast
+                        showToast('Erfolgreich', 'Artikel wurden erfolgreich ins Lager importiert. Du kannst das Fenster jetzt schließen.', 'success', 6000);
+                    } else {
+                        // Handle error, e.g., show an error toast
+                        showToast('Fehler', data.message, 'danger', 6000);
+                    }
+                },
+                error: function() {
+                    // Handle AJAX errors
+                    showToast('Fehler', 'Es gab ein Problem beim Import.', 'danger');
+                },
+                complete: function() {
+                    // Hide spinner and re-enable button
+                    $('#importLoadingSpinner').addClass('d-none');
+                    $('#confirm_import').prop('disabled', false);
+                }
+            });
+        });
+
+        // Attach an event listener to the modal
+        $('#importProductsModal').on('hidden.bs.modal', function() {
+            // Refresh the page when the modal is closed
+            location.reload();
+        });
+
+        function updateTotalPrice() {
+            let total = 0;
+
+            // Sum all product prices
+            document.querySelectorAll('.product-price').forEach(priceCell => {
+                total += parseFloat(priceCell.getAttribute('data-price')) || 0;
+            });
+
+            // Update the total price row
+            const totalRow = document.getElementById('totalPrice');
+            if (totalRow) {
+                totalRow.innerHTML = `<strong>${total.toFixed(2).replace('.', ',')} €</strong>`;
+                totalRow.setAttribute('data-total', total);
+            }
+        }
+    </script>
+    <script nonce="<?php echo $nonce; ?>">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Attach event listeners to the edit buttons
+            document.querySelectorAll('.edit-product-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const productId = this.getAttribute('data-id');
+                    const productName = this.getAttribute('data-name');
+                    const productSize = this.getAttribute('data-size');
+                    const productPrice = this.getAttribute('data-price');
+                    editProduct(productId, productName, productSize, parseFloat(productPrice));
                 });
             });
+        });
+
+        function editProduct(id, name, size, price) {
+            document.getElementById('editProductId').value = id;
+            document.getElementById('editProductName').value = name;
+            document.getElementById('editProductSize').value = size;
+            document.getElementById('editProductPrice').value = price.toFixed(2);
+            $('#editProductModal').modal('show');
+        }
+    </script>
+    <?php if (isset($validation_message)) { ?>
+        <script nonce="<?php echo $nonce; ?>">
+            $(document).ready(function() {
+                $('#priceValidationModal .modal-body').text('<?php echo $validation_message; ?>');
+                $('#priceValidationModal').modal('show');
+            });
         </script>
-		<script nonce="<?php echo $nonce; ?>">
-			document.addEventListener("DOMContentLoaded", function () {
-				// Function to toggle the visibility of the "Back to Top" button
-				function toggleBackToTopButton() {
-					const scrollTop = $(window).scrollTop();
+    <?php } ?>
+    <?php if (isset($update_validation_message)) { ?>
+        <script nonce="<?php echo $nonce; ?>">
+            $(document).ready(function() {
+                $('#editProductAlert').text('<?php echo $update_validation_message; ?>').removeClass('d-none');
+                $('#editProductModal').modal('show');
+            });
+        </script>
+    <?php } ?>
+    <script nonce="<?php echo $nonce; ?>">
+        // Show the HTML element once the DOM is fully loaded
+        document.addEventListener("DOMContentLoaded", function() {
+            document.documentElement.style.visibility = "visible";
+            document.addEventListener('DOMContentLoaded', function() {
+                const defaultElement = document.getElementById('name'); // Replace 'name' with the ID of your target element
+                if (defaultElement) {
+                    defaultElement.focus();
+                }
+            });
+        });
+    </script>
+    <script nonce="<?php echo $nonce; ?>">
+        document.addEventListener("DOMContentLoaded", function() {
+            // Function to toggle the visibility of the "Back to Top" button
+            function toggleBackToTopButton() {
+                const scrollTop = $(window).scrollTop();
 
-					if (scrollTop > 100) {
-						$('#back-to-top').fadeIn();
-					} else {
-						$('#back-to-top').fadeOut();
-					}
-				}
+                if (scrollTop > 100) {
+                    $('#back-to-top').fadeIn();
+                } else {
+                    $('#back-to-top').fadeOut();
+                }
+            }
 
-				// Initial check on page load
-				toggleBackToTopButton();
-			
-		
-				// Show or hide the "Back to Top" button on scroll
-				$(window).scroll(function() {
-					toggleBackToTopButton();
-				});
-			
-				// Smooth scroll to top
-				$('#back-to-top').click(function() {
-					$('html, body').animate({ scrollTop: 0 }, 600);
-					return false;
-				});
-			});
-		</script>
-    </body>
+            // Initial check on page load
+            toggleBackToTopButton();
+
+
+            // Show or hide the "Back to Top" button on scroll
+            $(window).scroll(function() {
+                toggleBackToTopButton();
+            });
+
+            // Smooth scroll to top
+            $('#back-to-top').click(function() {
+                $('html, body').animate({
+                    scrollTop: 0
+                }, 600);
+                return false;
+            });
+        });
+    </script>
+</body>
+
 </html>

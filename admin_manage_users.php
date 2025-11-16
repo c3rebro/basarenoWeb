@@ -53,11 +53,13 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
     $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
     $stmt->bind_param("i", $user_id);
     if ($stmt->execute()) {
-        $message_type = 'success';
-        $message = "Benutzer erfolgreich gelöscht.";
+        echo json_encode([
+            'success' => true,
+            'message' => 'Benutzer erfolgreich gelöscht.',
+            'user_id' => $user_id
+        ]);
     } else {
-        $message_type = 'danger';
-        $message = "Fehler beim Löschen des Benutzers: " . $conn->error;
+        echo json_encode(['success' => false, 'message' => 'Fehler beim Löschen des Benutzers: ' . $conn->error]);
     }
 }
 
@@ -77,6 +79,32 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
         echo json_encode(['success' => false, 'message' => 'Fehler beim Aktualisieren des Passworts: ' . $conn->error]);
     }
     exit; // Ensure the script stops executing after the response
+}
+
+// Handle role change
+if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPUT_POST, 'change_role') !== null) {
+    $user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+    $new_role = filter_input(INPUT_POST, 'new_role');
+
+    if (!in_array($new_role, ['admin', 'cashier', 'assistant', 'seller'])) {
+        echo json_encode(['success' => false, 'message' => 'Ungültige Rolle ausgewählt.']);
+        exit;
+    }
+
+    $stmt = $conn->prepare("UPDATE users SET role=? WHERE id=?");
+    $stmt->bind_param("si", $new_role, $user_id);
+    
+    if ($stmt->execute()) {
+        echo json_encode([
+            'success' => true,
+            'message' => 'Benutzerrolle erfolgreich geändert.',
+            'user_id' => $user_id,
+            'new_role' => $new_role
+        ]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Fehler beim Ändern der Rolle: ' . $conn->error]);
+    }
+    exit;
 }
 
 // Fetch users grouped by role
@@ -193,10 +221,10 @@ $conn->close();
             echo '<th>Aktionen</th>';
             echo '</tr>';
             echo '</thead>';
-            echo '<tbody>';
+            echo '<tbody id="collapse' . ucfirst($role_key) . '">';
 
             foreach ($users_by_role[$role_key] as $user) {
-                echo '<tr>';
+                echo '<tr data-user-id="' . htmlspecialchars($user['id'], ENT_QUOTES, 'UTF-8') . '">';
                 echo '<td>' . htmlspecialchars($user['id'], ENT_QUOTES, 'UTF-8') . '</td>';
                 echo '<td>' . htmlspecialchars($user['username'], ENT_QUOTES, 'UTF-8') . '</td>';
                 echo '<td>' . htmlspecialchars($user['role'], ENT_QUOTES, 'UTF-8') . '</td>';
@@ -205,6 +233,7 @@ $conn->close();
                 echo '<option value="">Aktion wählen</option>';
                 echo '<option value="delete">Löschen</option>';
                 echo '<option value="set_password">Passwort setzen</option>';
+                echo '<option value="change_role">Rolle ändern</option>';
                 echo '</select>';
                 echo '<button class="btn btn-primary btn-sm execute-action" data-user-id="' . htmlspecialchars($user['id'], ENT_QUOTES, 'UTF-8') . '">Ausführen</button>';
                 echo '</td>';
@@ -254,6 +283,65 @@ $conn->close();
         </div>
     </div>
     
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="confirmDeleteModal" tabindex="-1" role="dialog" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmDeleteModalLabel">Benutzer löschen</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Bist du sicher, dass du diesen Benutzer löschen möchtest?</p>
+                    <input type="hidden" id="deleteUserId">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Abbrechen</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteButton">Löschen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Role Modal -->
+    <div class="modal fade" id="changeRoleModal" tabindex="-1" role="dialog" aria-labelledby="changeRoleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="changeRoleModalLabel">Rolle ändern</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="changeRoleForm">
+                        <input type="hidden" id="changeRoleUserId" name="user_id">
+                        <div class="form-group">
+                            <label for="newRole">Neue Rolle auswählen:</label>
+                            <select class="form-control" id="newRole" name="new_role" required>
+                                <option value="admin">Admin</option>
+                                <option value="cashier">Kassierer</option>
+                                <option value="assistant">Assistent</option>
+                                <option value="seller">Verkäufer</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Rolle ändern</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div aria-live="polite" aria-atomic="true">
+        <!-- Toasts will be dynamically added here -->
+        <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3">
+            <!-- Toasts will be dynamically added here -->
+        </div>
+    </div>
+
     <?php if (!empty(FOOTER)): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
             <div class="row justify-content-center">
@@ -265,6 +353,7 @@ $conn->close();
             </div>
         </footer>
     <?php endif; ?>
+
     <script src="js/jquery-3.7.1.min.js" nonce="<?php echo $nonce; ?>"></script>
     <script src="js/bootstrap.min.js" nonce="<?php echo $nonce; ?>"></script>
 	<script src="js/utilities.js" nonce="<?php echo $nonce; ?>"></script>
@@ -304,11 +393,11 @@ $conn->close();
                     $('#setPasswordUserId').val(userId);
                     $('#setPasswordModal').modal('show');
                 } else if (action === 'delete') {
-                    if (confirm('Möchten Sie diesen Benutzer wirklich löschen?')) {
-                        $.post('admin_manage_users.php', { delete_user: true, user_id: userId }, function(response) {
-                            location.reload();
-                        });
-                    }
+                    $('#deleteUserId').val(userId);
+                    $('#confirmDeleteModal').modal('show');
+                } else if (action === 'change_role') {
+                    $('#changeRoleUserId').val(userId);
+                    $('#changeRoleModal').modal('show');
                 } else {
                     alert('Bitte wählen Sie eine Aktion aus.');
                 }
@@ -330,18 +419,69 @@ $conn->close();
                     if (response.success) {
                         $('#setPasswordModal').modal('hide');
                         // Display success message
-                        $('#messageContainer').html(
-                            '<div class="alert alert-success alert-dismissible fade show" role="alert">' +
-                            response.message +
-                            '<button type="button" class="close" data-dismiss="alert" aria-label="Close">' +
-                            '<span aria-hidden="true">&times;</span>' +
-                            '</button>' +
-                            '</div>'
-                        );
+                        showToast('Erfolgreich', response.message, 'success', 5000);
                         // Scroll to the top of the page
                         $('html, body').animate({ scrollTop: 0 }, 'slow');
                     } else {
-                        $('#passwordMessage').text(response.message).show();
+                        showToast('Fehler', response.message, 'danger', 5000);
+                    }
+                }, 'json');
+            });
+
+            // Handle role change form submission
+            $('#changeRoleForm').on('submit', function(e) {
+                e.preventDefault();
+                const userId = $('#changeRoleUserId').val();
+                const newRole = $('#newRole').val();
+
+                $.post('admin_manage_users.php', { change_role: true, user_id: userId, new_role: newRole }, function(response) {
+                    if (response.success) {
+                        $('#changeRoleModal').modal('hide');
+                        showToast('Erfolgreich', response.message, 'success');
+                        // Find the user's current row
+                        const userRow = $(`tr[data-user-id="${response.user_id}"]`);
+
+                        // Remove it from its current location
+                        userRow.fadeOut(300, function() {
+                            $(this).remove();
+
+                            // Find the correct role section
+                            const newRoleTableBody = $(`#collapse${response.new_role.charAt(0).toUpperCase() + response.new_role.slice(1)} tbody`);
+
+                            // Append the row to the new role section
+                            newRoleTableBody.append(userRow);
+
+                            // Update the role column
+                            userRow.find('td:nth-child(3)').text(response.new_role);
+
+                            // Show it smoothly
+                            userRow.fadeIn(300);
+                        });
+                        // Scroll to the top of the page
+                        $('html, body').animate({ scrollTop: 0 }, 'slow');
+                    } else {
+                        showToast('Fehler', response.message, 'danger', 5000);
+                    }
+                }, 'json');
+            });
+
+            $('#confirmDeleteButton').on('click', function() {
+                const userId = $('#deleteUserId').val();
+
+                $.post('admin_manage_users.php', { delete_user: true, user_id: userId }, function(response) {
+                    if (response.success) {
+                        $('#confirmDeleteModal').modal('hide');
+
+                        // Remove user row smoothly
+                        $(`tr[data-user-id="${response.user_id}"]`).fadeOut('slow', function() { $(this).remove(); });
+
+                        // Show success toast
+                        showToast('Erfolgreich', response.message, 'success', 5000);
+
+                        // Scroll to the top of the page
+                        $('html, body').animate({ scrollTop: 0 }, 'slow');
+                    } else {
+                        showToast('Fehler', response.message, 'danger', 5000);
                     }
                 }, 'json');
             });

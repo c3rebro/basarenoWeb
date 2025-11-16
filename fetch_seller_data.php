@@ -1,4 +1,5 @@
 <?php
+
 // Start session with secure settings
 session_start([
     'cookie_secure' => true,   // Ensure the session cookie is only sent over HTTPS
@@ -12,7 +13,8 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$n
 
 require_once 'utilities.php';
 
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'assistant' && $_SESSION['role'] !== 'seller')) {
+if (!isset($_SESSION['loggedin']) || !$_SESSION['loggedin'] || 
+    !in_array($_SESSION['role'], ['admin', 'cashier', 'assistant', 'seller'], true)) {
     header("location: login.php");
     exit;
 }
@@ -34,8 +36,8 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'GET') {
         SELECT 
             s.seller_number, 
             s.seller_verified, 
-            b.startDate AS bazaar_date, 
-            b.brokerage, 
+            b.start_date AS bazaar_date, 
+            b.commission, 
             p.id AS product_id, 
             p.name AS product_name, 
             p.size AS product_size, 
@@ -61,7 +63,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'GET') {
                 'seller_number' => $seller_number,
                 'seller_verified' => $row['seller_verified'],
                 'bazaar_date' => $row['bazaar_date'],
-                'brokerage' => $row['brokerage'],
+                'commission' => $row['commission'],
                 'products' => [] // Initialize empty products array
             ];
         }
@@ -82,7 +84,6 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'GET') {
 
     echo json_encode(['success' => true, 'data' => $seller_data]);
 
-    $conn->close();
     exit;
 } else {
     echo json_encode(['success' => false, 'message' => 'Invalid request method.']);

@@ -135,34 +135,32 @@ if ($operationMode === 'offline') {
 }
 
 // Fetch bazaar dates and max_sellers
-$sql = "SELECT id, startDate, startReqDate, max_sellers, mailtxt_reqnewsellerid, mailtxt_reqexistingsellerid FROM bazaar ORDER BY id DESC LIMIT 1";
+$sql = "SELECT id, start_date, start_req_date, max_sellers, mailtxt_reqnewsellerid FROM bazaar ORDER BY id DESC LIMIT 1";
 $result = $conn->query($sql);
 $bazaar = $result->fetch_assoc();
 $alertMessage = "";
 $alertMessage_Type = "";
 
 $currentDate = new DateTime();
-$startReqDate = null;
-$startDate = null;
+$start_req_date = null;
+$start_date = null;
 $canRequestSellerId = false;
 $bazaarOver = true; // Default to bazaar being over
 $maxSellersReached = false;
 $mailtxt_reqnewsellerid = null;
-$mailtxt_reqexistingsellerid = null;
 
 if ($bazaar) {
-    $startReqDate = !empty($bazaar['startReqDate']) ? new DateTime($bazaar['startReqDate']) : null;
-    $startDate = !empty($bazaar['startDate']) ? new DateTime($bazaar['startDate']) : null;
+    $start_req_date = !empty($bazaar['start_req_date']) ? new DateTime($bazaar['start_req_date']) : null;
+    $start_date = !empty($bazaar['start_date']) ? new DateTime($bazaar['start_date']) : null;
     $bazaarId = $bazaar['id'];
     $maxSellers = $bazaar['max_sellers'];
     $mailtxt_reqnewsellerid = $bazaar['mailtxt_reqnewsellerid'];
-    $mailtxt_reqexistingsellerid = $bazaar['mailtxt_reqexistingsellerid'];
     
-    $formattedDate = $startReqDate->format('d.m.Y');
+    $formattedDate = $start_req_date->format('d.m.Y');
 
-    if ($startReqDate && $startDate) {
-        $canRequestSellerId = $currentDate >= $startReqDate && $currentDate <= $startDate;
-        $bazaarOver = $currentDate > $startDate;
+    if ($start_req_date && $start_date) {
+        $canRequestSellerId = $currentDate >= $start_req_date && $currentDate <= $start_date;
+        $bazaarOver = $currentDate > $start_date;
     }
 
     // Check if the max sellers limit has been reached
@@ -216,17 +214,6 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
                         "Passwort",
                         "pwdReqNotSameModal");
 	} else {
-		//New or existing user ?
-/*
-		if ($use_existing_number) {
-		process_existing_number($conn, $email, $consent, $mailtxt_reqexistingsellerid);
-		// Log existing seller number request
-		log_action($conn, 0, "Existing seller number request", "Email: $email");
-		
-		
-	} else {
-		
-		*/
 		if ($existing_seller) {
 			if (!empty($existing_seller['verification_token'])) {
                             show_modal($nonce, 
@@ -305,8 +292,9 @@ $conn->close();
 	<?php include 'navbar.php'; ?> <!-- Include the dynamic navbar -->
 		
 	<div class="container">
-        <h1 class="mt-5">Willkommen</h1>
-        <p class="lead">Verkäufer können hier neue Verkäufernummern anfordern und Artikellisten erstellen.</p>
+        <h1 class="mt-5">Hallo!</h1>
+        <p class="lead">Schalte jetzt Deine Verkäufer-Nummer frei und erstelle Deine Etiketten.</p>
+        <p class="mt-0">Du hast bereits ein Konto? Prima. Oben rechts kannst Du Dich anmelden.</p>
 
         <?php if ($alertMessage): ?>
             <div class="alert alert-<?php echo htmlspecialchars($alertMessage_Type); ?>"><?php echo htmlspecialchars($alertMessage); ?>
@@ -352,7 +340,7 @@ $conn->close();
                         <input type="text" class="form-control" id="zip" value="<?php echo htmlspecialchars($zip); ?>" name="zip">
                     </div>
                     <div class="form-group col-md-8">
-                        <label for="city">Stadt:</label>
+                        <label for="city">Ort:</label>
                         <input type="text" class="form-control" id="city" value="<?php echo htmlspecialchars($city); ?>" name="city">
                     </div>
                 </div>
@@ -421,6 +409,7 @@ $conn->close();
 	<!-- Back to Top Button -->
 	<div id="back-to-top"><i class="fas fa-arrow-up"></i></div>
 	
+    <!-- Footer -->
     <?php if (!empty(FOOTER)): ?>
         <footer class="p-2 bg-light text-center fixed-bottom">
             <div class="row justify-content-center">

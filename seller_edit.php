@@ -12,6 +12,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$n
 require_once 'utilities.php';
 
 $conn = get_db_connection();
+$finishedId = get_most_recent_finished_bazaar($conn);
 
 $message = '';
 $message_type = 'danger'; // Default message type for errors
@@ -54,22 +55,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'edit_sell
     $zip = $conn->real_escape_string($_POST['zip']);
     $city = $conn->real_escape_string($_POST['city']);
 
-    $sql = "UPDATE user_details 
+    $consent_input = $_POST['consent'] ?? null;                  // 'yes' | 'no' | null
+    $new_consent   = $consent_input === 'yes' ? 1 : ($consent_input === 'no' ? 0 : null);
+    
+    if ($new_consent === null) {
+        $sql = "UPDATE user_details 
             SET family_name = ?, given_name = ?, email = ?, phone = ?, street = ?, house_number = ?, zip = ?, city = ?
             WHERE user_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param(
-        "ssssssssi",
-        $family_name,
-        $given_name,
-        $email,
-        $phone,
-        $street,
-        $house_number,
-        $zip,
-        $city,
-        $user_id
-    );
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param(
+            "ssssssssi",
+            $family_name,
+            $given_name,
+            $email,
+            $phone,
+            $street,
+            $house_number,
+            $zip,
+            $city,
+            $user_id
+        );
+    } else {
+        if ($new_consent === 1) {
+            // User is consenting now: persist consent=1 AND clear any scheduled deletion
+            $sql = "UPDATE user_details
+                    SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?,
+                        consent=1, gdpr_pending_deletion_at=NULL
+                    WHERE user_id=?";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param(
+                "ssssssssi",
+                $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $user_id
+            );
+            log_action($conn, $user_id, 'consent_update', 'consent=1');
+        } else {
+            // User declines now: persist consent=0 (we don't set a deletion time here;
+            // the next bazaar creation + notifier will schedule gdpr_pending_deletion_at)
+            $sql = "UPDATE user_details
+                    SET family_name=?, given_name=?, email=?, phone=?, street=?, house_number=?, zip=?, city=?,
+                        consent=0
+                    WHERE user_id=?";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param(
+                "ssssssssi",
+                $family_name, $given_name, $email, $phone, $street, $house_number, $zip, $city, $user_id
+            );
+            log_action($conn, $user_id, 'consent_update', 'consent=0');
+        }
+    }
+
 
     if ($stmt->execute()) {
         $message_type = 'success';
@@ -183,6 +217,11 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
     exit();
 }
 
+// Load the consent row for the user
+$stmt = $conn->prepare("SELECT consent, gdpr_pending_deletion_at FROM user_details WHERE user_id = ?");
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$consentRow = $stmt->get_result()->fetch_assoc();
 
 $sql = "SELECT * 
         FROM user_details
@@ -270,6 +309,34 @@ $conn->close();
                 <div class="form-group col-md-8">
                     <label for="city">Stadt:</label>
                     <input type="text" class="form-control" id="city" name="city" value="<?php echo htmlspecialchars($user_details['city'], ENT_QUOTES, 'UTF-8'); ?>">
+                </div>
+            </div>
+            <?php
+                $consented = isset($consentRow['consent']) ? (int)$consentRow['consent'] : null;
+            ?>
+
+            <?php if ($consented !== 1): ?>
+                <div class="alert alert-danger">
+                    Achtung: Deine personenbezogenen Daten werden zum Start der nächsten Nummernvergabe
+                    gelöscht, sofern Du nicht vorher zustimmst. Du kannst hier Deine Einwilligung erteilen, um die Löschung zu verhindern.
+                </div>
+            <?php endif; ?>
+
+            <div class="form-group">
+                <label for="consent" class="required">Einwilligung zur Datenspeicherung:</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="consent" id="consent_yes" value="yes"
+                        <?php echo $consented === 1 ? 'checked' : ''; ?> required>
+                    <label class="form-check-label" for="consent_yes">
+                        Ja: Ich möchte, dass meine pers. Daten bis zum nächsten Basar gespeichert werden. Meine Etiketten kann ich beim nächsten Basar wiederverwenden.
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="consent" id="consent_no" value="no"
+                        <?php echo $consented === 0 ? 'checked' : ''; ?> required>
+                    <label class="form-check-label" for="consent_no">
+                        Nein: Ich möchte nicht, dass meine pers. Daten gespeichert werden. Wenn ich das nächste Mal am Basar teilnehme, muss ich neue Etiketten erstellen.
+                    </label>
                 </div>
             </div>
             <div class="row">
