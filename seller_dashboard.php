@@ -644,7 +644,15 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
                 let selectedAction = null;
 
                 form.addEventListener('submit', function (e) {
+                    const selectedSellerNumber = form.querySelector('select[name="selected_seller_number"]').value;
                     const action = form.querySelector('select[name="action"]').value;
+
+                    // Guard against missing seller number or action selection.
+                    if (!selectedSellerNumber || !action) {
+                        e.preventDefault();
+                        showToast('Hinweis', 'Bitte wähle eine Verkäufernummer und eine Aktion aus.', 'info');
+                        return;
+                    }
 
                     if (action === 'revoke') {
                         e.preventDefault(); // Prevent form submission
@@ -654,7 +662,6 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
                         e.preventDefault(); // Prevent default form submission
 
                         const csrfToken = form.querySelector('input[name="csrf_token"]').value;
-                        const selectedSellerNumber = form.querySelector('select[name="selected_seller_number"]').value;
 
                         // Perform the AJAX POST request to validate the seller number
                         $.post('validate_seller.php', {
@@ -998,6 +1005,5 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 		</script>
     </body>
 </html>
-
 
 
