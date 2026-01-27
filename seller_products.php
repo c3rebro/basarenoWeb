@@ -86,17 +86,26 @@ if (isset($_SESSION['seller_number']) && $_SESSION['seller_number']) {
 }
 
 if (!isset($_SESSION['bazaar_id']) || $_SESSION['bazaar_id'] === 0) {
-    // If a future bazaar (by req date) exists, pick that to enforce “lockout unless activated”.
-    $nextReqBazaar = get_next_bazaar_by_req($conn);
-    if ($nextReqBazaar) {
-        $_SESSION['bazaar_id'] = $nextReqBazaar;   // lockout target
-    } else {
-        // No future bazaar: keep access open per grace logic
-        $bazaar_id = get_current_bazaar_id($conn); // last finished (<= now + 14d) or next within 14d
+    // Admins should work against the active/registering bazaar to keep scans consistent.
+    if ($role === 'admin') {
+        $bazaar_id = get_active_or_registering_bazaar_id($conn);
         if ($bazaar_id === 0) {
-            $bazaar_id = get_bazaar_id_with_open_registration($conn); // if reg is open
+            $bazaar_id = get_current_bazaar_id($conn);
         }
-        $_SESSION['bazaar_id'] = $bazaar_id;
+        $_SESSION['bazaar_id'] = (int)$bazaar_id;
+    } else {
+        // If a future bazaar (by req date) exists, pick that to enforce “lockout unless activated”.
+        $nextReqBazaar = get_next_bazaar_by_req($conn);
+        if (is_array($nextReqBazaar) && isset($nextReqBazaar['id'])) {
+            $_SESSION['bazaar_id'] = (int)$nextReqBazaar['id'];   // lockout target
+        } else {
+            // No future bazaar: keep access open per grace logic
+            $bazaar_id = get_current_bazaar_id($conn); // last finished (<= now + 14d) or next within 14d
+            if ($bazaar_id === 0) {
+                $bazaar_id = get_bazaar_id_with_open_registration($conn); // if reg is open
+            }
+            $_SESSION['bazaar_id'] = (int)$bazaar_id;
+        }
     }
 
     /*
@@ -266,10 +275,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_acti
             exit;
         }
 
-        // Move selected products to sale
+        // Move selected products to sale and set them to the current bazaar
         $ids = implode(',', array_map('intval', $product_ids));
-        $sql = "UPDATE products SET in_stock = 0 WHERE id IN ($ids)";
-        $conn->query($sql);
+        $sql = "UPDATE products SET in_stock = 0, bazaar_id = ? WHERE id IN ($ids)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $bazaar_id);
+        $stmt->execute();
     } elseif ($action === 'delete') {
         $ids = implode(',', array_map('intval', $product_ids));
         $sql = "DELETE FROM products WHERE id IN ($ids)";
