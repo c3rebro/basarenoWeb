@@ -18,7 +18,7 @@ $conn = get_db_connection();
 $user_id = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
-// **🔐 Apply Rate Limiting (15 requests per 60 seconds)**
+// **🔐 Apply Rate Limiting (90 requests per 60 seconds)**
 if (!rate_limit('fetch_products', 90, 60)) {
     log_action($conn, $user_id, "fetch_products: Rate limit!", "Zu viele Anfragen von: $seller_number");
     echo json_encode(['success' => false, 'message' => 'Immer langsam da.']);
