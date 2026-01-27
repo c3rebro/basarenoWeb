@@ -484,12 +484,12 @@ function validate_product_name($nameRaw) {
     if (preg_match('/[<>]/u', $name)) {
         return [false, null, 'Der eingegebene Artikelname enthält unzulässige Zeichen.'];
     }
-    if ($name === '' || preg_match('/^[\p{L}\p{N}\p{M}\s\.\-_,:;\/\(\)\+\#&@!%\'"]{1,120}$/u', $name) !== 1) {
+    if ($name === '' || preg_match('/^[\p{L}\p{N}\p{M}\s\*\.,;:\-_=\?\+!%\/\\\(\)\[\]&\'"]{1,120}$/u', $name) !== 1) {
         return [false, null, 'Der Artikelname ist ungültig (1–120 Zeichen, nur erlaubte Zeichen).'];
     }
 
-    // Final pass through your generic sanitizer (which should not allow < >)
-    $name = sanitize_input($name);
+    // Final pass through product-specific sanitizer (allows quotes, ampersands, brackets)
+    $name = sanitize_product_input($name);
     return [true, $name, null];
 }
 
@@ -513,11 +513,11 @@ function validate_product_size($sizeRaw) {
     if (preg_match('/[<>]/u', $size)) {
         return [false, null, 'Die eingegebene Größe enthält unzulässige Zeichen.'];
     }
-    if (preg_match('/^[\p{L}\p{N}\s\.\-_,\/]{0,40}$/u', $size) !== 1) {
+    if (preg_match('/^[\p{L}\p{N}\s\*\.,;:\-_=\?\+!%\/\\\(\)\[\]&\'"]{0,40}$/u', $size) !== 1) {
         return [false, null, 'Die Größe ist ungültig (max. 40 Zeichen, nur erlaubte Zeichen).'];
     }
 
-    $size = sanitize_input($size);
+    $size = sanitize_product_input($size);
     return [true, $size, null];
 }
 
@@ -570,6 +570,18 @@ function sanitize_email($email) {
  */
 function sanitize_input($input) {
     $input = preg_replace('/[^\p{L}\p{N} \-\(\)\._@<>]/u', '', $input);
+    $input = trim($input);
+    return $input;
+}
+
+/**
+ * Sanitize product input (name/size) while allowing quotes, ampersands, and brackets.
+ *
+ * @param string $input
+ * @return string
+ */
+function sanitize_product_input($input) {
+    $input = preg_replace('/[^\p{L}\p{N}\p{M}\s\*\.,;:\-_=\?\+!%\/\\\(\)\[\]&\'"]+/u', '', $input);
     $input = trim($input);
     return $input;
 }
