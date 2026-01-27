@@ -673,6 +673,8 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
                             if (response.success) {
                                 showToast('Erfolgreich', response.message, 'success');
                                 refreshSellerData(); // Refresh seller numbers and associated data
+                            } else if (response.require_helper_confirmation) {
+                                $('#helperConfirmationModal').modal('show');
                             } else if (response.info){
                                 showToast('Hinweis', response.message, 'info');
                             } else {
