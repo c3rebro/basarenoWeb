@@ -86,7 +86,7 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
     $user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
     $new_role = filter_input(INPUT_POST, 'new_role');
 
-    if (!in_array($new_role, ['admin', 'cashier', 'assistant', 'seller'])) {
+    if (!in_array($new_role, ['admin', 'cashier', 'assistant', 'supporter', 'seller'])) {
         echo json_encode(['success' => false, 'message' => 'Ungültige Rolle ausgewählt.']);
         exit;
     }
@@ -115,6 +115,7 @@ $users_by_role = [
     'admin' => [],
     'cashier' => [],
     'assistant' => [],
+    'supporter' => [],
     'seller' => []
 ];
 
@@ -183,6 +184,7 @@ $conn->close();
                         <option value="admin">Admin</option>
                         <option value="cashier">Kassierer</option>
                         <option value="assistant">Assistent</option>
+                        <option value="supporter">Supporter</option>
                         <option value="seller">Verkäufer</option>
                     </select>
                 </div>
@@ -197,6 +199,7 @@ $conn->close();
             'admin' => 'Administratoren',
             'cashier' => 'Kassierer',
             'assistant' => 'Assistenten',
+            'supporter' => 'Supporter',
             'seller' => 'Verkäufer'
         ];
 
@@ -324,6 +327,7 @@ $conn->close();
                                 <option value="admin">Admin</option>
                                 <option value="cashier">Kassierer</option>
                                 <option value="assistant">Assistent</option>
+                                <option value="supporter">Supporter</option>
                                 <option value="seller">Verkäufer</option>
                             </select>
                         </div>
