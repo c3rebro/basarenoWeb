@@ -12,7 +12,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$n
 
 require_once 'utilities.php';
 
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'assistant' && $_SESSION['role'] !== 'seller')) {
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'assistant' && $_SESSION['role'] !== 'supporter' && $_SESSION['role'] !== 'seller')) {
     header("location: login.php");
     exit;
 }
@@ -57,6 +57,26 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 
     $alreadyVerified = (int)($row['seller_verified'] ?? 0) === 1;
     $currentBazaar   = (int)($row['current_bazaar'] ?? 0);
+
+    // Count seller numbers and verified seller numbers for this user
+    $sql = "SELECT COUNT(*) AS total_sellers, SUM(seller_verified = 1) AS verified_sellers FROM sellers WHERE user_id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $counts = $stmt->get_result()->fetch_assoc();
+    $verified_sellers = (int)($counts['verified_sellers'] ?? 0);
+
+    $allowed_multiple_roles = ['admin', 'cashier', 'assistant', 'supporter'];
+    $user_role = $_SESSION['role'] ?? '';
+
+    if (!$alreadyVerified && !in_array($user_role, $allowed_multiple_roles, true) && ($verified_sellers + 1) > 1) {
+        echo json_encode([
+            'success' => false,
+            'require_helper_confirmation' => true,
+            'message' => 'Du hast bereits eine aktive Verkäufernummer. Für eine weitere Nummer ist eine Helferanfrage erforderlich.'
+        ]);
+        exit;
+    }
 
     // Always make the two writes (verify + move products) in a single tx
     $conn->begin_transaction();
