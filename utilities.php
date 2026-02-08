@@ -21,6 +21,8 @@ function load_config() {
     if (check_config_exists()) {
         require_once 'config.php';
     }
+
+    require_once 'config.defaults.php';
 }
 
 /**
@@ -70,7 +72,7 @@ function initialize_database_if_needed($conn) {
 function get_db_connection() {
     load_config();
     
-    if (!defined('DB_SERVER')) {
+    if (!defined('DB_SERVER') || DB_SERVER === '' || DB_USERNAME === '' || DB_NAME === '') {
         return null;
     }
 

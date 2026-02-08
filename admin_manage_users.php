@@ -197,10 +197,10 @@ $conn->close();
         <?php
         $roles = [
             'admin' => 'Administratoren',
-            'cashier' => 'Kassierer',
-            'assistant' => 'Assistenten',
-            'supporter' => 'Supporter',
-            'seller' => 'Verkäufer'
+            'cashier' => 'Kassierer (Keine Abrechnung)',
+            'assistant' => 'Assistenten (Nur Korbannahme und Abholung)',
+            'supporter' => 'Supporter (Support während des Basars)',
+            'seller' => 'Verkäufer (Artikel anlegen und bearbeiten)'
         ];
 
         foreach ($roles as $role_key => $role_name) {

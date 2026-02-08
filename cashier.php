@@ -268,32 +268,99 @@ $conn->close();
 		const exactPaymentButton = document.getElementById("exact-payment");
 		const beepAudio = new Audio("assets/beep.wav"); // Path to beep sound
 		const bazaarId = <?php echo (int) $bazaar_id; ?>;
-                const sessionKey = `bazaar_cashier_state_${bazaarId}`;
-                const saved = JSON.parse(localStorage.getItem(sessionKey));
-                const now = Date.now();
-                const maxAgeMs = 1000 * 60 * 60 * 6; // 6 hours
-                
-                let currentGroup = [];
-                let groups = [];
+		const sessionKey = `bazaar_cashier_state_${bazaarId}`;
+		const now = Date.now();
+		const maxAgeMs = 1000 * 60 * 60 * 6; // 6 hours
+
+		let currentGroup = [];
+		let groups = [];
+		let cashierState = {
+			status: "idle", // idle | active | completed
+			checkoutId: null,
+			timestamp: 0,
+			lastActivity: 0,
+			currentGroup: [],
+			groups: []
+		};
 		let scanCooldown = false;
 		let lastScannedCode = null;
 		let isScannerRunning = true;
 		
-                if (
-                        saved &&
-                        Array.isArray(saved.currentGroup) &&
-                        now - (saved.timestamp || 0) < maxAgeMs
-                ) {
-                        currentGroup = saved.currentGroup;
-                        groups = saved.groups || [];
+				const savedRaw = localStorage.getItem(sessionKey);
+				const saved = savedRaw ? JSON.parse(savedRaw) : null;
 
-                        if (currentGroup.length > 0 || groups.length > 0) {
-                                showToast("Wiederhergestellt 🔄", "Vorherige Sitzung geladen.", "info", 3000);
-                        }
-                } else {
-                        // Clean up stale or invalid data
-                        localStorage.removeItem(sessionKey);
-                }
+				function persistCashierState(overrides = {}) {
+					cashierState = {
+						...cashierState,
+						...overrides,
+						timestamp: Date.now(),
+						lastActivity: Date.now()
+					};
+					localStorage.setItem(sessionKey, JSON.stringify(cashierState));
+				}
+
+				function startCheckoutIfNeeded() {
+					if (cashierState.status !== "active") {
+						cashierState.status = "active";
+						cashierState.checkoutId = `checkout_${Date.now()}`;
+					}
+					persistCashierState({
+						status: cashierState.status,
+						checkoutId: cashierState.checkoutId,
+						currentGroup,
+						groups
+					});
+				}
+
+				function completeCheckout() {
+					if (currentGroup.length > 0) {
+						groups.unshift({ products: [...currentGroup] });
+					}
+					currentGroup = [];
+					cashierState.status = "completed";
+					cashierState.checkoutId = null;
+					persistCashierState({
+						status: cashierState.status,
+						checkoutId: cashierState.checkoutId,
+						currentGroup,
+						groups
+					});
+				}
+
+				if (saved && now - (saved.timestamp || 0) < maxAgeMs) {
+					cashierState = {
+						...cashierState,
+						...saved,
+						currentGroup: Array.isArray(saved.currentGroup) ? saved.currentGroup : [],
+						groups: Array.isArray(saved.groups) ? saved.groups : []
+					};
+
+					if (cashierState.status === "active" && cashierState.currentGroup.length > 0) {
+						const restore = confirm("Unvollständiger Kassiervorgang gefunden. Möchten Sie ihn wiederherstellen?");
+						if (restore) {
+							currentGroup = cashierState.currentGroup;
+							groups = cashierState.groups || [];
+							showToast("Wiederhergestellt 🔄", "Vorherige Sitzung geladen.", "info", 3000);
+						} else {
+							currentGroup = [];
+							groups = cashierState.groups || [];
+							cashierState.status = "completed";
+							cashierState.checkoutId = null;
+							persistCashierState({
+								status: cashierState.status,
+								checkoutId: cashierState.checkoutId,
+								currentGroup,
+								groups
+							});
+						}
+					} else {
+						currentGroup = cashierState.currentGroup || [];
+						groups = cashierState.groups || [];
+					}
+				} else {
+					// Clean up stale or invalid data
+					localStorage.removeItem(sessionKey);
+				}
 
 		function stopScanner() {
 			if (isScannerRunning) {
@@ -370,14 +437,16 @@ $conn->close();
 							price: data.product.price,
 							sellerNumber: data.product.sellerNumber,
 						};
+						startCheckoutIfNeeded();
 						currentGroup.push(product);
 						renderCurrentGroup();
 						updateGroupSumPreview();
-                                                localStorage.setItem(sessionKey, JSON.stringify({
-                                                        timestamp: Date.now(),
-                                                        currentGroup,
-                                                        groups
-                                                }));
+						persistCashierState({
+							status: cashierState.status,
+							checkoutId: cashierState.checkoutId,
+							currentGroup,
+							groups
+						});
 						showToast("Erfolgreich ✔️", "Produkt erfolgreich hinzugefügt.", "success", 2000);
 					} else {
 						// Handle errors
@@ -451,13 +520,14 @@ $conn->close();
 								};
 
 								// Add product to current group
+								startCheckoutIfNeeded();
 								currentGroup.push(product);
-								localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
-                                                                localStorage.setItem(sessionKey, JSON.stringify({
-                                                                        timestamp: Date.now(),
-                                                                        currentGroup,
-                                                                        groups
-                                                                }));
+								persistCashierState({
+									status: cashierState.status,
+									checkoutId: cashierState.checkoutId,
+									currentGroup,
+									groups
+								});
 								// Update the table
 								renderScannedProducts();
 								updateGroupSumPreview();
@@ -592,12 +662,12 @@ $conn->close();
 			currentGroup.splice(index, 1);
 
 			// Update localStorage before re-rendering
-			localStorage.setItem("currentGroup", JSON.stringify(currentGroup));
-                        localStorage.setItem(sessionKey, JSON.stringify({
-                                timestamp: Date.now(),
-                                currentGroup,
-                                groups
-                        }));
+			persistCashierState({
+				status: cashierState.status,
+				checkoutId: cashierState.checkoutId,
+				currentGroup,
+				groups
+			});
 			// Send AJAX request to unsell the product
 			const xhr = new XMLHttpRequest();
 			xhr.open("POST", "cashier.php", true); // PHP handler
@@ -674,17 +744,7 @@ $conn->close();
 		
 		function saveCurrentGroup() {
 			if (currentGroup.length > 0) {
-				// Add currentGroup to groups
-				groups.unshift({ products: [...currentGroup] });
-                                localStorage.setItem(sessionKey, JSON.stringify({
-                                        timestamp: Date.now(),
-                                        currentGroup,
-                                        groups
-                                }));
-
-				// Clear currentGroup after update localStorage
-				currentGroup = [];
-				// Update the table
+				completeCheckout();
 				renderScannedProducts();
 			}
 		}
@@ -692,6 +752,27 @@ $conn->close();
 		function updateGroupSumPreview() {
 			const totalSum = calculateSum(currentGroup).toFixed(2);
 			groupSumHeading.textContent = `Summe: €${totalSum}`;
+		}
+
+		const clearAllButton = document.getElementById("clear-all");
+		if (clearAllButton) {
+			clearAllButton.addEventListener("click", function () {
+				if (confirm("Möchten Sie wirklich alle gespeicherten Artikeldaten löschen?")) {
+					currentGroup = [];
+					groups = [];
+					cashierState.status = "completed";
+					cashierState.checkoutId = null;
+					persistCashierState({
+						status: cashierState.status,
+						checkoutId: cashierState.checkoutId,
+						currentGroup,
+						groups
+					});
+					renderScannedProducts();
+					updateGroupSumPreview();
+					showToast("Gelöscht 🗑️", "Alle gespeicherten Daten wurden entfernt.", "warning", 3000);
+				}
+			});
 		}
 
 		abschlussButton.addEventListener("click", function (e) {
@@ -894,17 +975,6 @@ $conn->close();
 		document.addEventListener("DOMContentLoaded", function () {
 			document.documentElement.style.visibility = "visible";
                         
-                        document.getElementById("clear-all").addEventListener("click", function () {
-                                if (confirm("Möchten Sie wirklich alle gespeicherten Artikeldaten löschen?")) {
-                                        localStorage.removeItem(sessionKey);
-                                        currentGroup = [];
-                                        groups = [];
-                                        renderScannedProducts();
-                                        updateGroupSumPreview();
-                                        showToast("Gelöscht 🗑️", "Alle gespeicherten Daten wurden entfernt.", "warning", 3000);
-                                }
-                        });
-
 		});
 	</script>
 </body>

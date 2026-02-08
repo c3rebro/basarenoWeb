@@ -9,7 +9,7 @@ session_start([
 $nonce = base64_encode(random_bytes(16));
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'nonce-$nonce'; img-src 'self' 'nonce-$nonce' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';");
 
-require_once 'utilities.php';
+require_once __DIR__ . '/utilities.php';
 
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'cashier' && $_SESSION['role'] !== 'assistant' && $_SESSION['role'] !== 'seller')) {
     header("location: login.php");
@@ -245,7 +245,7 @@ $stmt->execute();
 $stock_products = $stmt->get_result();
 $stock_products_count = $stock_products->num_rows;
 
-// Handle bulk actions for Stock
+// Handle bulk actions for Stock / Sale
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_action') !== null) {
     if (!validate_csrf_token(filter_input(INPUT_POST, 'csrf_token'))) {
         echo json_encode(['success' => false, 'message' => 'CSRF token validation failed.']);
@@ -281,9 +281,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && filter_input(INPUT_POST, 'bulk_acti
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("i", $bazaar_id);
         $stmt->execute();
-    } elseif ($action === 'delete') {
+    } elseif ($action === 'move_to_stock' && $seller_number) {
+        // Prevent state changes on bazaar start date
+        if ($bazaar_start_date === $current_date) {
+            echo json_encode(['success' => false, 'message' => 'Verschieben nicht möglich: Der Basar läuft bereits.']);
+            exit;
+        }
+
         $ids = implode(',', array_map('intval', $product_ids));
-        $sql = "DELETE FROM products WHERE id IN ($ids)";
+        $sql = "UPDATE products SET in_stock = 1 WHERE seller_number = ? AND id IN ($ids)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $seller_number);
+        $stmt->execute();
+    } elseif ($action === 'delete' || $action === 'delete_sale') {
+        // Prevent deletion on bazaar start date
+        if ($bazaar_start_date === $current_date) {
+            echo json_encode(['success' => false, 'message' => 'Löschen nicht möglich: Der Basar läuft bereits.']);
+            exit;
+        }
+
+        $ids = implode(',', array_map('intval', $product_ids));
+        $sql = "DELETE FROM products WHERE seller_number = " . (int)$seller_number . " AND id IN ($ids)";
         $conn->query($sql);
     }
 
@@ -317,8 +335,8 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST' && filter_input(INPU
         exit;
     }
 
-    $name = filter_input(INPUT_POST, 'name');
-    $size = filter_input(INPUT_POST, 'size');
+    $name = stripslashes((string) filter_input(INPUT_POST, 'name'));
+    $size = stripslashes((string) filter_input(INPUT_POST, 'size'));
     $price = normalize_price($_POST['price'] ?? '0');
 
     $rules = get_bazaar_pricing_rules($conn, $bazaar_id);
@@ -418,9 +436,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && filter_input(INPUT_POST, 'update_pr
         exit;
     }
 
-    $product_id = $conn->real_escape_string($_POST['product_id']);
-    $name = $conn->real_escape_string($_POST['name']);
-    $size = $conn->real_escape_string($_POST['size']);
+    $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
+    $name = stripslashes((string) ($_POST['name'] ?? ''));
+    $size = stripslashes((string) ($_POST['size'] ?? ''));
+
+    if (!$product_id) {
+        echo json_encode(['success' => false, 'message' => 'Ungültige Artikel-ID.']);
+        exit;
+    }
     
     list($okName, $name, $nameErr) = validate_product_name($name);
     if (!$okName) {
@@ -749,12 +772,15 @@ $conn->close();
             <div class="card-header card-header-sale-products">Deine aktiven Artikel (Anzahl: <?php echo htmlspecialchars($active_products_count); ?>) </div>
             <div class="card-body">
                 <h6 class="card-subtitle mb-2 text-muted">
-                    Nur die aktiven Artikel dürfen zum Basar mitgebracht werden.
+                    <strong>Bitte unbedingt beachten:</strong>Nur die <strong>hier angezeigten, aktiven Artikel</strong> dürfen zum Basar mitgebracht werden. Alle anderen Artikel befinden sich im Lager und können nicht gescannt und verkauft werden.
                 </h6>
                 <div class="table-responsive">
                     <table id="productTable" class="table table-bordered mt-3">
                         <thead>
                             <tr>
+                                <th>
+                                    <input type="checkbox" id="selectAllSale" title="Alle auswählen">
+                                </th>
                                 <th>Artikelname</th>
                                 <th>Gr.</th>
                                 <th>Preis</th>
@@ -770,6 +796,9 @@ $conn->close();
                                     $formatted_price = number_format($row['price'], 2, ',', '.') . ' €';
                                     $total_price += $row['price']; // Accumulate total price
                                     echo "<tr>
+                                            <td>
+                                                <input type='checkbox' class='bulk-select-sale' value='" . htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') . "'>
+                                            </td>
                                             <td>{$row['name']}</td>
                                             <td>{$row['size']}</td>
                                             <td class='product-price' data-price='{$row['price']}'>{$formatted_price}</td>
@@ -787,19 +816,25 @@ $conn->close();
 
                                 // Append the footer row
                                 echo "<tr class='table-info'>
-                                        <td colspan='2'><strong>Summe:</strong></td>
+                                        <td colspan='3'><strong>Summe:</strong></td>
                                         <td id='totalPrice' data-total='{$total_price}'><strong>" . number_format($total_price, 2, ',', '.') . " €</strong></td>
                                         <td></td>
                                     </tr>";
                             } else {
-                                echo "<tr><td colspan='4'>Keine Artikel gefunden.</td></tr>";
+                                echo "<tr><td colspan='5'>Keine Artikel gefunden.</td></tr>";
                             }
                             ?>
                         </tbody>
                     </table>
 
-                    <button class="btn btn-danger deleteAllProductsBtn" data-action="delete_all_products">Alle Artikel löschen</button>
-					<button class="btn btn-warning ml-2 moveAllToStockBtn" data-action="move_all_to_stock">Alle Artikel ins Lager verschieben</button>
+                    <div class="row">
+                        <div class="col-sm-12 col-md-6 mt-3">
+                            <button type="button" class="btn btn-warning w-100 bulk-move-to-stock">Ausgewählte Artikel ins Lager verschieben</button>
+                        </div>
+                        <div class="col-sm-12 col-md-6 mt-3">
+                            <button type="button" class="btn btn-danger w-100 bulk-delete-sale">Ausgewählte Artikel löschen</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -809,7 +844,7 @@ $conn->close();
             <div class="card-header card-header-stock-products">Deine Aktikel im Lager (Anzahl: <?php echo htmlspecialchars($stock_products_count); ?>) </div>
             <div class="card-body">
                 <h6 class="card-subtitle mb-2 text-muted">
-                    Dein Lager nimmt nach Ende des Basars automatisch alle unverkauften Artikel auf. Beim nächsten Basar können diese Artikel dem neuen Basar wieder hinzugefügt werden.
+                    Dein Lager kann nach Ende des Basars alle unverkauften Artikel aufnehmen. Der Zweck ist die Trennung von Sommer und Winterartikeln. Beim nächsten Basar können diese Artikel dem neuen Basar manuell wieder hinzugefügt werden.
                 </h6>
 
                 <?php if (!empty($stock_products)): ?>
@@ -1199,12 +1234,25 @@ $conn->close();
             });
 
 
-            document.getElementById('selectAllStock').addEventListener('change', function() {
-                const isChecked = this.checked; // Get the state of the "Select All" checkbox
-                document.querySelectorAll('.bulk-select-stock').forEach(checkbox => {
-                    checkbox.checked = isChecked; // Set all checkboxes below to match the "Select All" state
+            const selectAllSale = document.getElementById('selectAllSale');
+            if (selectAllSale) {
+                selectAllSale.addEventListener('change', function() {
+                    const isChecked = this.checked;
+                    document.querySelectorAll('.bulk-select-sale').forEach(checkbox => {
+                        checkbox.checked = isChecked;
+                    });
                 });
-            });
+            }
+
+            const selectAllStock = document.getElementById('selectAllStock');
+            if (selectAllStock) {
+                selectAllStock.addEventListener('change', function() {
+                    const isChecked = this.checked; // Get the state of the "Select All" checkbox
+                    document.querySelectorAll('.bulk-select-stock').forEach(checkbox => {
+                        checkbox.checked = isChecked; // Set all checkboxes below to match the "Select All" state
+                    });
+                });
+            }
         });
     </script>
 
@@ -1216,9 +1264,9 @@ $conn->close();
             if (action === 'edit') {
                 // Open the edit modal with pre-filled data
                 const row = $(this).closest('tr');
-                const name = row.find('td:nth-child(1)').text();
-                const size = row.find('td:nth-child(2)').text();
-                const price = parseFloat(row.find('td:nth-child(3)').text().replace(',', '.'));
+                const name = row.find('td:nth-child(2)').text();
+                const size = row.find('td:nth-child(3)').text();
+                const price = parseFloat(row.find('td:nth-child(4)').text().replace(',', '.'));
                 editProduct(productId, name, size, price);
             } else if (action === 'delete') {
                 // Show the Bootstrap modal
@@ -1308,100 +1356,69 @@ $conn->close();
             }
         });
 
-		// Show "move all" modal (same style as deletion)
-		$(document).on('click', '.moveAllToStockBtn', function () {
-		  $('#moveAllConfirmationModal').modal('show');
-		});
+        $('.bulk-move-to-stock').on('click', function() {
+            const selectedProducts = Array.from(document.querySelectorAll('.bulk-select-sale:checked'))
+                .map(checkbox => checkbox.value);
 
-		// Confirm button -> perform action
-		$('#confirmMoveAllButton').off('click').on('click', function () {
-		  $.post('seller_products.php', {
-			  move_all_to_stock: 1,
-			  seller_number: sellerNumber,
-			  csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>'
-			})
-			.done(function (response) {
-			  const data = typeof response === 'string' ? JSON.parse(response) : response;
-			  if (data.success) {
-				refreshProductTable(sellerNumber)
-				  .then(() => updateTotalPrice())
-				  .then(() => refreshStockTable())
-				  .then(() => {
-					const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
-					document.querySelector('.card-header-stock-products').textContent =
-					  `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
-					showToast('Erfolgreich', data.message || 'Alle aktiven Artikel wurden ins Lager verschoben.', 'success');
-					$('#moveAllConfirmationModal').modal('hide');
-				  })
-				  .catch(() => showToast('Fehler', 'Fehler beim Aktualisieren der Tabellen.', 'danger'));
-			  } else {
-				showToast('Fehler', data.message || 'Fehler beim Verschieben.', 'danger');
-			  }
-			})
-			.fail(() => showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger'));
-		});
-
-        $(document).on('click', '.deleteAllProductsBtn', function() {
-            if ($(this).data('action') === 'delete_all_products') {
-                // Show the Bootstrap modal
-                $('#deleteAllConfirmationModal').modal('show');
-
-                // Handle the confirm delete button click
-                $('#confirmDeleteAllButton').off('click').on('click', function() {
-
-                    // Send the delete request via AJAX
-                    // Send delete request
-                    // Create form data
-                    const formData = new FormData();
-                    formData.append('csrf_token', '<?php echo htmlspecialchars(generate_csrf_token()); ?>');
-                    formData.append('delete_all_products', '1'); // To match the backend check
-                    formData.append('seller_number', sellerNumber);
-
-                    // Send delete request
-                    fetch('seller_products.php', {
-                            method: 'POST',
-                            body: formData,
-                        })
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error('Network response was not ok');
-                            }
-                            return response.json(); // Parse JSON
-                        })
-                        .then(data => {
-                            if (data.success) {
-                                // Refresh the table using the reusable function
-                                refreshProductTable(sellerNumber)
-                                    .then(() => updateTotalPrice()) // Update total price after refresh
-                                    .then(data => {
-                                        // Safely handle cases where data.data is undefined or empty
-                                        const activeProductCount = document.querySelectorAll('#productTable tbody tr').length;
-                                        const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
-
-                                        // Update the active products count dynamically
-                                        // document.querySelector('.card-header-sale-products').textContent = `Deine aktiven Artikel (Anzahl: ${activeProductCount})`;
-                                        // document.querySelector('.card-header-remaining').textContent = `Neuen Artikel erstellen (max. ${maxProdPerSellers} noch: ${maxProdPerSellers - activeProductCount} möglich)`;
-                                        document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
-                                        // Show success notification
-                                        showToast('Erfolgreich', 'Alle Artikel wurden erfolgreich gelöscht.', 'success');
-
-                                        // Hide the confirmation modal
-                                        $('#deleteAllConfirmationModal').modal('hide');
-                                    })
-                                    .catch(() => {
-                                        showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error');
-                                    });
-                            } else {
-                                // Show error notification
-                                showToast('Fehler', 'Fehler beim Löschen der Artikel.', 'danger');
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                            showToast('Fehler', 'Es gab ein Problem beim Löschen der Artikel.', 'danger');
-                        });
-                });
+            if (selectedProducts.length === 0) {
+                showToast('Hinweis', 'Bitte wähle mindestens einen Artikel aus.', 'warning');
+                return;
             }
+
+            $.post('seller_products.php', {
+                    bulk_action: 'move_to_stock',
+                    product_ids: selectedProducts,
+                    seller_number: sellerNumber,
+                    csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>',
+                })
+                .done(function(response) {
+                    const data = typeof response === 'string' ? JSON.parse(response) : response;
+                    if (data.success) {
+                        refreshProductTable(sellerNumber)
+                            .then(() => updateTotalPrice())
+                            .then(() => refreshStockTable())
+                            .then(() => {
+                                const stockProductCount = document.querySelectorAll('#stockTable tbody tr').length;
+                                document.querySelector('.card-header-stock-products').textContent = `Deine Aktikel im Lager (Anzahl: ${stockProductCount})`;
+                                showToast('Erfolgreich', 'Die ausgewählten Artikel wurden ins Lager verschoben.', 'success');
+                            })
+                            .catch(() => showToast('Fehler', 'Fehler beim Aktualisieren der Tabellen.', 'danger'));
+                    } else {
+                        showToast('Fehler', data.message || 'Fehler beim Verschieben.', 'danger');
+                    }
+                })
+                .fail(() => showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger'));
+        });
+
+        $('.bulk-delete-sale').on('click', function() {
+            const selectedProducts = Array.from(document.querySelectorAll('.bulk-select-sale:checked'))
+                .map(checkbox => checkbox.value);
+
+            if (selectedProducts.length === 0) {
+                showToast('Hinweis', 'Bitte wähle mindestens einen Artikel aus.', 'warning');
+                return;
+            }
+
+            $.post('seller_products.php', {
+                    bulk_action: 'delete_sale',
+                    product_ids: selectedProducts,
+                    seller_number: sellerNumber,
+                    csrf_token: '<?php echo htmlspecialchars(generate_csrf_token()); ?>',
+                })
+                .done(function(response) {
+                    const data = typeof response === 'string' ? JSON.parse(response) : response;
+                    if (data.success) {
+                        refreshProductTable(sellerNumber)
+                            .then(() => updateTotalPrice())
+                            .then(() => {
+                                showToast('Erfolgreich', 'Die ausgewählten Artikel wurden gelöscht.', 'success');
+                            })
+                            .catch(() => showToast('Fehler', 'Fehler beim Aktualisieren der Tabelle.', 'error'));
+                    } else {
+                        showToast('Fehler', data.message || 'Die Artikel konnten nicht gelöscht werden.', 'danger');
+                    }
+                })
+                .fail(() => showToast('Fehler', 'Fehler beim Senden der Anfrage.', 'danger'));
         });
 
         $('#createProductForm').on('submit', function(e) {

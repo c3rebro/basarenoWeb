@@ -31,7 +31,7 @@ $username = $_SESSION['username'] ?? '';
 if (filter_input(INPUT_GET, 'missing_fees') !== null) {
     header('Content-Type: application/json');
 
-    $sql = "SELECT COUNT(*) as count FROM sellers WHERE fee_payed = FALSE";
+    $sql = "SELECT COUNT(*) as count FROM sellers WHERE fee_payed = FALSE AND seller_verified = 1";
     $stmt = $conn->prepare($sql);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -53,7 +53,7 @@ if (filter_input(INPUT_GET, 'fetch_missing_fees') !== null) {
             ud.email
         FROM sellers s
         INNER JOIN user_details ud ON s.user_id = ud.user_id
-        WHERE s.fee_payed = FALSE";
+        WHERE s.fee_payed = FALSE AND s.seller_verified = 1";
 
     $stmt = $conn->prepare($sql);
     $stmt->execute();
@@ -299,7 +299,6 @@ $conn->close();
                                     <tr>
                                         <td>${seller.seller_number}</td>
                                         <td>${seller.family_name}</td>
-                                        <td>${seller.given_name}</td>
                                         <td>${seller.given_name}</td>
                                         <td>${seller.email}</td>
                                     </tr>

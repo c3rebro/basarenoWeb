@@ -66,7 +66,10 @@ function refreshProductTable(sellerNumber) {
                 tableBody.innerHTML = ''; // Clear current table rows
 
                 // Filter the products to include only those where in_stock = 0
-                const productsForSale = data.data.filter(product => product.in_stock === 0);
+                const productsForSale = data.data.filter(product => Number(product.in_stock) === 0);
+
+                const saleHeaderColumnCount = document.querySelectorAll('#productTable thead th').length || 5;
+                const saleTotalLabelColspan = Math.max(saleHeaderColumnCount - 2, 1);
 
                 let totalPrice = 0; // Initialize total price
 
@@ -77,6 +80,9 @@ function refreshProductTable(sellerNumber) {
 
                         const row = `
                             <tr class="product-row">
+                                <td>
+                                    <input type="checkbox" class="bulk-select-sale" value="${product.id}">
+                                </td>
                                 <td>${esc(product.name)}</td>
                                 <td>${esc(product.size)}</td>
                                 <td class="product-price" data-price="${esc(product.price)}">${formattedPrice}</td>
@@ -84,7 +90,7 @@ function refreshProductTable(sellerNumber) {
                                     <select class="form-control action-dropdown" data-product-id="${product.id}">
                                         <option value="">Aktion wählen</option>
                                         <option value="edit">Bearbeiten</option>
-                                        <option value="stock">Ins Lager legen</option>
+                                        <option value="stock">Ins Lager verschieben</option>
                                         <option value="delete">Löschen</option>
                                     </select>
                                     <button class="btn btn-primary btn-sm execute-action" data-product-id="${product.id}">Ausführen</button>
@@ -96,13 +102,13 @@ function refreshProductTable(sellerNumber) {
                     // Append the total price row at the bottom
                     const totalRow = `
                         <tr class="table-info total-price-row">
-                            <td colspan="2"><strong>Gesamtpreis:</strong></td>
+                            <td colspan="${saleTotalLabelColspan}"><strong>Gesamtpreis:</strong></td>
                             <td id="totalPrice" data-total="${totalPrice}"><strong>${totalPrice.toFixed(2).replace('.', ',')} €</strong></td>
                             <td></td>
                         </tr>`;
                     tableBody.insertAdjacentHTML('beforeend', totalRow);
                 } else {
-                    tableBody.innerHTML = `<tr><td colspan="5">Keine Artikel gefunden.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="${saleHeaderColumnCount}">Keine Artikel gefunden.</td></tr>`;
                 }
 
                 // ✅ Fix: Update the header count WITHOUT the total row
@@ -134,7 +140,9 @@ function refreshStockTable() {
                 tableBody.innerHTML = ''; // Clear current table rows
 
                 // Filter the products to include only those in stock
-                const stockProducts = Array.isArray(data.data) ? data.data.filter(product => product.in_stock === 1) : [];
+                const stockProducts = Array.isArray(data.data) ? data.data.filter(product => Number(product.in_stock) === 1) : [];
+
+                const stockHeaderColumnCount = document.querySelectorAll('#stockTable thead th').length || 4;
 
                 if (stockProducts.length > 0) {
                     stockProducts.forEach(product => {
@@ -151,7 +159,7 @@ function refreshStockTable() {
                         tableBody.insertAdjacentHTML('beforeend', row);
                     });
                 } else {
-                    tableBody.innerHTML = `<tr><td colspan="4">Keine Artikel im Lager.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="${stockHeaderColumnCount}">Keine Artikel im Lager.</td></tr>`;
                 }
 
                 // Update the stock products count dynamically

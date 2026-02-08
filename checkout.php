@@ -400,6 +400,17 @@ $conn->close();
         <form action="checkout.php" method="post">
 			<input type="hidden" name="seller_number" id="hiddenSellerNumber" value="<?php echo htmlspecialchars($seller_number); ?>">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generate_csrf_token()); ?>">
+            <hr/>
+            <h4 class="provision">Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h4>
+			<h4 class="provision">Provision: <?php echo number_format($total_commission, 2, ',', '.'); ?> € (gerundet)</h4>
+			<h4>Auszahlungsbetrag: <?php echo number_format($final_payout, 2, ',', '.'); ?> € (abzgl. Provision)</h4>
+            <hr/>
+            <button type="button" class="btn btn-primary btn-block no-print checkout-action" data-action="notify_seller">Abrechnen und Verkäufer benachrichtigen</button>
+			<button type="button" id="printWithcommission" class="btn btn-secondary btn-block mt-3 no-print checkout-action" data-action="print_with_commission">Abrechnen und Drucken (mit Provision)</button>
+			<button type="button" id="printWithoutcommission" class="btn btn-secondary btn-block mt-3 no-print checkout-action" data-action="print_without_commission">Abrechnen und Drucken (ohne Provision)</button>
+             <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3 mb-5 no-print">Zurück zu Verkäufer verwalten</a>
+            <hr/>
+            <h4>Verkaufte Produkte:</h4>
             <div class="table-responsive">
                 <table class="table table-bordered mt-3">
                     <thead>
@@ -447,14 +458,7 @@ $conn->close();
                     </tfoot>
                 </table>
             </div>
-			<h4 class="provision">Gesamt: <?php echo number_format($total, 2, ',', '.'); ?> €</h4>
-			<h4 class="provision">Provision: <?php echo number_format($total_commission, 2, ',', '.'); ?> € (gerundet)</h4>
-			<h4>Auszahlungsbetrag: <?php echo number_format($final_payout, 2, ',', '.'); ?> € (abzgl. Provision)</h4>
-            <button type="button" class="btn btn-primary btn-block no-print checkout-action" data-action="notify_seller">Abrechnen und Verkäufer benachrichtigen</button>
-			<button type="button" id="printWithcommission" class="btn btn-secondary btn-block mt-3 no-print checkout-action" data-action="print_with_commission">Abrechnen und Drucken (mit Provision)</button>
-			<button type="button" id="printWithoutcommission" class="btn btn-secondary btn-block mt-3 no-print checkout-action" data-action="print_without_commission">Abrechnen und Drucken (ohne Provision)</button>
         </form>
-        <a href="admin_manage_sellers.php" class="btn btn-primary btn-block mt-3 mb-5 no-print">Zurück zu Verkäufer verwalten</a>
     </div>
 	
 	<!-- Toast Container -->

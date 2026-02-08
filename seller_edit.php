@@ -307,7 +307,7 @@ $conn->close();
                     <input type="text" class="form-control" id="zip" name="zip" value="<?php echo htmlspecialchars($user_details['zip'], ENT_QUOTES, 'UTF-8'); ?>">
                 </div>
                 <div class="form-group col-md-8">
-                    <label for="city">Stadt:</label>
+                    <label for="city">Ort:</label>
                     <input type="text" class="form-control" id="city" name="city" value="<?php echo htmlspecialchars($user_details['city'], ENT_QUOTES, 'UTF-8'); ?>">
                 </div>
             </div>

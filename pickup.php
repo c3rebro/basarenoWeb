@@ -71,7 +71,7 @@ $csrf_token = generate_csrf_token();
 if (filter_input(INPUT_GET, 'missing_signatures') !== null) {
     header('Content-Type: application/json');
 
-    $sql = "SELECT COUNT(*) as count FROM sellers WHERE signature IS NULL";
+    $sql = "SELECT COUNT(*) as count FROM sellers WHERE signature IS NULL AND seller_verified = 1";
     $stmt = $conn->prepare($sql);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -93,7 +93,7 @@ if (filter_input(INPUT_GET, 'fetch_missing_sellers') !== null) {
             ud.email
         FROM sellers s
         INNER JOIN user_details ud ON s.user_id = ud.user_id
-        WHERE s.signature IS NULL";
+        WHERE s.signature IS NULL AND s.seller_verified = 1";
 
     $stmt = $conn->prepare($sql);
     $stmt->execute();
@@ -114,20 +114,20 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'GET') {
         header('Content-Type: application/json');
         $search_term = '%' . trim($_GET['search_term']) . '%';
         $sql = "
-			SELECT 
-				s.seller_number,
-				s.signature,
-				ud.family_name,
-				ud.given_name,
-				ud.email
-			FROM 
-				sellers s
-			INNER JOIN 
-				user_details ud
-			ON 
-				s.user_id = ud.user_id
-			WHERE 
-				s.seller_number LIKE ? OR ud.family_name LIKE ? OR ud.given_name LIKE ?";
+            SELECT 
+                s.seller_number,
+                s.signature,
+                ud.family_name,
+                ud.given_name,
+                ud.email
+            FROM 
+                sellers s
+            INNER JOIN 
+                user_details ud
+            ON 
+                s.user_id = ud.user_id
+            WHERE 
+                s.seller_verified = 1 AND (s.seller_number LIKE ? OR ud.family_name LIKE ? OR ud.given_name LIKE ?)";
 
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sss", $search_term, $search_term, $search_term);
@@ -209,10 +209,11 @@ $sql = "
     INNER JOIN 
         user_details ud
     ON 
-        s.user_id = ud.user_id";
+        s.user_id = ud.user_id
+    WHERE s.seller_verified = 1";
 
 if ($search_term) {
-    $sql .= " WHERE s.seller_number LIKE ?";
+    $sql .= " AND s.seller_number LIKE ?";
     $stmt = $conn->prepare($sql);
     $search_like = "%" . $search_term . "%";
     $stmt->bind_param("s", $search_like);
@@ -255,6 +256,7 @@ function round_to_nearest($value, $increment)
         document.getElementById('style-css').rel = 'stylesheet';
     </script>
     <script src="js/signature_pad.min.js" nonce="<?php echo $nonce; ?>"></script>
+    <script src="js/utilities.js" nonce="<?php echo $nonce; ?>"></script>
     <script nonce="<?php echo $nonce; ?>">
         const commissionRate = <?php echo (!empty($commission)) ? floatval($commission) : '0'; ?>;
     </script>
@@ -561,12 +563,12 @@ function round_to_nearest($value, $increment)
             // Save signature
             $('#save-signature').on('click', function() {
                 if (!currentSellerNumber) {
-                    alert('Kein Verkäufer ausgewählt.');
+                    showToast('Fehler ❌', 'Kein Verkäufer ausgewählt.', 'danger', 3000);
                     return;
                 }
 
                 if (signaturePad.isEmpty()) {
-                    alert('Bitte unterschreiben Sie im Feld.');
+                    showToast('Hinweis', 'Bitte unterschreiben Sie im Feld.', 'warning', 3000);
                     return;
                 }
 
@@ -583,15 +585,15 @@ function round_to_nearest($value, $increment)
                     }),
                     success: function(response) {
                         if (response.success) {
-                            alert('Unterschrift erfolgreich gespeichert.');
-                            location.reload();
+                            showToast('Erfolgreich ✔️', 'Unterschrift erfolgreich gespeichert.', 'success', 3000);
+                            setTimeout(() => location.reload(), 600);
                         } else {
-                            alert('Fehler: ' + response.message);
+                            showToast('Fehler ❌', response.message || 'Fehler beim Speichern der Unterschrift.', 'danger', 3000);
                         }
                     },
                     error: function(xhr, status, error) {
                         console.error('Error saving signature:', error);
-                        alert('Es ist ein Fehler beim Speichern der Unterschrift aufgetreten.');
+                        showToast('Fehler ❌', 'Es ist ein Fehler beim Speichern der Unterschrift aufgetreten.', 'danger', 3000);
                     }
                 });
             });
