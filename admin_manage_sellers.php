@@ -273,7 +273,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
     $house_number = htmlspecialchars($_POST['house_number'], ENT_QUOTES, 'UTF-8');
     $zip = htmlspecialchars($_POST['zip'], ENT_QUOTES, 'UTF-8');
     $city = htmlspecialchars($_POST['city'], ENT_QUOTES, 'UTF-8');
-    $verified = isset($_POST['verified']) ? 1 : 0;
+    // seller_verified controls whether the seller number is currently active.
+    $seller_verified = filter_input(INPUT_POST, 'seller_verified', FILTER_VALIDATE_INT);
+    $seller_verified = ($seller_verified === 1) ? 1 : 0;
 
     if (empty($family_name) || empty($email) || empty($user_id)) {
         $message_type = 'danger';
@@ -293,16 +295,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
             $stmt = $conn->prepare("
                 UPDATE user_details 
                 SET family_name = ?, given_name = ?, email = ?, phone = ?, 
-                    street = ?, house_number = ?, zip = ?, city = ?, verified = ?
+                    street = ?, house_number = ?, zip = ?, city = ?
                 WHERE user_id = ?
             ");
-            $stmt->bind_param("ssssssssii", $family_name, $given_name, $email, $phone, 
-                              $street, $house_number, $zip, $city, $verified, $user_id);
+            $stmt->bind_param("ssssssssi", $family_name, $given_name, $email, $phone, 
+                              $street, $house_number, $zip, $city, $user_id);
 
             if ($stmt->execute()) {
-                $message_type = 'success';
-                $message = "Verkäufer erfolgreich aktualisiert.";
-                log_action($conn, $user_id, "Seller updated", "UserID=$user_id, Name=$family_name, Email=$email, Verified=$verified");
+                $seller_stmt = $conn->prepare("UPDATE sellers SET seller_verified = ? WHERE seller_number = ?");
+                $seller_stmt->bind_param("ii", $seller_verified, $seller_number);
+
+                if ($seller_stmt->execute()) {
+                    $message_type = 'success';
+                    $message = "Verkäufer erfolgreich aktualisiert.";
+                    log_action($conn, $user_id, "Seller updated", "UserID=$user_id, SellerNumber=$seller_number, Name=$family_name, Email=$email, SellerVerified=$seller_verified");
+                } else {
+                    $message_type = 'danger';
+                    $message = "Fehler beim Aktualisieren des Verkäuferstatus: " . $conn->error;
+                    log_action($conn, $user_id, "Error updating seller status", $conn->error);
+                }
             } else {
                 $message_type = 'danger';
                 $message = "Fehler beim Aktualisieren der Verkäuferdaten: " . $conn->error;
@@ -562,7 +573,6 @@ $sql = "
         u.id AS user_id,
         u.username,
         u.role,
-        u.user_verified,
         ud.family_name,
         ud.given_name,
         ud.email,
@@ -572,6 +582,7 @@ $sql = "
         ud.zip,
         ud.city,
         s.seller_number,
+        s.seller_verified,
         s.fee_payed,
         s.checkout,
         s.checkout_id
@@ -804,7 +815,7 @@ $conn->close();
                         <th>Nachname</th>
                         <th>Vorname</th>
                         <th>E-Mail</th>
-                        <th>Verifiziert</th>
+                        <th>Verkäufernummer aktiv</th>
                         <th class="hidden">Telefon</th> <!-- Hidden Column -->
                         <th class="hidden">Straße</th> <!-- Hidden Column -->
                         <th class="hidden">Nr.</th> <!-- Hidden Column -->
@@ -823,7 +834,7 @@ $conn->close();
                                                             <td>" . htmlspecialchars($row['family_name'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td>" . htmlspecialchars($row['given_name'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td>" . htmlspecialchars($row['email'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
-                                                            <td>" . ($row['user_verified'] ? 'Ja' : 'Nein') . "</td>
+                                                            <td>" . ((int)($row['seller_verified'] ?? 0) === 1 ? 'Ja' : 'Nein') . "</td>
                                                             <td class='hidden'>" . htmlspecialchars($row['phone'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td class='hidden'>" . htmlspecialchars($row['street'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
                                                             <td class='hidden'>" . htmlspecialchars($row['house_number'] ?? '.', ENT_QUOTES, 'UTF-8') . "</td>
@@ -838,7 +849,7 @@ $conn->close();
                                                                             <option value='show_products'>Produkte anzeigen</option>
                                                                             <option value='create_products'>Produkte erstellen</option>
                                                                     </select>
-                                                                    <button class='btn btn-primary btn-sm execute-action' data-seller-id='" . htmlspecialchars($row['seller_number'] ?? 0, ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
+                                                                    <button class='btn btn-primary btn-sm execute-action' data-seller-id='" . htmlspecialchars($row['seller_number'] ?? 0, ENT_QUOTES, 'UTF-8') . "' data-user-id='" . htmlspecialchars($row['user_id'] ?? 0, ENT_QUOTES, 'UTF-8') . "'>Ausführen</button>
                                                             </td>
                                                       </tr>";
                                             echo "<tr class='hidden' id='seller-products-{$row['seller_number']}'>
@@ -1007,8 +1018,11 @@ $conn->close();
                             <input type="text" class="form-control" id="editSellerCity" name="city">
                         </div>
                         <div class="form-group">
-                            <label for="editSellerVerified">Verifiziert:</label>
-                            <input type="checkbox" class="form-control" id="editSellerVerified" name="verified">
+                            <label for="editSellerVerified">Verkäufernummer aktiv:</label>
+                            <select class="form-control" id="editSellerVerified" name="seller_verified">
+                                <option value="1">Ja</option>
+                                <option value="0">Nein</option>
+                            </select>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1186,8 +1200,9 @@ $conn->close();
 
     <script nonce="<?php echo $nonce; ?>">
 		//function to edit the seller will open a modal
-        function editSeller(id, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
+        function editSeller(id, userId, family_name, given_name, email, phone, street, house_number, zip, city, verified) {
 			$('#editSellerId').val(id);
+			$('#editUserId').val(userId);
 			$('#editSellerIdDisplay').val(id);
 			$('#editSellerFamilyName').val(family_name);
 			$('#editSellerGivenName').val(given_name);
@@ -1197,7 +1212,7 @@ $conn->close();
 			$('#editSellerHouseNumber').val(house_number);
 			$('#editSellerZip').val(zip);
 			$('#editSellerCity').val(city);
-			$('#editSellerVerified').prop('checked', verified);
+			$('#editSellerVerified').val(verified ? '1' : '0');
 			$('#editSellerModal').modal('show');
 		}
 
@@ -1295,17 +1310,18 @@ $conn->close();
 
 			if (action === 'edit') {
 				const row = $(this).closest('tr');
+				const userId = $(this).data('user-id');
 				const family_name = row.find('td:nth-child(2)').text(); // Nachname
 				const given_name = row.find('td:nth-child(3)').text(); // Vorname
 				const email = row.find('td:nth-child(4)').text(); // E-Mail
-				const verified = row.find('td:nth-child(5)').text() === 'Ja'; // Verifiziert
+				const verified = row.find('td:nth-child(5)').text() === 'Ja'; // Verkäufernummer aktiv
 				const phone = row.find('td:nth-child(6)').text(); // Telefon
 				const street = row.find('td:nth-child(7)').text(); // Straße
 				const house_number = row.find('td:nth-child(8)').text(); // Nr.
 				const zip = row.find('td:nth-child(9)').text(); // PLZ
 				const city = row.find('td:nth-child(10)').text(); // Stadt
 
-				editSeller(sellerId, family_name, given_name, email, phone, street, house_number, zip, city, verified);
+				editSeller(sellerId, userId, family_name, given_name, email, phone, street, house_number, zip, city, verified);
 			} else if (action === 'delete') {
 				$.post('admin_manage_sellers.php', {
 					check_seller_products: true, seller_number: sellerId, csrf_token: csrfToken }, 
