@@ -302,13 +302,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_seller'])) {
                               $street, $house_number, $zip, $city, $user_id);
 
             if ($stmt->execute()) {
-                $seller_stmt = $conn->prepare("UPDATE sellers SET seller_verified = ? WHERE seller_number = ?");
-                $seller_stmt->bind_param("ii", $seller_verified, $seller_number);
+                // Keep admin-side activation consistent with seller self-service activation:
+                // when a seller is activated, bind it to the currently active/registering bazaar.
+                if ($seller_verified === 1 && $bazaar_id > 0) {
+                    $seller_stmt = $conn->prepare("UPDATE sellers SET seller_verified = 1, bazaar_id = ? WHERE seller_number = ?");
+                    $seller_stmt->bind_param("ii", $bazaar_id, $seller_number);
+                } elseif ($seller_verified === 0) {
+                    // Deactivation clears bazaar assignment to avoid stale future-bazaar linkage.
+                    $seller_stmt = $conn->prepare("UPDATE sellers SET seller_verified = 0, bazaar_id = 0 WHERE seller_number = ?");
+                    $seller_stmt->bind_param("i", $seller_number);
+                } else {
+                    $message_type = 'danger';
+                    $message = "Kein aktiver oder Anmelde-Basar für die Freischaltung gefunden.";
+                    log_action($conn, $user_id, "Error updating seller status", "Missing target bazaar for activation. SellerNumber=$seller_number");
+                    $seller_stmt = null;
+                }
 
-                if ($seller_stmt->execute()) {
+                if ($seller_stmt && $seller_stmt->execute()) {
                     $message_type = 'success';
                     $message = "Verkäufer erfolgreich aktualisiert.";
-                    log_action($conn, $user_id, "Seller updated", "UserID=$user_id, SellerNumber=$seller_number, Name=$family_name, Email=$email, SellerVerified=$seller_verified");
+                    log_action($conn, $user_id, "Seller updated", "UserID=$user_id, SellerNumber=$seller_number, Name=$family_name, Email=$email, SellerVerified=$seller_verified, BazaarID=" . ($seller_verified === 1 ? $bazaar_id : 0));
                 } else {
                     $message_type = 'danger';
                     $message = "Fehler beim Aktualisieren des Verkäuferstatus: " . $conn->error;

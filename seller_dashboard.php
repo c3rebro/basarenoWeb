@@ -48,43 +48,30 @@ $error_messages = [
     'sellerNotActivated' => 'Du hast noch keine Verkäufernummer freigeschaltet. Bitte schalte sie hier zunächst frei ("Deine Verkäufernummer(n) verwalten"), um Artikel anlegen/bearbeiten und Etiketten drucken zu können.',
 ];
 
-// Only fetch once per session
+// Only fetch once per session.
+// Reuse the shared utility to avoid duplicating bazaar-selection logic here.
 if (!isset($_SESSION['bazaar_id']) || $_SESSION['bazaar_id'] === 0) {
-
-    // 1) Try the "next" bazaar.
-    $bazaar_id = get_bazaar_id_with_open_registration($conn);
-    //    e.g., a function that returns 0 if no matching row is found
-
-    // 2) If still zero, maybe try a fallback method
-    if ($bazaar_id === 0) {
-        $bazaar_id = get_current_bazaar_id($conn); 
-    }
-
-    // 3) Store it
-    $_SESSION['bazaar_id'] = (int)$bazaar_id; 
-    // Cast to int so you know it’s strictly a numeric zero if no bazaar found
+    $_SESSION['bazaar_id'] = (int)get_active_or_registering_bazaar_id($conn);
 }
 
-// Fetch upcoming bazaars with available slots for sellers
-// Includes:
-// - Bazaar ID, start date, and maximum sellers allowed
-// - Current number of verified sellers for the bazaar
+// Fetch the same bazaar used for activation flow so the displayed seller count matches.
+$selected_bazaar_id = (int)($_SESSION['bazaar_id'] ?? 0);
 $sql = "SELECT 
-            b.id AS bazaar_id,                          -- Bazaar ID
-            b.start_date,                                -- Start date of the bazaar
-            b.start_req_date,                             -- Start date of the Registration
-            b.max_sellers,                              -- Maximum sellers allowed
-            b.max_items_per_seller,                  -- Maximum products per seller
-			b.commission,								-- Bazaar commission
+            b.id AS bazaar_id,
+            b.start_date,
+            b.start_req_date,
+            b.max_sellers,
+            b.max_items_per_seller,
+            b.commission,
             (SELECT COUNT(*) 
              FROM sellers s 
-             WHERE s.bazaar_id = b.id AND s.seller_verified = 1) AS current_sellers -- Number of verified sellers
+             WHERE s.bazaar_id = b.id AND s.seller_verified = 1) AS current_sellers
         FROM bazaar b
-        WHERE b.start_date > CURDATE()                  -- Only fetch bazaars starting in the future
-		ORDER BY b.start_date ASC						-- Order by the nearest start date
-		LIMIT 1";
+        WHERE b.id = ?
+        LIMIT 1";
 
 $stmt = $conn->prepare($sql);
+$stmt->bind_param("i", $selected_bazaar_id);
 $stmt->execute();
 
 $result = $stmt->get_result();
@@ -1007,5 +994,3 @@ if (filter_input(INPUT_SERVER, 'REQUEST_METHOD') === 'POST') {
 		</script>
     </body>
 </html>
-
-
