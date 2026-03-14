@@ -336,23 +336,10 @@ $conn->close();
 					};
 
 					if (cashierState.status === "active" && cashierState.currentGroup.length > 0) {
-						const restore = confirm("Unvollständiger Kassiervorgang gefunden. Möchten Sie ihn wiederherstellen?");
-						if (restore) {
-							currentGroup = cashierState.currentGroup;
-							groups = cashierState.groups || [];
-							showToast("Wiederhergestellt 🔄", "Vorherige Sitzung geladen.", "info", 3000);
-						} else {
-							currentGroup = [];
-							groups = cashierState.groups || [];
-							cashierState.status = "completed";
-							cashierState.checkoutId = null;
-							persistCashierState({
-								status: cashierState.status,
-								checkoutId: cashierState.checkoutId,
-								currentGroup,
-								groups
-							});
-						}
+						// Always restore unfinished checkouts to avoid data loss after refresh/reload.
+						currentGroup = cashierState.currentGroup;
+						groups = cashierState.groups || [];
+						showToast("Wiederhergestellt 🔄", "Vorherige Sitzung geladen.", "info", 3000);
 					} else {
 						currentGroup = cashierState.currentGroup || [];
 						groups = cashierState.groups || [];
@@ -658,17 +645,7 @@ $conn->close();
 				return;
 			}
 
-			// Remove product from currentGroup
-			currentGroup.splice(index, 1);
-
-			// Update localStorage before re-rendering
-			persistCashierState({
-				status: cashierState.status,
-				checkoutId: cashierState.checkoutId,
-				currentGroup,
-				groups
-			});
-			// Send AJAX request to unsell the product
+			// Send AJAX request first; only update the UI after successful unsell to keep state consistent.
 			const xhr = new XMLHttpRequest();
 			xhr.open("POST", "cashier.php", true); // PHP handler
 			xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -679,9 +656,14 @@ $conn->close();
 						const response = JSON.parse(xhr.responseText);
 						if (response.status === "success") {
 							console.log(`Product ID ${productToRemove.id} unsold successfully.`);
-							currentGroup.splice(index, 1); // Remove the product from the group
-							renderScannedProducts(); // Re-render the table
-							
+							currentGroup.splice(index, 1);
+							persistCashierState({
+								status: cashierState.status,
+								checkoutId: cashierState.checkoutId,
+								currentGroup,
+								groups
+							});
+							renderScannedProducts();
 							updateGroupSumPreview();
 							showToast("Erfolgreich ✔️", "erfolgreich Storniert.", "success", 2000);
 						} else {
@@ -703,9 +685,6 @@ $conn->close();
 
 			// Send the product ID to the server
 			xhr.send(`unsell_product=1&product_id=${encodeURIComponent(productId)}`);
-
-			// Update the table
-			renderScannedProducts();
 		}
 
 		function reinitializeScanner() {
@@ -737,6 +716,8 @@ $conn->close();
 
 		// Render existing scanned products on page load
 		renderScannedProducts();
+		// Keep the visible "Summe" in sync with restored currentGroup after refresh.
+		updateGroupSumPreview();
 
 		// Listen for viewport changes
 		window.addEventListener("resize", reinitializeScanner);
@@ -824,6 +805,7 @@ $conn->close();
 		});
 	
 		renderScannedProducts();
+		updateGroupSumPreview();
 	});
     </script>
 </head>
