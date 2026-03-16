@@ -11,7 +11,25 @@
  * @return bool
  */
 function check_config_exists() {
-    return file_exists('config.php');
+    return file_exists(get_config_path());
+}
+
+/**
+ * Get the full path to config.php.
+ *
+ * @return string
+ */
+function get_config_path() {
+    return __DIR__ . '/config.php';
+}
+
+/**
+ * Get the full path to config.defaults.php.
+ *
+ * @return string
+ */
+function get_default_config_path() {
+    return __DIR__ . '/config.defaults.php';
 }
 
 /**
@@ -19,10 +37,10 @@ function check_config_exists() {
  */
 function load_config() {
     if (check_config_exists()) {
-        require_once 'config.php';
+        require_once get_config_path();
     }
 
-    require_once 'config.defaults.php';
+    require_once get_default_config_path();
 }
 
 /**
@@ -34,15 +52,16 @@ function update_config($replacements) {
     if (!check_config_exists()) {
         return false;
     }
-    
-    $config_content = file_get_contents('config.php');
+
+    $config_path = get_config_path();
+    $config_content = file_get_contents($config_path);
     foreach ($replacements as $search => $replace) {
         // Use regex to ensure accurate replacement of define statements
         $pattern = "/define\('$search', '.*?'\);/";
         $replacement = "define('$search', '$replace');";
         $config_content = preg_replace($pattern, $replacement, $config_content);
     }
-    file_put_contents('config.php', $config_content);
+    file_put_contents($config_path, $config_content);
     return true;
 }
 
@@ -77,7 +96,7 @@ function get_db_connection() {
     }
 
     $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
-    $conn->set_charset("utf8");
+    $conn->set_charset("utf8mb4");
 
     if ($conn->connect_error) {
         die("Connection failed: " . $conn->connect_error);
@@ -224,7 +243,7 @@ function initialize_database($conn) {
         $result = $conn->query("SHOW TABLES LIKE '$tableName'");
         if ($result->num_rows == 0) {
             // Table doesn't exist, create it
-            $sql = "CREATE TABLE $tableName (" . implode(", ", $columns) . ") ENGINE=InnoDB DEFAULT CHARSET=utf8";
+            $sql = "CREATE TABLE $tableName (" . implode(", ", $columns) . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
             if ($conn->query($sql) !== TRUE) {
                 die("Error creating table $tableName: " . $conn->error);
             }

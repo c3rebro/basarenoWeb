@@ -1,20 +1,54 @@
 <?php
-require_once 'utilities.php';
-
-// TEMP: verbose error output (remember to remove after debugging)
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
-error_reporting(E_ALL);
+require_once __DIR__ . '/utilities.php';
 
 // Make mysqli throw exceptions so try/catch works as expected
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
+/**
+ * Build a helpful DB connection error for cron/CLI troubleshooting.
+ *
+ * @return string
+ */
+function build_db_connection_error_message() {
+	$configPath = __DIR__ . '/config.php';
+	$details = [
+		'cwd=' . getcwd(),
+		'config_path=' . $configPath,
+		'config_exists=' . (file_exists($configPath) ? 'yes' : 'no'),
+		'config_readable=' . (is_readable($configPath) ? 'yes' : 'no'),
+	];
+
+	return 'Failed to get database connection. ' . implode('; ', $details);
+}
+
+/**
+ * Ensure archive table can store full UTF-8 product names.
+ *
+ * Legacy installations may have a narrower charset for archive_products
+ * causing INSERT ... SELECT failures for names with special characters.
+ *
+ * @param mysqli $conn
+ */
+function ensure_archive_products_charset($conn) {
+	$conn->query("ALTER TABLE archive_products CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+}
+
 $conn = get_db_connection();
 
-// Start a transaction to ensure atomicity
-$conn->begin_transaction();
+if (!$conn instanceof mysqli) {
+	$errorMessage = build_db_connection_error_message();
+	error_log("Error in archive process: {$errorMessage}", 3, "/var/log/bazaar_archive.log");
+	echo "Error during archiving: {$errorMessage}\n";
+	exit(1);
+}
 
 try {
+	// Ensure text columns support special characters before copying sold products.
+	ensure_archive_products_charset($conn);
+
+	// Start a transaction only after validating the connection
+	$conn->begin_transaction();
+
 	// 1) Archive sold products from completed bazaars
 	$archive_query = "
 		INSERT INTO archive_products (id, seller_number, name, size, price, sold_date, bazaar_id)
@@ -75,4 +109,3 @@ try {
 
 $conn->close();
 ?>
-
