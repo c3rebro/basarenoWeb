@@ -29,6 +29,48 @@
 2. **Serveranforderungen**: Stellen Sie sicher, dass der Webserver PHP 7.4, MySQL und eine Sendmail-Installation hat.
 3. **Offline-Installation**: Für Installationen auf einem Raspberry Pi für die Offline-Nutzung müssen die entsprechenden Berechtigungen gesetzt sein. Hilfe finden Sie in den Systemeinstellungen.
 
+## Installation mit Docker Compose (lokal)
+
+1. **Umgebungsdatei erstellen**:
+  - `cp .env.example .env`
+2. **Container starten**:
+  - `docker compose up -d --build`
+3. **Setup-Assistent aufrufen**:
+  - `https://localhost:8443/first_time_setup.php`
+4. **Datenbank-Felder im Setup ausfüllen**:
+  - Datenbank-Host: `db`
+  - Datenbank-Name: Wert aus `.env` (`DB_NAME`)
+  - Datenbank-Benutzername: `root`
+  - Datenbank-Passwort: Wert aus `.env` (`DB_ROOT_PASSWORD`)
+5. **Wichtig**:
+  - Die Anwendung nutzt sichere Session-Cookies (`cookie_secure=true`), daher bitte lokal über **HTTPS** (`https://localhost:8443`) arbeiten.
+
+Nützliche Befehle:
+- Stoppen: `docker compose down`
+- Stoppen inkl. DB-Daten: `docker compose down -v`
+
+### E-Mail Versand über Gmail (Docker)
+
+Die Anwendung nutzt PHP `mail()`. Im Docker-Setup wird das intern über `msmtp` an Gmail weitergeleitet.
+
+1. **Google-Konto vorbereiten**:
+  - 2-Faktor-Authentifizierung aktivieren.
+  - In Google ein **App-Passwort** erzeugen (16 Zeichen).
+2. **`.env` ergänzen**:
+  - `SMTP_USER=dein-konto@gmail.com`
+  - `SMTP_PASS=dein_app_passwort`
+  - `SMTP_HOST=smtp.gmail.com`
+  - `SMTP_PORT=587`
+3. **Container neu starten**:
+  - `docker compose up -d --build`
+4. **Absender in BasarenoWeb**:
+  - In `first_time_setup.php` bzw. `config.php` bei SMTP-Absender dieselbe Gmail-Adresse verwenden.
+
+Hinweise:
+- Ohne `SMTP_USER`/`SMTP_PASS` kann der Container keine E-Mails über Gmail versenden.
+- `SMTP_HOST` und `SMTP_PORT` sind optional und standardmäßig auf Gmail gesetzt.
+- Das App-Passwort ist **nicht** dein normales Google-Passwort.
+
 ## Anwendungsstruktur
 
 - `login.php`: Login
